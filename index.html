@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
 
-  <!-- FullCalendar -->
+  <!-- FullCalendar CSS -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
-  
-  <!-- Ton style personnalisé -->
+
+  <!-- Style personnalisé -->
   <link rel="stylesheet" href="assets/static/style.css" />
 </head>
 <body>
   <div class="container">
 
-    <!-- Écran de connexion -->
+    <!-- Connexion -->
     <div id="login-screen" class="card">
       <h1>Connexion à RDV Taxi</h1>
       <input type="email" id="email" placeholder="Adresse courriel" />
@@ -24,7 +24,7 @@
       <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
     </div>
 
-    <!-- Écran de création de compte -->
+    <!-- Création de compte -->
     <div id="register-screen" class="card" style="display: none;">
       <h1>Créer un compte</h1>
       <input type="email" id="new-email" placeholder="Nouvelle adresse" />
@@ -38,7 +38,7 @@
       <p><a href="#" onclick="showLogin()">← Retour à la connexion</a></p>
     </div>
 
-    <!-- Écran principal de l'application -->
+    <!-- Application principale -->
     <div id="app-screen" class="card" style="display: none;">
       <div class="app-header">
         <h2 id="welcome"></h2>
@@ -53,7 +53,7 @@
     </div>
   </div>
 
-  <!-- MODALE AJOUT RDV -->
+  <!-- Modale pour ajouter un RDV -->
   <div id="add-modal" class="modal hidden">
     <div class="modal-content">
       <h2>Nouveau rendez-vous</h2>
@@ -73,7 +73,7 @@
   <!-- FullCalendar JS -->
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 
-  <!-- App logic -->
+  <!-- Script principal -->
   <script src="assets/static/app.js"></script>
 </body>
 </html>
