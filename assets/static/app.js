@@ -1,78 +1,103 @@
-const appDiv = document.getElementById("app");
-const loginScreen = document.getElementById("login-screen");
-const registerScreen = document.getElementById("register-screen");
-const appScreen = document.getElementById("app-screen");
-
-const loginError = document.getElementById("login-error");
-const registerError = document.getElementById("register-error");
-
-// Chargement initial
-let users = JSON.parse(localStorage.getItem("users")) || [
-  { email: "admin@taxi.com", password: "admin123", role: "admin" }
-];
-
-const currentUser = JSON.parse(localStorage.getItem("user"));
-if (currentUser) showApp(currentUser);
-
-// Fonctions de navigation
-function showLogin() {
-  loginScreen.style.display = "block";
-  registerScreen.style.display = "none";
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f0f2f5;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
 }
 
-function showRegister() {
-  loginScreen.style.display = "none";
-  registerScreen.style.display = "block";
+.container {
+  width: 100%;
+  max-width: 800px;
+  padding: 2rem;
 }
 
-// Connexion
-function login() {
-  const email = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value.trim();
-  const found = users.find(u => u.email === email && u.password === password);
-  if (found) {
-    localStorage.setItem("user", JSON.stringify(found));
-    showApp(found);
-  } else {
-    loginError.textContent = "Identifiants invalides.";
-  }
+.card {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  margin-bottom: 2rem;
 }
 
-// Création de compte
-function register() {
-  const email = document.getElementById("new-email").value.trim();
-  const password = document.getElementById("new-password").value.trim();
-  const role = document.getElementById("new-role").value;
-
-  if (users.find(u => u.email === email)) {
-    registerError.textContent = "Adresse déjà utilisée.";
-    return;
-  }
-
-  const newUser = { email, password, role };
-  users.push(newUser);
-  localStorage.setItem("users", JSON.stringify(users));
-  localStorage.setItem("user", JSON.stringify(newUser));
-  showApp(newUser);
+input, select, button {
+  width: 100%;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  font-size: 1rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
 }
 
-// Déconnexion
-function logout() {
-  localStorage.removeItem("user");
-  loginScreen.style.display = "block";
-  registerScreen.style.display = "none";
-  appScreen.style.display = "none";
+button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  transition: background 0.2s;
 }
 
-// Affiche l'application
-function showApp(user) {
-  loginScreen.style.display = "none";
-  registerScreen.style.display = "none";
-  appScreen.style.display = "block";
+button:hover {
+  background-color: #0056b3;
+}
 
-  appDiv.innerHTML = `
-    <p>Bonjour <strong>${user.email}</strong> (${user.role})</p>
-    <p>L'application est prête à recevoir les rendez-vous.</p>
-    <p>Les notifications push seront activées plus tard.</p>
-  `;
+a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.error {
+  color: red;
+  font-size: 0.9rem;
+}
+
+#calendar {
+  margin-top: 1rem;
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* MODALE */
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  height: 100vh; width: 100vw;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+}
+
+.modal-content input {
+  margin-bottom: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
 }
