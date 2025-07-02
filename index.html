@@ -4,12 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
-  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="assets/static/style.css" />
 </head>
 <body>
-  <h1>Bienvenue sur l'application RDV Taxi</h1>
-  <div id="app"></div>
+  <div id="login-screen">
+    <h1>Connexion à RDV Taxi</h1>
+    <input type="email" id="email" placeholder="Adresse courriel" />
+    <input type="password" id="password" placeholder="Mot de passe" />
+    <button onclick="login()">Se connecter</button>
+    <p id="login-error" style="color: red;"></p>
+  </div>
+
+  <div id="app-screen" style="display: none;">
+    <h1>Bienvenue sur l'application RDV Taxi</h1>
+    <div id="app"></div>
+    <button onclick="logout()">Déconnexion</button>
+  </div>
 
   <script src="assets/static/app.js"></script>
 </body>
