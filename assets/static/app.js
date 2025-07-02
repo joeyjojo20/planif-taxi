@@ -9,21 +9,21 @@ const welcome = document.getElementById("welcome");
 const modal = document.getElementById("add-modal");
 const rdvName = document.getElementById("rdv-name");
 const rdvAddress = document.getElementById("rdv-address");
+const rdvDestination = document.getElementById("rdv-destination");
 const rdvDate = document.getElementById("rdv-date");
 const rdvRepeat = document.getElementById("rdv-repeat");
+const rdvNotify = document.getElementById("rdv-notify");
 
 let calendar;
 
-// --- Utilisateurs (localStorage)
+// --- Données locales
 let users = JSON.parse(localStorage.getItem("users")) || [
   { email: "admin@taxi.com", password: "admin123", role: "admin" },
   { email: "user@taxi.com", password: "user123", role: "user" }
 ];
-
-// --- Rendez-vous (localStorage)
 let events = JSON.parse(localStorage.getItem("events")) || [];
 
-// --- Connexion automatique si déjà connecté
+// --- Connexion auto
 const currentUser = JSON.parse(localStorage.getItem("user"));
 if (currentUser) showApp(currentUser);
 
@@ -32,7 +32,6 @@ function showLogin() {
   loginScreen.style.display = "block";
   registerScreen.style.display = "none";
 }
-
 function showRegister() {
   loginScreen.style.display = "none";
   registerScreen.style.display = "block";
@@ -77,7 +76,7 @@ function logout() {
   appScreen.style.display = "none";
 }
 
-// --- Afficher l'application
+// --- Afficher l'app
 function showApp(user) {
   loginScreen.style.display = "none";
   registerScreen.style.display = "none";
@@ -86,7 +85,7 @@ function showApp(user) {
   renderCalendar();
 }
 
-// --- Afficher le calendrier
+// --- Rendu du calendrier
 function renderCalendar() {
   if (calendar) calendar.destroy();
 
@@ -98,56 +97,94 @@ function renderCalendar() {
       center: "title",
       right: "dayGridMonth,timeGridWeek"
     },
-    events: events
+    events: events,
+    eventClick: function(info) {
+      if (confirm("Supprimer ce rendez-vous ?")) {
+        events = events.filter(e => e.id !== info.event.id);
+        localStorage.setItem("events", JSON.stringify(events));
+        renderCalendar();
+      }
+    }
   });
 
   calendar.render();
 }
 
-// --- Gestion de la modale
+// --- Modale
 function showAddModal() {
   modal.classList.remove("hidden");
   rdvName.value = "";
   rdvAddress.value = "";
+  rdvDestination.value = "";
   rdvDate.value = "";
-  rdvRepeat.checked = false;
+  rdvRepeat.value = "none";
+  rdvNotify.value = "none";
 }
-
 function closeAddModal() {
   modal.classList.add("hidden");
 }
 
-// --- Ajouter un rendez-vous
+// --- Ajouter un RDV
 function addEvent() {
-  const title = rdvName.value.trim();
+  const name = rdvName.value.trim();
   const address = rdvAddress.value.trim();
-  const start = rdvDate.value;
-  const repeat = rdvRepeat.checked;
+  const destination = rdvDestination.value.trim();
+  const dateStr = rdvDate.value;
+  const repeat = rdvRepeat.value;
+  const notifyMin = parseInt(rdvNotify.value);
 
-  if (!title || !start) {
-    alert("Nom et date obligatoires");
+  if (!name || !dateStr) {
+    alert("Nom et date requis.");
     return;
   }
 
+  const baseId = Date.now().toString();
   const baseEvent = {
-    title: `${title} - ${address}`,
-    start,
+    id: baseId,
+    title: `${name} – ${address} > ${destination}`,
+    start: dateStr,
     allDay: false
   };
 
   events.push(baseEvent);
 
-  // Ajouter récurrence hebdomadaire (24 semaines)
-  if (repeat) {
-    let nextDate = new Date(start);
-    for (let i = 1; i <= 24; i++) {
-      nextDate.setDate(nextDate.getDate() + 7);
-      const copy = {
+  // Notification locale simulée (durée en ms)
+  if (!isNaN(notifyMin)) {
+    const diffMs = new Date(dateStr).getTime() - Date.now() - notifyMin * 60000;
+    if (diffMs > 0) {
+      setTimeout(() => {
+        alert(`Rappel : RDV avec ${name} à ${address}`);
+      }, diffMs);
+    }
+  }
+
+  // Récurrence
+  let start = new Date(dateStr);
+  let copies = 0;
+  for (let i = 1; i <= 24; i++) {
+    let newDate = new Date(start);
+    switch (repeat) {
+      case "hourly":
+        newDate.setHours(start.getHours() + i);
+        break;
+      case "daily":
+        newDate.setDate(start.getDate() + i);
+        break;
+      case "weekly":
+        newDate.setDate(start.getDate() + 7 * i);
+        break;
+      case "monthly":
+        newDate.setMonth(start.getMonth() + i);
+        break;
+    }
+    if (repeat !== "none") {
+      events.push({
+        id: baseId + "-" + i,
         title: baseEvent.title,
-        start: nextDate.toISOString().slice(0, 16),
+        start: newDate.toISOString().slice(0, 16),
         allDay: false
-      };
-      events.push(copy);
+      });
+      copies++;
     }
   }
 
