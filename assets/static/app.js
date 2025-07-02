@@ -1,103 +1,157 @@
-body {
-  font-family: Arial, sans-serif;
-  background-color: #f0f2f5;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: center;
+// --- Sélecteurs
+const appDiv = document.getElementById("app");
+const loginScreen = document.getElementById("login-screen");
+const registerScreen = document.getElementById("register-screen");
+const appScreen = document.getElementById("app-screen");
+const loginError = document.getElementById("login-error");
+const registerError = document.getElementById("register-error");
+const welcome = document.getElementById("welcome");
+
+const modal = document.getElementById("add-modal");
+const rdvName = document.getElementById("rdv-name");
+const rdvAddress = document.getElementById("rdv-address");
+const rdvDate = document.getElementById("rdv-date");
+const rdvRepeat = document.getElementById("rdv-repeat");
+
+let calendar;
+
+// --- Utilisateurs
+let users = JSON.parse(localStorage.getItem("users")) || [
+  { email: "admin@taxi.com", password: "admin123", role: "admin" },
+  { email: "user@taxi.com", password: "user123", role: "user" }
+];
+
+// --- Rendez-vous
+let events = JSON.parse(localStorage.getItem("events")) || [];
+
+// --- Connexion auto si session existante
+const currentUser = JSON.parse(localStorage.getItem("user"));
+if (currentUser) showApp(currentUser);
+
+// --- Navigation
+function showLogin() {
+  loginScreen.style.display = "block";
+  registerScreen.style.display = "none";
 }
 
-.container {
-  width: 100%;
-  max-width: 800px;
-  padding: 2rem;
+function showRegister() {
+  loginScreen.style.display = "none";
+  registerScreen.style.display = "block";
 }
 
-.card {
-  background-color: white;
-  padding: 2rem;
-  border-radius: 12px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.1);
-  margin-bottom: 2rem;
+// --- Connexion
+function login() {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value.trim();
+  const found = users.find(u => u.email === email && u.password === password);
+  if (found) {
+    localStorage.setItem("user", JSON.stringify(found));
+    showApp(found);
+  } else {
+    loginError.textContent = "Identifiants invalides.";
+  }
 }
 
-input, select, button {
-  width: 100%;
-  padding: 0.75rem;
-  margin: 0.5rem 0;
-  font-size: 1rem;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  box-sizing: border-box;
+// --- Création de compte
+function register() {
+  const email = document.getElementById("new-email").value.trim();
+  const password = document.getElementById("new-password").value.trim();
+  const role = document.getElementById("new-role").value;
+
+  if (users.find(u => u.email === email)) {
+    registerError.textContent = "Adresse déjà utilisée.";
+    return;
+  }
+
+  const newUser = { email, password, role };
+  users.push(newUser);
+  localStorage.setItem("users", JSON.stringify(users));
+  localStorage.setItem("user", JSON.stringify(newUser));
+  showApp(newUser);
 }
 
-button {
-  background-color: #007bff;
-  color: white;
-  border: none;
-  transition: background 0.2s;
+// --- Déconnexion
+function logout() {
+  localStorage.removeItem("user");
+  loginScreen.style.display = "block";
+  registerScreen.style.display = "none";
+  appScreen.style.display = "none";
 }
 
-button:hover {
-  background-color: #0056b3;
+// --- Afficher l'app
+function showApp(user) {
+  loginScreen.style.display = "none";
+  registerScreen.style.display = "none";
+  appScreen.style.display = "block";
+  welcome.textContent = `Bonjour ${user.email} (${user.role})`;
+  renderCalendar();
 }
 
-a {
-  color: #007bff;
-  text-decoration: none;
+// --- Afficher calendrier
+function renderCalendar() {
+  if (calendar) calendar.destroy();
+
+  calendar = new FullCalendar.Calendar(document.getElementById("calendar"), {
+    initialView: "dayGridMonth",
+    locale: "fr",
+    headerToolbar: {
+      left: "prev,next today",
+      center: "title",
+      right: "dayGridMonth,timeGridWeek"
+    },
+    events: events
+  });
+
+  calendar.render();
 }
 
-.error {
-  color: red;
-  font-size: 0.9rem;
+// --- Gérer la modale
+function showAddModal() {
+  modal.classList.remove("hidden");
+  rdvName.value = "";
+  rdvAddress.value = "";
+  rdvDate.value = "";
+  rdvRepeat.checked = false;
 }
 
-#calendar {
-  margin-top: 1rem;
+function closeAddModal() {
+  modal.classList.add("hidden");
 }
 
-.calendar-header {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
-}
+// --- Ajouter un RDV
+function addEvent() {
+  const title = rdvName.value.trim();
+  const address = rdvAddress.value.trim();
+  const start = rdvDate.value;
+  const repeat = rdvRepeat.checked;
 
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
+  if (!title || !start) {
+    alert("Nom et date obligatoires");
+    return;
+  }
 
-/* MODALE */
-.modal {
-  position: fixed;
-  top: 0; left: 0;
-  height: 100vh; width: 100vw;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
+  const baseEvent = {
+    title: `${title} - ${address}`,
+    start,
+    allDay: false
+  };
 
-.modal.hidden {
-  display: none;
-}
+  events.push(baseEvent);
 
-.modal-content {
-  background: white;
-  padding: 2rem;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 400px;
-}
+  if (repeat) {
+    let nextDate = new Date(start);
+    for (let i = 1; i <= 24; i++) {
+      nextDate.setDate(nextDate.getDate() + 7);
+      const copy = {
+        title: baseEvent.title,
+        start: nextDate.toISOString().slice(0, 16),
+        allDay: false
+      };
+      events.push(copy);
+    }
+  }
 
-.modal-content input {
-  margin-bottom: 1rem;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: space-between;
+  localStorage.setItem("events", JSON.stringify(events));
+  closeAddModal();
+  renderCalendar();
 }
