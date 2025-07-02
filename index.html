@@ -7,18 +7,36 @@
   <link rel="stylesheet" href="assets/static/style.css" />
 </head>
 <body>
-  <div id="login-screen">
-    <h1>Connexion à RDV Taxi</h1>
-    <input type="email" id="email" placeholder="Adresse courriel" />
-    <input type="password" id="password" placeholder="Mot de passe" />
-    <button onclick="login()">Se connecter</button>
-    <p id="login-error" style="color: red;"></p>
-  </div>
+  <div class="container">
 
-  <div id="app-screen" style="display: none;">
-    <h1>Bienvenue sur l'application RDV Taxi</h1>
-    <div id="app"></div>
-    <button onclick="logout()">Déconnexion</button>
+    <div id="login-screen" class="card">
+      <h1>Connexion à RDV Taxi</h1>
+      <input type="email" id="email" placeholder="Adresse courriel" />
+      <input type="password" id="password" placeholder="Mot de passe" />
+      <button onclick="login()">Se connecter</button>
+      <p class="error" id="login-error"></p>
+      <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
+    </div>
+
+    <div id="register-screen" class="card" style="display: none;">
+      <h1>Créer un compte</h1>
+      <input type="email" id="new-email" placeholder="Nouvelle adresse" />
+      <input type="password" id="new-password" placeholder="Nouveau mot de passe" />
+      <select id="new-role">
+        <option value="user">Utilisateur</option>
+        <option value="admin">Administrateur</option>
+      </select>
+      <button onclick="register()">Créer le compte</button>
+      <p class="error" id="register-error"></p>
+      <p><a href="#" onclick="showLogin()">← Retour à la connexion</a></p>
+    </div>
+
+    <div id="app-screen" class="card" style="display: none;">
+      <h1>Bienvenue sur l'application RDV Taxi</h1>
+      <div id="app"></div>
+      <button onclick="logout()">Déconnexion</button>
+    </div>
+
   </div>
 
   <script src="assets/static/app.js"></script>
