@@ -1,79 +1,35 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RDV Taxi</title>
+<!-- MODALE -->
+<div id="add-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>Ajouter un rendez-vous</h3>
 
-  <!-- FullCalendar CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+    <input id="rdv-name" placeholder="Nom du client" />
+    <input id="rdv-address" placeholder="Adresse de départ" />
+    <input id="rdv-destination" placeholder="Adresse de destination" />
+    <input id="rdv-date" type="datetime-local" />
 
-  <!-- Style personnalisé -->
-  <link rel="stylesheet" href="assets/static/style.css" />
-</head>
-<body>
-  <div class="container">
+    <label for="rdv-repeat">Répéter</label>
+    <select id="rdv-repeat">
+      <option value="none">Aucune</option>
+      <option value="hourly">Toutes les heures</option>
+      <option value="daily">Tous les jours</option>
+      <option value="weekly">Toutes les semaines</option>
+      <option value="monthly">Tous les mois</option>
+    </select>
 
-    <!-- Connexion -->
-    <div id="login-screen" class="card">
-      <h1>Connexion à RDV Taxi</h1>
-      <input type="email" id="email" placeholder="Adresse courriel" />
-      <input type="password" id="password" placeholder="Mot de passe" />
-      <button onclick="login()">Se connecter</button>
-      <p class="error" id="login-error"></p>
-      <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
-    </div>
+    <label for="rdv-notify">Notification avant</label>
+    <select id="rdv-notify">
+      <option value="none">Aucune</option>
+      <option value="15">15 minutes</option>
+      <option value="30">30 minutes</option>
+      <option value="120">2 heures</option>
+      <option value="1440">1 jour</option>
+      <option value="7200">5 jours</option>
+    </select>
 
-    <!-- Création de compte -->
-    <div id="register-screen" class="card" style="display: none;">
-      <h1>Créer un compte</h1>
-      <input type="email" id="new-email" placeholder="Nouvelle adresse" />
-      <input type="password" id="new-password" placeholder="Nouveau mot de passe" />
-      <select id="new-role">
-        <option value="user">Utilisateur</option>
-        <option value="admin">Administrateur</option>
-      </select>
-      <button onclick="register()">Créer le compte</button>
-      <p class="error" id="register-error"></p>
-      <p><a href="#" onclick="showLogin()">← Retour à la connexion</a></p>
-    </div>
-
-    <!-- Application principale -->
-    <div id="app-screen" class="card" style="display: none;">
-      <div class="app-header">
-        <h2 id="welcome"></h2>
-        <button onclick="logout()">Déconnexion</button>
-      </div>
-
-      <div class="calendar-header">
-        <button onclick="showAddModal()">➕ Ajouter un rendez-vous</button>
-      </div>
-
-      <div id="calendar"></div>
+    <div class="modal-actions">
+      <button onclick="addEvent()">Ajouter</button>
+      <button onclick="closeAddModal()">Annuler</button>
     </div>
   </div>
-
-  <!-- Modale pour ajouter un RDV -->
-  <div id="add-modal" class="modal hidden">
-    <div class="modal-content">
-      <h2>Nouveau rendez-vous</h2>
-      <input type="text" id="rdv-name" placeholder="Nom du client" />
-      <input type="text" id="rdv-address" placeholder="Adresse de départ" />
-      <input type="datetime-local" id="rdv-date" />
-      <label>
-        <input type="checkbox" id="rdv-repeat" /> Répéter chaque semaine
-      </label>
-      <div class="modal-actions">
-        <button onclick="addEvent()">Ajouter</button>
-        <button onclick="closeAddModal()">Annuler</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- FullCalendar JS -->
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-
-  <!-- Script principal -->
-  <script src="assets/static/app.js"></script>
-</body>
-</html>
+</div>
