@@ -4,11 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
+
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+  
+  <!-- Ton style personnalisé -->
   <link rel="stylesheet" href="assets/static/style.css" />
 </head>
 <body>
   <div class="container">
 
+    <!-- Écran de connexion -->
     <div id="login-screen" class="card">
       <h1>Connexion à RDV Taxi</h1>
       <input type="email" id="email" placeholder="Adresse courriel" />
@@ -18,6 +24,7 @@
       <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
     </div>
 
+    <!-- Écran de création de compte -->
     <div id="register-screen" class="card" style="display: none;">
       <h1>Créer un compte</h1>
       <input type="email" id="new-email" placeholder="Nouvelle adresse" />
@@ -31,14 +38,42 @@
       <p><a href="#" onclick="showLogin()">← Retour à la connexion</a></p>
     </div>
 
+    <!-- Écran principal de l'application -->
     <div id="app-screen" class="card" style="display: none;">
-      <h1>Bienvenue sur l'application RDV Taxi</h1>
-      <div id="app"></div>
-      <button onclick="logout()">Déconnexion</button>
-    </div>
+      <div class="app-header">
+        <h2 id="welcome"></h2>
+        <button onclick="logout()">Déconnexion</button>
+      </div>
 
+      <div class="calendar-header">
+        <button onclick="showAddModal()">➕ Ajouter un rendez-vous</button>
+      </div>
+
+      <div id="calendar"></div>
+    </div>
   </div>
 
+  <!-- MODALE AJOUT RDV -->
+  <div id="add-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Nouveau rendez-vous</h2>
+      <input type="text" id="rdv-name" placeholder="Nom du client" />
+      <input type="text" id="rdv-address" placeholder="Adresse de départ" />
+      <input type="datetime-local" id="rdv-date" />
+      <label>
+        <input type="checkbox" id="rdv-repeat" /> Répéter chaque semaine
+      </label>
+      <div class="modal-actions">
+        <button onclick="addEvent()">Ajouter</button>
+        <button onclick="closeAddModal()">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FullCalendar JS -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+
+  <!-- App logic -->
   <script src="assets/static/app.js"></script>
 </body>
 </html>
