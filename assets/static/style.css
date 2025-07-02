@@ -1,6 +1,6 @@
 body {
   font-family: Arial, sans-serif;
-  background-color: #f5f5f5;
+  background-color: #f0f2f5;
   margin: 0;
   padding: 0;
   display: flex;
@@ -9,15 +9,16 @@ body {
 
 .container {
   width: 100%;
-  max-width: 400px;
+  max-width: 800px;
   padding: 2rem;
 }
 
 .card {
   background-color: white;
   padding: 2rem;
-  border-radius: 10px;
-  box-shadow: 0 0 15px rgba(0,0,0,0.1);
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+  margin-bottom: 2rem;
 }
 
 input, select, button {
@@ -25,15 +26,16 @@ input, select, button {
   padding: 0.75rem;
   margin: 0.5rem 0;
   font-size: 1rem;
+  border-radius: 6px;
   border: 1px solid #ccc;
-  border-radius: 5px;
+  box-sizing: border-box;
 }
 
 button {
   background-color: #007bff;
   color: white;
   border: none;
-  cursor: pointer;
+  transition: background 0.2s;
 }
 
 button:hover {
@@ -43,11 +45,59 @@ button:hover {
 a {
   color: #007bff;
   text-decoration: none;
-  display: inline-block;
-  margin-top: 0.5rem;
 }
 
 .error {
   color: red;
   font-size: 0.9rem;
+}
+
+#calendar {
+  margin-top: 1rem;
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* MODALE */
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  height: 100vh; width: 100vw;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+}
+
+.modal-content input {
+  margin-bottom: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
 }
