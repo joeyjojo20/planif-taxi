@@ -1,35 +1,88 @@
-<!-- MODALE -->
-<div id="add-modal" class="modal hidden">
-  <div class="modal-content">
-    <h3>Ajouter un rendez-vous</h3>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RDV Taxi</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="assets/static/style.css" />
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet" />
+</head>
+<body>
 
-    <input id="rdv-name" placeholder="Nom du client" />
-    <input id="rdv-address" placeholder="Adresse de départ" />
-    <input id="rdv-destination" placeholder="Adresse de destination" />
-    <input id="rdv-date" type="datetime-local" />
+  <!-- Écran Connexion -->
+  <div id="login-screen">
+    <h2>Connexion</h2>
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Mot de passe" />
+    <button onclick="login()">Connexion</button>
+    <p id="login-error"></p>
+    <p>Pas de compte ? <a href="#" onclick="showRegister()">Créer un compte</a></p>
+  </div>
 
-    <label for="rdv-repeat">Répéter</label>
-    <select id="rdv-repeat">
-      <option value="none">Aucune</option>
-      <option value="hourly">Toutes les heures</option>
-      <option value="daily">Tous les jours</option>
-      <option value="weekly">Toutes les semaines</option>
-      <option value="monthly">Tous les mois</option>
+  <!-- Écran Création de compte -->
+  <div id="register-screen" style="display: none;">
+    <h2>Créer un compte</h2>
+    <input type="email" id="new-email" placeholder="Email" />
+    <input type="password" id="new-password" placeholder="Mot de passe" />
+    <select id="new-role">
+      <option value="user">Utilisateur</option>
+      <option value="admin">Admin</option>
     </select>
+    <button onclick="register()">Créer</button>
+    <p id="register-error"></p>
+    <p>Déjà inscrit ? <a href="#" onclick="showLogin()">Se connecter</a></p>
+  </div>
 
-    <label for="rdv-notify">Notification avant</label>
-    <select id="rdv-notify">
-      <option value="none">Aucune</option>
-      <option value="15">15 minutes</option>
-      <option value="30">30 minutes</option>
-      <option value="120">2 heures</option>
-      <option value="1440">1 jour</option>
-      <option value="7200">5 jours</option>
-    </select>
+  <!-- Écran Principal -->
+  <div id="app-screen" style="display: none;">
+    <div class="app-header">
+      <p id="welcome"></p>
+      <button onclick="logout()">Déconnexion</button>
+    </div>
+    <button onclick="showAddModal()">Ajouter un rendez-vous</button>
+    <div id="calendar"></div>
+  </div>
 
-    <div class="modal-actions">
-      <button onclick="addEvent()">Ajouter</button>
-      <button onclick="closeAddModal()">Annuler</button>
+  <!-- MODALE -->
+  <div id="add-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Ajouter un rendez-vous</h3>
+
+      <input id="rdv-name" placeholder="Nom du client" />
+      <input id="rdv-address" placeholder="Adresse de départ" />
+      <input id="rdv-destination" placeholder="Adresse de destination" />
+      <input id="rdv-date" type="datetime-local" />
+
+      <label for="rdv-repeat">Répéter</label>
+      <select id="rdv-repeat">
+        <option value="none">Aucune</option>
+        <option value="hourly">Toutes les heures</option>
+        <option value="daily">Tous les jours</option>
+        <option value="weekly">Toutes les semaines</option>
+        <option value="monthly">Tous les mois</option>
+      </select>
+
+      <label for="rdv-notify">Notification avant</label>
+      <select id="rdv-notify">
+        <option value="none">Aucune</option>
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="120">2 heures</option>
+        <option value="1440">1 jour</option>
+        <option value="7200">5 jours</option>
+      </select>
+
+      <div class="modal-actions">
+        <button onclick="addEvent()">Ajouter</button>
+        <button onclick="closeAddModal()">Annuler</button>
+      </div>
     </div>
   </div>
-</div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="assets/static/app.js"></script>
+
+</body>
+</html>
