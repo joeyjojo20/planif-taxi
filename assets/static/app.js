@@ -74,7 +74,7 @@ function logout() {
   appScreen.style.display = "none";
 }
 
-// Afficher app
+// Affichage principal
 function showApp(user) {
   loginScreen.style.display = "none";
   registerScreen.style.display = "none";
@@ -96,19 +96,21 @@ function renderCalendar() {
     },
     events: events,
     eventClick: function(info) {
-      const baseId = info.event.id.split("-")[0];
-      const isRecurring = events.some(e => e.id.startsWith(baseId + "-"));
-      if (confirm("Modifier ce rendez-vous ? (Appuyez sur Annuler pour le supprimer)")) {
+      const eventId = info.event.id || "";
+      const baseId = eventId.split("-")[0];
+      const isRecurring = events.some(e => (e.id || "").startsWith(baseId + "-"));
+
+      if (confirm("Modifier ce rendez-vous ? (Annuler = Supprimer)")) {
         openEditModal(info.event);
       } else {
         if (isRecurring) {
           if (confirm("Supprimer toute la série ?")) {
-            events = events.filter(e => !e.id.startsWith(baseId));
+            events = events.filter(e => !(e.id || "").startsWith(baseId));
           } else {
-            events = events.filter(e => e.id !== info.event.id);
+            events = events.filter(e => e.id !== eventId);
           }
         } else {
-          events = events.filter(e => e.id !== info.event.id);
+          events = events.filter(e => e.id !== eventId);
         }
         localStorage.setItem("events", JSON.stringify(events));
         renderCalendar();
@@ -118,7 +120,7 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Ouvrir modale pour ajouter
+// Modale
 function showAddModal() {
   editingEventId = null;
   modal.classList.remove("hidden");
@@ -133,7 +135,7 @@ function closeAddModal() {
   modal.classList.add("hidden");
 }
 
-// Préremplir pour modifier
+// Modale édition
 function openEditModal(event) {
   editingEventId = event.id;
   const parts = event.title.split(" – ");
@@ -147,7 +149,7 @@ function openEditModal(event) {
   modal.classList.remove("hidden");
 }
 
-// Ajouter ou modifier
+// Ajouter / Modifier
 function addEvent() {
   const name = rdvName.value.trim();
   const address = rdvAddress.value.trim();
@@ -164,9 +166,9 @@ function addEvent() {
   const title = `${name} – ${address} > ${destination}`;
   const baseId = editingEventId ? editingEventId.split("-")[0] : Date.now().toString();
 
-  // Supprimer anciens si on modifie une série
+  // Supprimer anciens si édition
   if (editingEventId) {
-    events = events.filter(e => !(e.id === editingEventId || e.id.startsWith(baseId + "-")));
+    events = events.filter(e => !(e.id === editingEventId || (e.id || "").startsWith(baseId + "-")));
   }
 
   const start = new Date(dateStr);
@@ -197,7 +199,7 @@ function addEvent() {
     }
   }
 
-  // Simuler notifications
+  // Notification simulée
   if (!isNaN(notifyMin)) {
     const diff = new Date(dateStr).getTime() - Date.now() - notifyMin * 60000;
     if (diff > 0) {
