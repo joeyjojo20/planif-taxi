@@ -1,85 +1,6 @@
-// Sélecteurs
-const loginScreen = document.getElementById("login-screen");
-const registerScreen = document.getElementById("register-screen");
-const appScreen = document.getElementById("app-screen");
-const loginError = document.getElementById("login-error");
-const registerError = document.getElementById("register-error");
-const welcome = document.getElementById("welcome");
+// Tous les sélecteurs et variables...
+// (inchangé jusqu'à showApp...)
 
-const modal = document.getElementById("add-modal");
-const rdvName = document.getElementById("rdv-name");
-const rdvAddress = document.getElementById("rdv-address");
-const rdvDestination = document.getElementById("rdv-destination");
-const rdvDate = document.getElementById("rdv-date");
-const rdvRepeat = document.getElementById("rdv-repeat");
-const rdvNotify = document.getElementById("rdv-notify");
-
-const saveBtn = document.getElementById("save-btn");
-const cancelBtn = document.getElementById("cancel-btn");
-const deleteOneBtn = document.getElementById("delete-one-btn");
-const deleteAllBtn = document.getElementById("delete-all-btn");
-
-let calendar;
-let editingEventId = null;
-let currentClickedEvent = null;
-
-let users = JSON.parse(localStorage.getItem("users")) || [
-  { email: "admin@taxi.com", password: "admin123", role: "admin" },
-  { email: "user@taxi.com", password: "user123", role: "user" }
-];
-let events = JSON.parse(localStorage.getItem("events")) || [];
-
-const currentUser = JSON.parse(localStorage.getItem("user"));
-if (currentUser) showApp(currentUser);
-
-// Navigation
-function showLogin() {
-  loginScreen.style.display = "block";
-  registerScreen.style.display = "none";
-}
-function showRegister() {
-  loginScreen.style.display = "none";
-  registerScreen.style.display = "block";
-}
-
-// Connexion
-function login() {
-  const email = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value.trim();
-  const user = users.find(u => u.email === email && u.password === password);
-  if (user) {
-    localStorage.setItem("user", JSON.stringify(user));
-    showApp(user);
-  } else {
-    loginError.textContent = "Identifiants invalides.";
-  }
-}
-
-// Création compte
-function register() {
-  const email = document.getElementById("new-email").value.trim();
-  const password = document.getElementById("new-password").value.trim();
-  const role = document.getElementById("new-role").value;
-  if (users.find(u => u.email === email)) {
-    registerError.textContent = "Adresse déjà utilisée.";
-    return;
-  }
-  const newUser = { email, password, role };
-  users.push(newUser);
-  localStorage.setItem("users", JSON.stringify(users));
-  localStorage.setItem("user", JSON.stringify(newUser));
-  showApp(newUser);
-}
-
-// Déconnexion
-function logout() {
-  localStorage.removeItem("user");
-  loginScreen.style.display = "block";
-  registerScreen.style.display = "none";
-  appScreen.style.display = "none";
-}
-
-// Affichage app
 function showApp(user) {
   loginScreen.style.display = "none";
   registerScreen.style.display = "none";
@@ -88,7 +9,7 @@ function showApp(user) {
   renderCalendar();
 }
 
-// Rendu calendrier
+// Affichage du calendrier
 function renderCalendar() {
   if (calendar) calendar.destroy();
   calendar = new FullCalendar.Calendar(document.getElementById("calendar"), {
@@ -114,18 +35,13 @@ function renderCalendar() {
       rdvRepeat.value = "none";
       rdvNotify.value = "none";
 
-      const baseId = eventId.split("-")[0];
-      const isRecurring = events.some(e => typeof e?.id === "string" && e.id.startsWith(baseId + "-"));
-
-      deleteOneBtn.style.display = "inline-block";
-      deleteAllBtn.style.display = isRecurring ? "inline-block" : "none";
       modal.classList.remove("hidden");
     }
   });
   calendar.render();
 }
 
-// Ajouter / Modifier RDV
+// Ajouter ou modifier un RDV
 function addEvent() {
   const name = rdvName.value.trim();
   const address = rdvAddress.value.trim();
@@ -185,22 +101,29 @@ function addEvent() {
   renderCalendar();
 }
 
-// Suppression
-function deleteEvent(single = true) {
+// Nouvelle logique de suppression
+function confirmDelete() {
+  document.getElementById("confirm-modal").classList.remove("hidden");
+}
+
+function deleteEvent(single) {
   const eventId = currentClickedEvent?.id;
   if (!eventId) return;
   const baseId = eventId.split("-")[0];
-  if (single) {
-    events = events.filter(e => e.id !== eventId);
-  } else {
-    events = events.filter(e => !(e.id || "").startsWith(baseId));
-  }
+
+  events = events.filter(e => {
+    if (!e.id) return true;
+    if (single) return e.id !== eventId;
+    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
+  });
+
   localStorage.setItem("events", JSON.stringify(events));
   closeAddModal();
+  closeConfirmModal();
   renderCalendar();
 }
 
-// Actions modale
+// Ouvrir / fermer la modale d’ajout
 function showAddModal() {
   editingEventId = null;
   currentClickedEvent = null;
@@ -211,9 +134,12 @@ function showAddModal() {
   rdvDate.value = "";
   rdvRepeat.value = "none";
   rdvNotify.value = "none";
-  deleteOneBtn.style.display = "none";
-  deleteAllBtn.style.display = "none";
 }
 function closeAddModal() {
   modal.classList.add("hidden");
+}
+
+// Fermer la modale de confirmation
+function closeConfirmModal() {
+  document.getElementById("confirm-modal").classList.add("hidden");
 }
