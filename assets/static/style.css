@@ -84,4 +84,15 @@ label {
   max-width: 400px;
   margin-left: auto;
   margin-right: auto;
+  #confirm-modal {
+  background-color: #fff3f3;
+  border: 2px solid #e44;
+}
+#confirm-modal h3 {
+  margin-top: 0;
+}
+#confirm-modal .modal-buttons button:first-child {
+  background-color: #e44;
+}
+
 }
