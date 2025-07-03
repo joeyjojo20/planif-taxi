@@ -170,7 +170,8 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
-  const eventId = currentClickedEvent?.id;
+  const eventId = currentClickedEvent?.id || currentClickedEvent?._def?.publicId;
+if (!eventId) return;
   if (!eventId) return;
   const baseId = eventId.split("-")[0];
 
