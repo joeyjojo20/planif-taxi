@@ -8,12 +8,16 @@ function showLogin() {
   document.getElementById("login-screen").style.display = "block";
   document.getElementById("register-screen").style.display = "none";
   document.getElementById("app-screen").style.display = "none";
+  closeAddModal();
+  closeConfirmModal();
 }
 
 function showRegister() {
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("register-screen").style.display = "block";
   document.getElementById("app-screen").style.display = "none";
+  closeAddModal();
+  closeConfirmModal();
 }
 
 function login() {
@@ -83,7 +87,7 @@ function renderCalendar() {
       document.getElementById("rdv-notify").value = info.event.extendedProps?.notify?.toString() || "none";
 
       document.querySelector("#add-modal button[onclick='confirmDelete()']").style.display = "block";
-      document.getElementById("add-modal").classList.remove("hidden");
+      document.getElementById("add-modal").classList.add("show");
     }
   });
   calendar.render();
@@ -151,7 +155,7 @@ function addEvent() {
 }
 
 function confirmDelete() {
-  document.getElementById("confirm-modal").classList.remove("hidden");
+  document.getElementById("confirm-modal").classList.add("show");
 }
 
 function deleteEvent(single) {
@@ -174,7 +178,7 @@ function deleteEvent(single) {
 function showAddModal() {
   editingEventId = null;
   currentClickedEvent = null;
-  document.getElementById("add-modal").classList.remove("hidden");
+  document.getElementById("add-modal").classList.add("show");
   document.getElementById("rdv-name").value = "";
   document.getElementById("rdv-address").value = "";
   document.getElementById("rdv-destination").value = "";
@@ -185,9 +189,9 @@ function showAddModal() {
 }
 
 function closeAddModal() {
-  document.getElementById("add-modal").classList.add("hidden");
+  document.getElementById("add-modal").classList.remove("show");
 }
 
 function closeConfirmModal() {
-  document.getElementById("confirm-modal").classList.add("hidden");
+  document.getElementById("confirm-modal").classList.remove("show");
 }
