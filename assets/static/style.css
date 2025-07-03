@@ -43,7 +43,7 @@ footer {
 footer button {
   margin: 0.2rem;
   padding: 0.5rem 1rem;
-  background-color: #333;
+  background-color: #dc3545;
   color: white;
   border: none;
   border-radius: 5px;
@@ -99,4 +99,3 @@ footer button {
   border-radius: 4px;
   cursor: pointer;
 }
-"""
