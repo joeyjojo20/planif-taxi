@@ -1,70 +1,46 @@
-// Variables globales
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar;
 let editingEventId = null;
 let currentClickedEvent = null;
 
-// Sélecteurs
-const loginScreen = document.getElementById("login-screen");
-const registerScreen = document.getElementById("register-screen");
-const appScreen = document.getElementById("app-screen");
-const modal = document.getElementById("add-modal");
-
-const email = document.getElementById("email");
-const password = document.getElementById("password");
-const loginError = document.getElementById("login-error");
-
-const newEmail = document.getElementById("new-email");
-const newPassword = document.getElementById("new-password");
-const newRole = document.getElementById("new-role");
-const registerError = document.getElementById("register-error");
-
-const welcome = document.getElementById("welcome");
-const rdvName = document.getElementById("rdv-name");
-const rdvAddress = document.getElementById("rdv-address");
-const rdvDestination = document.getElementById("rdv-destination");
-const rdvDate = document.getElementById("rdv-date");
-const rdvRepeat = document.getElementById("rdv-repeat");
-const rdvNotify = document.getElementById("rdv-notify");
-
 function showLogin() {
-  loginScreen.style.display = "block";
-  registerScreen.style.display = "none";
+  document.getElementById("login-screen").style.display = "block";
+  document.getElementById("register-screen").style.display = "none";
 }
 
 function showRegister() {
-  loginScreen.style.display = "none";
-  registerScreen.style.display = "block";
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("register-screen").style.display = "block";
 }
 
 function login() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const found = users.find(u => u.email === email.value && u.password === password.value);
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  const found = users.find(u => u.email === email && u.password === password);
   if (found) {
     currentUser = found;
-    showApp(currentUser);
+    showApp();
   } else {
-    loginError.textContent = "Identifiants incorrects.";
+    document.getElementById("login-error").textContent = "Identifiants incorrects.";
   }
 }
 
 function register() {
+  const email = document.getElementById("new-email").value;
+  const password = document.getElementById("new-password").value;
+  const role = document.getElementById("new-role").value;
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const exists = users.some(u => u.email === newEmail.value);
-  if (exists) {
-    registerError.textContent = "Email déjà utilisé.";
+  if (users.some(u => u.email === email)) {
+    document.getElementById("register-error").textContent = "Email déjà utilisé.";
     return;
   }
-  const user = {
-    email: newEmail.value,
-    password: newPassword.value,
-    role: newRole.value
-  };
+  const user = { email, password, role };
   users.push(user);
   localStorage.setItem("users", JSON.stringify(users));
   currentUser = user;
-  showApp(currentUser);
+  showApp();
 }
 
 function logout() {
@@ -72,11 +48,11 @@ function logout() {
   location.reload();
 }
 
-function showApp(user) {
-  loginScreen.style.display = "none";
-  registerScreen.style.display = "none";
-  appScreen.style.display = "block";
-  welcome.textContent = `Bonjour ${user.email} (${user.role})`;
+function showApp() {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("register-screen").style.display = "none";
+  document.getElementById("app-screen").style.display = "block";
+  document.getElementById("welcome").textContent = `Bonjour ${currentUser.email} (${currentUser.role})`;
   renderCalendar();
 }
 
@@ -93,30 +69,30 @@ function renderCalendar() {
     events: events,
     eventClick: function(info) {
       currentClickedEvent = info.event;
-      editingEventId = info.event.id || info.event._def?.publicId || "";
+      editingEventId = info.event.id;
 
       const parts = info.event.title.split(" – ");
-      rdvName.value = parts[0] || "";
+      document.getElementById("rdv-name").value = parts[0] || "";
       const trajet = parts[1]?.split(" > ") || ["", ""];
-      rdvAddress.value = trajet[0] || "";
-      rdvDestination.value = trajet[1] || "";
-      rdvDate.value = info.event.startStr.slice(0, 16);
-      rdvRepeat.value = "none";
-      rdvNotify.value = "none";
+      document.getElementById("rdv-address").value = trajet[0] || "";
+      document.getElementById("rdv-destination").value = trajet[1] || "";
+      document.getElementById("rdv-date").value = info.event.startStr.slice(0, 16);
+      document.getElementById("rdv-repeat").value = "none";
+      document.getElementById("rdv-notify").value = "none";
 
-      modal.classList.remove("hidden");
+      document.getElementById("add-modal").classList.remove("hidden");
     }
   });
   calendar.render();
 }
 
 function addEvent() {
-  const name = rdvName.value.trim();
-  const address = rdvAddress.value.trim();
-  const destination = rdvDestination.value.trim();
-  const dateStr = rdvDate.value;
-  const repeat = rdvRepeat.value;
-  const notifyMin = parseInt(rdvNotify.value);
+  const name = document.getElementById("rdv-name").value.trim();
+  const address = document.getElementById("rdv-address").value.trim();
+  const destination = document.getElementById("rdv-destination").value.trim();
+  const dateStr = document.getElementById("rdv-date").value;
+  const repeat = document.getElementById("rdv-repeat").value;
+  const notifyMin = parseInt(document.getElementById("rdv-notify").value);
 
   if (!name || !dateStr) {
     alert("Nom et date requis.");
@@ -169,10 +145,10 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
-  const eventId = currentClickedEvent?.id || currentClickedEvent?._def?.publicId;
+  const eventId = currentClickedEvent?.id;
   if (!eventId) return;
-  const baseId = eventId.split("-")[0];
 
+  const baseId = eventId.split("-")[0];
   events = events.filter(e => {
     if (!e.id) return true;
     if (single) return e.id !== eventId;
@@ -188,17 +164,17 @@ function deleteEvent(single) {
 function showAddModal() {
   editingEventId = null;
   currentClickedEvent = null;
-  modal.classList.remove("hidden");
-  rdvName.value = "";
-  rdvAddress.value = "";
-  rdvDestination.value = "";
-  rdvDate.value = "";
-  rdvRepeat.value = "none";
-  rdvNotify.value = "none";
+  document.getElementById("add-modal").classList.remove("hidden");
+  document.getElementById("rdv-name").value = "";
+  document.getElementById("rdv-address").value = "";
+  document.getElementById("rdv-destination").value = "";
+  document.getElementById("rdv-date").value = "";
+  document.getElementById("rdv-repeat").value = "none";
+  document.getElementById("rdv-notify").value = "none";
 }
 
 function closeAddModal() {
-  modal.classList.add("hidden");
+  document.getElementById("add-modal").classList.add("hidden");
 }
 
 function closeConfirmModal() {
