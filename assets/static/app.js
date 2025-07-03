@@ -14,10 +14,15 @@ const rdvDate = document.getElementById("rdv-date");
 const rdvRepeat = document.getElementById("rdv-repeat");
 const rdvNotify = document.getElementById("rdv-notify");
 
+const saveBtn = document.getElementById("save-btn");
+const cancelBtn = document.getElementById("cancel-btn");
+const deleteOneBtn = document.getElementById("delete-one-btn");
+const deleteAllBtn = document.getElementById("delete-all-btn");
+
 let calendar;
 let editingEventId = null;
+let currentClickedEvent = null;
 
-// Données locales
 let users = JSON.parse(localStorage.getItem("users")) || [
   { email: "admin@taxi.com", password: "admin123", role: "admin" },
   { email: "user@taxi.com", password: "user123", role: "user" }
@@ -50,7 +55,7 @@ function login() {
   }
 }
 
-// Création de compte
+// Création compte
 function register() {
   const email = document.getElementById("new-email").value.trim();
   const password = document.getElementById("new-password").value.trim();
@@ -74,7 +79,7 @@ function logout() {
   appScreen.style.display = "none";
 }
 
-// Affichage principal
+// Affichage app
 function showApp(user) {
   loginScreen.style.display = "none";
   registerScreen.style.display = "none";
@@ -97,59 +102,30 @@ function renderCalendar() {
     events: events,
     eventClick: function(info) {
       const eventId = info.event.id || "";
-      const baseId = eventId.split("-")[0];
-      const isRecurring = events.some(e => (e.id || "").startsWith(baseId + "-"));
+      currentClickedEvent = info.event;
+      editingEventId = eventId;
 
-      if (confirm("Modifier ce rendez-vous ? (Annuler = Supprimer)")) {
-        openEditModal(info.event);
-      } else {
-        if (isRecurring) {
-          if (confirm("Supprimer toute la série ?")) {
-            events = events.filter(e => !(e.id || "").startsWith(baseId));
-          } else {
-            events = events.filter(e => e.id !== eventId);
-          }
-        } else {
-          events = events.filter(e => e.id !== eventId);
-        }
-        localStorage.setItem("events", JSON.stringify(events));
-        renderCalendar();
-      }
+      const parts = info.event.title.split(" – ");
+      rdvName.value = parts[0] || "";
+      const trajet = parts[1]?.split(" > ") || ["", ""];
+      rdvAddress.value = trajet[0] || "";
+      rdvDestination.value = trajet[1] || "";
+      rdvDate.value = info.event.startStr.slice(0, 16);
+      rdvRepeat.value = "none";
+      rdvNotify.value = "none";
+
+      const baseId = eventId.split("-")[0];
+      const isRecurring = events.some(e => typeof e?.id === "string" && e.id.startsWith(baseId + "-"));
+
+      deleteOneBtn.style.display = "inline-block";
+      deleteAllBtn.style.display = isRecurring ? "inline-block" : "none";
+      modal.classList.remove("hidden");
     }
   });
   calendar.render();
 }
 
-// Modale
-function showAddModal() {
-  editingEventId = null;
-  modal.classList.remove("hidden");
-  rdvName.value = "";
-  rdvAddress.value = "";
-  rdvDestination.value = "";
-  rdvDate.value = "";
-  rdvRepeat.value = "none";
-  rdvNotify.value = "none";
-}
-function closeAddModal() {
-  modal.classList.add("hidden");
-}
-
-// Modale édition
-function openEditModal(event) {
-  editingEventId = event.id;
-  const parts = event.title.split(" – ");
-  rdvName.value = parts[0] || "";
-  const trajet = parts[1]?.split(" > ") || ["", ""];
-  rdvAddress.value = trajet[0] || "";
-  rdvDestination.value = trajet[1] || "";
-  rdvDate.value = event.startStr.slice(0, 16);
-  rdvRepeat.value = "none";
-  rdvNotify.value = "none";
-  modal.classList.remove("hidden");
-}
-
-// Ajouter / Modifier
+// Ajouter / Modifier RDV
 function addEvent() {
   const name = rdvName.value.trim();
   const address = rdvAddress.value.trim();
@@ -166,20 +142,17 @@ function addEvent() {
   const title = `${name} – ${address} > ${destination}`;
   const baseId = editingEventId ? editingEventId.split("-")[0] : Date.now().toString();
 
-  // Supprimer anciens si édition
   if (editingEventId) {
     events = events.filter(e => !(e.id === editingEventId || (e.id || "").startsWith(baseId + "-")));
   }
 
   const start = new Date(dateStr);
-  const eventList = [];
-
-  eventList.push({
+  const eventList = [{
     id: baseId,
     title,
     start: dateStr,
     allDay: false
-  });
+  }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
@@ -199,13 +172,10 @@ function addEvent() {
     }
   }
 
-  // Notification simulée
   if (!isNaN(notifyMin)) {
     const diff = new Date(dateStr).getTime() - Date.now() - notifyMin * 60000;
     if (diff > 0) {
-      setTimeout(() => {
-        alert(`Rappel : RDV avec ${name} à ${address}`);
-      }, diff);
+      setTimeout(() => alert(`Rappel : RDV avec ${name} à ${address}`), diff);
     }
   }
 
@@ -213,4 +183,37 @@ function addEvent() {
   localStorage.setItem("events", JSON.stringify(events));
   closeAddModal();
   renderCalendar();
+}
+
+// Suppression
+function deleteEvent(single = true) {
+  const eventId = currentClickedEvent?.id;
+  if (!eventId) return;
+  const baseId = eventId.split("-")[0];
+  if (single) {
+    events = events.filter(e => e.id !== eventId);
+  } else {
+    events = events.filter(e => !(e.id || "").startsWith(baseId));
+  }
+  localStorage.setItem("events", JSON.stringify(events));
+  closeAddModal();
+  renderCalendar();
+}
+
+// Actions modale
+function showAddModal() {
+  editingEventId = null;
+  currentClickedEvent = null;
+  modal.classList.remove("hidden");
+  rdvName.value = "";
+  rdvAddress.value = "";
+  rdvDestination.value = "";
+  rdvDate.value = "";
+  rdvRepeat.value = "none";
+  rdvNotify.value = "none";
+  deleteOneBtn.style.display = "none";
+  deleteAllBtn.style.display = "none";
+}
+function closeAddModal() {
+  modal.classList.add("hidden");
 }
