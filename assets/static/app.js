@@ -92,9 +92,8 @@ function renderCalendar() {
     },
     events: events,
     eventClick: function(info) {
-      const eventId = info.event.id || "";
       currentClickedEvent = info.event;
-      editingEventId = eventId;
+      editingEventId = info.event.id || info.event._def?.publicId || "";
 
       const parts = info.event.title.split(" – ");
       rdvName.value = parts[0] || "";
@@ -171,7 +170,6 @@ function confirmDelete() {
 
 function deleteEvent(single) {
   const eventId = currentClickedEvent?.id || currentClickedEvent?._def?.publicId;
-if (!eventId) return;
   if (!eventId) return;
   const baseId = eventId.split("-")[0];
 
