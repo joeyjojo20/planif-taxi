@@ -1,7 +1,6 @@
 let rdvEnCours = null;
 let calendar = null;
 
-// Initialisation du calendrier
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
   calendar = new FullCalendar.Calendar(calendarEl, {
@@ -29,11 +28,9 @@ document.addEventListener('DOMContentLoaded', function () {
   calendar.render();
 });
 
-// Ouvrir la modale d'ajout/modification
 function openModal(event = null) {
   document.getElementById('rdvModal').classList.remove('hidden');
   document.getElementById('modalTitle').innerText = event ? "Modifier le rendez-vous" : "Ajouter un rendez-vous";
-
   document.getElementById('nom').value = rdvEnCours?.nom || '';
   document.getElementById('adresse').value = rdvEnCours?.adresse || '';
   document.getElementById('destination').value = rdvEnCours?.destination || '';
@@ -41,66 +38,16 @@ function openModal(event = null) {
   document.getElementById('heure').value = rdvEnCours?.heure || '';
   document.getElementById('recurrence').value = rdvEnCours?.recurrence || '';
   document.getElementById('notification').value = rdvEnCours?.notification || '';
-
   document.getElementById('updateBtn').classList.toggle('hidden', !event);
   document.getElementById('deleteBtn').classList.toggle('hidden', !event);
 }
-
-// Fermer la modale principale
-function closeModal() {
-  document.getElementById('rdvModal').classList.add('hidden');
-  rdvEnCours = null;
-}
-
-// Enregistrer un nouveau rendez-vous
-function saveRdv() {
-  const rdv = getRdvFromForm();
-  if (!rdv.nom || !rdv.date || !rdv.heure) return alert("Nom, date et heure obligatoires.");
-  createRdv(rdv);
-  closeModal();
-}
-
-// Mettre à jour un rendez-vous existant
-function updateRdv() {
-  const updated = getRdvFromForm();
-  updated.id = rdvEnCours.id;
-  updateRdvInDb(updated);
-  closeModal();
-}
-
-// Supprimer : déclenche la modale de confirmation
-function promptDelete() {
-  if (!rdvEnCours) return;
-  if (rdvEnCours.serieId) {
-    document.getElementById('confirmDeleteModal').classList.remove('hidden');
-  } else {
-    deleteRdvById(rdvEnCours.id, true);
-    closeModal();
-  }
-}
-
-// Confirmer suppression d’un seul événement
-function deleteSingle() {
-  if (!rdvEnCours) return;
-  deleteRdvById(rdvEnCours.id, true);
-  closeConfirmModal();
-  closeModal();
-}
-
-// Confirmer suppression de toute la série
-function deleteSeries() {
-  if (!rdvEnCours || !rdvEnCours.serieId) return;
-  deleteRdvBySerieId(rdvEnCours.serieId);
-  closeConfirmModal();
-  closeModal();
-}
-
-// Fermer la modale de confirmation
-function closeConfirmModal() {
-  document.getElementById('confirmDeleteModal').classList.add('hidden');
-}
-
-// Récupérer les valeurs du formulaire
+function closeModal() { document.getElementById('rdvModal').classList.add('hidden'); rdvEnCours = null; }
+function saveRdv() { const rdv = getRdvFromForm(); if (!rdv.nom || !rdv.date || !rdv.heure) return alert("Nom, date et heure obligatoires."); createRdv(rdv); closeModal(); }
+function updateRdv() { const updated = getRdvFromForm(); updated.id = rdvEnCours.id; updateRdvInDb(updated); closeModal(); }
+function promptDelete() { if (!rdvEnCours) return; if (rdvEnCours.serieId) { document.getElementById('confirmDeleteModal').classList.remove('hidden'); } else { deleteRdvById(rdvEnCours.id, true); closeModal(); } }
+function deleteSingle() { if (!rdvEnCours) return; deleteRdvById(rdvEnCours.id, true); closeConfirmModal(); closeModal(); }
+function deleteSeries() { if (!rdvEnCours || !rdvEnCours.serieId) return; deleteRdvBySerieId(rdvEnCours.serieId); closeConfirmModal(); closeModal(); }
+function closeConfirmModal() { document.getElementById('confirmDeleteModal').classList.add('hidden'); }
 function getRdvFromForm() {
   return {
     nom: document.getElementById('nom').value,
@@ -112,16 +59,8 @@ function getRdvFromForm() {
     notification: document.getElementById('notification').value,
   };
 }
-
-// Placeholder pour fetch
-function fetchRdv() {
-  return []; // Remplacer par une récupération depuis Supabase ou autre source
-}
-
-// Placeholder pour création
+function fetchRdv() { return []; }
 function createRdv(rdv) {
-  // Ajouter à la base de données
-  console.log("Créer RDV", rdv);
   calendar.addEvent({
     id: String(Date.now()),
     title: rdv.nom,
@@ -135,23 +74,12 @@ function createRdv(rdv) {
     }
   });
 }
-
-// Placeholder pour update
-function updateRdvInDb(rdv) {
-  // Mettre à jour dans la base
-  console.log("Update RDV", rdv);
-}
-
-// Placeholder pour suppression simple
+function updateRdvInDb(rdv) { console.log("Update RDV", rdv); }
 function deleteRdvById(id, isSingle) {
-  console.log("Delete RDV ID", id);
   const evt = calendar.getEventById(id);
   if (evt) evt.remove();
 }
-
-// Placeholder pour suppression de série
 function deleteRdvBySerieId(serieId) {
-  console.log("Delete Série", serieId);
   const events = calendar.getEvents();
   events.forEach(evt => {
     if (evt.extendedProps.serieId === serieId) {
@@ -159,8 +87,17 @@ function deleteRdvBySerieId(serieId) {
     }
   });
 }
-
-// Déconnexion
-function logout() {
-  alert("Déconnecté");
+function login() {
+  alert("Connexion locale simulée.");
 }
+function logout() {
+  alert("Déconnecté.");
+}
+"""
+
+# Création des fichiers
+path = "/mnt/data/rdv-taxi-pwa"
+os.makedirs(path, exist_ok=True)
+with open(f"{path}/index.html", "w") as f: f.write(index_html)
+with open(f"{path}/style.css", "w") as f: f.write(style_css)
+with open(f"{path}/app.js", "w") as f: f.write(app_js)
