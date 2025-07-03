@@ -87,17 +87,12 @@ function deleteRdvBySerieId(serieId) {
     }
   });
 }
-function login() {
-  alert("Connexion locale simulée.");
-}
-function logout() {
-  alert("Déconnecté.");
-}
+function logout() { alert("Déconnecté"); }
 """
 
-# Création des fichiers
-path = "/mnt/data/rdv-taxi-pwa"
-os.makedirs(path, exist_ok=True)
-with open(f"{path}/index.html", "w") as f: f.write(index_html)
-with open(f"{path}/style.css", "w") as f: f.write(style_css)
-with open(f"{path}/app.js", "w") as f: f.write(app_js)
+# Sauvegarde
+base = "/mnt/data/rdv-taxi-reset"
+os.makedirs(base, exist_ok=True)
+with open(f"{base}/index.html", "w") as f: f.write(html_code)
+with open(f"{base}/style.css", "w") as f: f.write(css_code)
+with open(f"{base}/app.js", "w") as f: f.write(js_code)
