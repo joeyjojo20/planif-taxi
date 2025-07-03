@@ -43,15 +43,19 @@
   <!-- Modale d'ajout / modification -->
   <div id="add-modal" class="modal hidden">
     <h2>Ajouter ou modifier un rendez-vous</h2>
-    <label>Nom :</label>
+    <label for="rdv-name">Nom :</label>
     <input type="text" id="rdv-name" />
-    <label>Adresse de départ :</label>
+
+    <label for="rdv-address">Adresse de départ :</label>
     <input type="text" id="rdv-address" />
-    <label>Adresse de destination :</label>
+
+    <label for="rdv-destination">Adresse de destination :</label>
     <input type="text" id="rdv-destination" />
-    <label>Date et heure :</label>
+
+    <label for="rdv-date">Date et heure :</label>
     <input type="datetime-local" id="rdv-date" />
-    <label>Récurrence :</label>
+
+    <label for="rdv-repeat">Récurrence :</label>
     <select id="rdv-repeat">
       <option value="none">Aucune</option>
       <option value="hourly">Chaque heure</option>
@@ -59,7 +63,8 @@
       <option value="weekly">Chaque semaine</option>
       <option value="monthly">Chaque mois</option>
     </select>
-    <label>Notification avant :</label>
+
+    <label for="rdv-notify">Notification avant :</label>
     <select id="rdv-notify">
       <option value="none">Aucune</option>
       <option value="15">15 minutes</option>
@@ -68,6 +73,7 @@
       <option value="1440">1 jour</option>
       <option value="7200">5 jours</option>
     </select>
+
     <div class="modal-buttons">
       <button onclick="addEvent()">Mettre à jour</button>
       <button onclick="confirmDelete()">Supprimer</button>
@@ -78,7 +84,7 @@
   <!-- Modale de confirmation suppression -->
   <div id="confirm-modal" class="modal hidden">
     <h3>Supprimer ce rendez-vous</h3>
-    <p>Souhaitez-vous supprimer uniquement ce rendez-vous ou toute la série ?</p>
+    <p>Souhaitez-vous supprimer uniquement ce rendez-vous ou toute la série ?</p>
     <div class="modal-buttons">
       <button onclick="deleteEvent(true)">Seulement celui-ci</button>
       <button onclick="deleteEvent(false)">Toute la série</button>
