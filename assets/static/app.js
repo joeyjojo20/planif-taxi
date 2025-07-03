@@ -1,5 +1,76 @@
-// Tous les sélecteurs et variables...
-// (inchangé jusqu'à showApp...)
+// Variables globales
+let currentUser = null;
+let events = JSON.parse(localStorage.getItem("events") || "[]");
+let calendar;
+let editingEventId = null;
+let currentClickedEvent = null;
+
+// Sélecteurs utiles
+const loginScreen = document.getElementById("login-screen");
+const registerScreen = document.getElementById("register-screen");
+const appScreen = document.getElementById("app-screen");
+const modal = document.getElementById("add-modal");
+
+const email = document.getElementById("email");
+const password = document.getElementById("password");
+const loginError = document.getElementById("login-error");
+
+const newEmail = document.getElementById("new-email");
+const newPassword = document.getElementById("new-password");
+const newRole = document.getElementById("new-role");
+const registerError = document.getElementById("register-error");
+
+const welcome = document.getElementById("welcome");
+const rdvName = document.getElementById("rdv-name");
+const rdvAddress = document.getElementById("rdv-address");
+const rdvDestination = document.getElementById("rdv-destination");
+const rdvDate = document.getElementById("rdv-date");
+const rdvRepeat = document.getElementById("rdv-repeat");
+const rdvNotify = document.getElementById("rdv-notify");
+
+function showLogin() {
+  loginScreen.style.display = "block";
+  registerScreen.style.display = "none";
+}
+
+function showRegister() {
+  loginScreen.style.display = "none";
+  registerScreen.style.display = "block";
+}
+
+function login() {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const found = users.find(u => u.email === email.value && u.password === password.value);
+  if (found) {
+    currentUser = found;
+    showApp(currentUser);
+  } else {
+    loginError.textContent = "Identifiants incorrects.";
+  }
+}
+
+function register() {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const exists = users.some(u => u.email === newEmail.value);
+  if (exists) {
+    registerError.textContent = "Email déjà utilisé.";
+    return;
+  }
+  const user = {
+    email: newEmail.value,
+    password: newPassword.value,
+    role: newRole.value
+  };
+  users.push(user);
+  localStorage.setItem("users", JSON.stringify(users));
+  currentUser = user;
+  showApp(currentUser);
+}
+
+function logout() {
+  currentUser = null;
+  location.reload();
+}
 
 function showApp(user) {
   loginScreen.style.display = "none";
@@ -9,7 +80,6 @@ function showApp(user) {
   renderCalendar();
 }
 
-// Affichage du calendrier
 function renderCalendar() {
   if (calendar) calendar.destroy();
   calendar = new FullCalendar.Calendar(document.getElementById("calendar"), {
@@ -41,7 +111,6 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Ajouter ou modifier un RDV
 function addEvent() {
   const name = rdvName.value.trim();
   const address = rdvAddress.value.trim();
@@ -63,12 +132,7 @@ function addEvent() {
   }
 
   const start = new Date(dateStr);
-  const eventList = [{
-    id: baseId,
-    title,
-    start: dateStr,
-    allDay: false
-  }];
+  const eventList = [{ id: baseId, title, start: dateStr, allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
@@ -101,7 +165,6 @@ function addEvent() {
   renderCalendar();
 }
 
-// Nouvelle logique de suppression
 function confirmDelete() {
   document.getElementById("confirm-modal").classList.remove("hidden");
 }
@@ -123,7 +186,6 @@ function deleteEvent(single) {
   renderCalendar();
 }
 
-// Ouvrir / fermer la modale d’ajout
 function showAddModal() {
   editingEventId = null;
   currentClickedEvent = null;
@@ -135,11 +197,11 @@ function showAddModal() {
   rdvRepeat.value = "none";
   rdvNotify.value = "none";
 }
+
 function closeAddModal() {
   modal.classList.add("hidden");
 }
 
-// Fermer la modale de confirmation
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");
 }
