@@ -1,18 +1,26 @@
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
-let calendar;
-let currentEventId = null;
+let calendar = null;
 
+// Interfaces de connexion
 function showLogin() {
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("register-screen").classList.add("hidden");
-  document.getElementById("app-screen").classList.add("hidden");
+  document.getElementById("main-screen").classList.add("hidden");
 }
 
 function showRegister() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
-  document.getElementById("app-screen").classList.add("hidden");
+  document.getElementById("main-screen").classList.add("hidden");
+}
+
+function showApp() {
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("register-screen").classList.add("hidden");
+  document.getElementById("main-screen").classList.remove("hidden");
+  document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
+  renderCalendar();
 }
 
 function login() {
@@ -33,10 +41,12 @@ function register() {
   const password = document.getElementById("register-password").value;
   const role = document.getElementById("register-role").value;
   const users = JSON.parse(localStorage.getItem("users") || "[]");
+
   if (users.some(u => u.email === email)) {
     alert("Email déjà utilisé");
     return;
   }
+
   const newUser = { email, password, role };
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
@@ -49,66 +59,72 @@ function logout() {
   location.reload();
 }
 
-function showApp() {
-  document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("register-screen").classList.add("hidden");
-  document.getElementById("app-screen").classList.remove("hidden");
-  document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
-  renderCalendar();
-}
-
+// Calendrier
 function renderCalendar() {
+  const calendarEl = document.getElementById("calendar");
+  if (!calendarEl) return;
+
   if (calendar) calendar.destroy();
-  calendar = new FullCalendar.Calendar(document.getElementById("calendar"), {
-    initialView: "dayGridMonth",
-    locale: "fr",
+
+  calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    locale: 'fr',
     headerToolbar: {
-      left: "prev,next today",
-      center: "title",
-      right: "dayGridMonth,timeGridWeek"
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,timeGridWeek'
     },
     events: events,
-    eventClick: function(info) {
-      const event = info.event;
-      currentEventId = event.id;
-
-      const [name, trajet] = event.title.split(" – ");
-      const [from, to] = (trajet || "").split(" > ");
-
-      document.getElementById("client-name").value = name || "";
-      document.getElementById("pickup-address").value = from || "";
-      document.getElementById("dropoff-address").value = to || "";
-      document.getElementById("event-date").value = event.startStr.slice(0, 16);
-      document.getElementById("recurrence").value = "none";
-      document.getElementById("notification").value = "none";
-      document.getElementById("event-form").classList.remove("hidden");
-    }
+    eventClick: onEventClick
   });
+
   calendar.render();
 }
 
+// Clic RDV = ouvrir modale
+function onEventClick(info) {
+  const event = info.event;
+  const [name, trajet] = event.title.split(" – ");
+  const [pickup, dropoff] = trajet.split(" > ");
+
+  document.getElementById("client-name").value = name || "";
+  document.getElementById("pickup-address").value = pickup || "";
+  document.getElementById("dropoff-address").value = dropoff || "";
+  document.getElementById("event-date").value = event.startStr.slice(0, 16);
+  document.getElementById("recurrence").value = "none";
+  document.getElementById("notification").value = "none";
+  document.getElementById("event-form").dataset.editId = event.id;
+
+  document.getElementById("add-modal").classList.remove("hidden");
+}
+
+// Modale ajout
 function showEventForm() {
-  currentEventId = null;
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
   document.getElementById("dropoff-address").value = "";
   document.getElementById("event-date").value = "";
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
-  document.getElementById("event-form").classList.remove("hidden");
+  delete document.getElementById("event-form").dataset.editId;
+
+  document.getElementById("add-modal").classList.remove("hidden");
 }
 
 function hideEventForm() {
-  document.getElementById("event-form").classList.add("hidden");
+  document.getElementById("add-modal").classList.add("hidden");
+  delete document.getElementById("event-form").dataset.editId;
 }
 
+// Sauvegarder RDV
 function saveEvent() {
-  const name = document.getElementById("client-name").value.trim();
-  const pickup = document.getElementById("pickup-address").value.trim();
-  const dropoff = document.getElementById("dropoff-address").value.trim();
+  const name = document.getElementById("client-name").value;
+  const pickup = document.getElementById("pickup-address").value;
+  const dropoff = document.getElementById("dropoff-address").value;
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
+  const editId = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) {
     alert("Nom et date requis");
@@ -116,9 +132,8 @@ function saveEvent() {
   }
 
   const title = `${name} – ${pickup} > ${dropoff}`;
-  const baseId = currentEventId ? currentEventId.split("-")[0] : Date.now().toString();
+  const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const start = new Date(date);
-
   let eventList = [{ id: baseId, title, start: date, allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
@@ -138,14 +153,8 @@ function saveEvent() {
     }
   }
 
-  if (currentEventId) {
-    events = events.filter(e => {
-      if (!e.id) return true;
-      return !(
-        e.id === baseId ||
-        (typeof e.id === "string" && e.id.startsWith(baseId))
-      );
-    });
+  if (editId) {
+    events = events.filter(e => !e.id || !e.id.startsWith(baseId));
   }
 
   events = [...events, ...eventList];
@@ -164,19 +173,17 @@ function saveEvent() {
   renderCalendar();
 }
 
-function deleteEvent(onlyThis) {
-  if (!currentEventId) {
-    alert("Aucun RDV sélectionné.");
-    return;
+// Supprimer RDV
+function deleteEvent(single) {
+  const editId = document.getElementById("event-form").dataset.editId;
+  if (!editId) return;
+
+  const baseId = editId.split("-")[0];
+  if (single) {
+    events = events.filter(e => e.id !== editId);
+  } else {
+    events = events.filter(e => !e.id || !e.id.startsWith(baseId));
   }
-
-  const baseId = currentEventId.includes("-") ? currentEventId.split("-")[0] : currentEventId;
-
-  events = events.filter(e => {
-    if (!e.id) return true;
-    if (onlyThis) return e.id !== currentEventId;
-    return !(e.id === baseId || (typeof e.id === "string" && e.id.startsWith(baseId)));
-  });
 
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm();
