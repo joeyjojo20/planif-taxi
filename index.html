@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
 
-  <!-- Cache-busting (évite 304 Not Modified) -->
+  <!-- Feuille de style -->
   <link rel="stylesheet" href="assets/static/style.css?v=1" />
+
+  <!-- FullCalendar -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 </head>
@@ -75,7 +77,7 @@
     <button onclick="hideEventForm()">Annuler</button>
   </div>
 
-  <!-- Modale de suppression -->
+  <!-- Modale de confirmation de suppression (optionnelle) -->
   <div id="confirm-modal" class="modal hidden">
     <div class="modal-content">
       <h3>Supprimer le rendez-vous</h3>
@@ -88,7 +90,7 @@
     </div>
   </div>
 
-  <!-- Script principal avec version -->
+  <!-- SCRIPT JS À LA FIN (chargement correct) -->
   <script src="assets/static/app.js?v=1"></script>
 </body>
 </html>
