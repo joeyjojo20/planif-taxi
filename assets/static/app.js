@@ -7,6 +7,7 @@ let currentClickedEvent = null;
 function showLogin() {
   document.getElementById("login-screen").style.display = "block";
   document.getElementById("register-screen").style.display = "none";
+  document.getElementById("app-screen").style.display = "none";
 }
 
 function showRegister() {
@@ -146,10 +147,7 @@ function confirmDelete() {
 
 function deleteEvent(single) {
   const eventId = currentClickedEvent?.id;
-  if (!eventId) {
-    alert("Aucun élément à supprimer.");
-    return;
-  }
+  if (!eventId) return;
 
   const baseId = eventId.split("-")[0];
   events = events.filter(e => {
