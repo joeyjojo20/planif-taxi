@@ -1,4 +1,3 @@
-
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar;
@@ -146,20 +145,7 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
-  const eventId = currentClickedEvent?.id;
-  if (!eventId) return;
-
-  const baseId = eventId.split("-")[0];
-  events = events.filter(e => {
-    if (!e.id) return true;
-    if (single) return e.id !== eventId;
-    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
-  });
-
-  localStorage.setItem("events", JSON.stringify(events));
-  closeAddModal();
-  closeConfirmModal();
-  renderCalendar();
+  // Cette fonction ne répond pas encore (c’est la version à corriger)
 }
 
 function showAddModal() {
