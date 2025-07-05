@@ -9,7 +9,7 @@ h1, h2, h3 {
   margin-top: 0;
 }
 
-input, select {
+input, select, textarea {
   display: block;
   margin: 10px 0;
   padding: 8px;
@@ -32,6 +32,11 @@ button:hover {
   background-color: #0056b3;
 }
 
+button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+}
+
 .error {
   color: red;
   font-size: 0.9em;
@@ -52,7 +57,6 @@ button:hover {
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
-/* Top bar avec déconnexion à droite */
 .top-bar {
   display: flex;
   justify-content: space-between;
@@ -60,13 +64,6 @@ button:hover {
   margin-bottom: 10px;
 }
 
-/* Bouton ajouter un RDV */
-#add-btn {
-  margin: 10px auto 20px auto;
-  display: block;
-}
-
-/* Calendrier */
 #calendar {
   background: white;
   border-radius: 10px;
@@ -74,7 +71,26 @@ button:hover {
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
-/* Modale */
+/* NOTES + AJOUTER */
+#controls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0 20px;
+}
+
+#notes-box {
+  flex: 1;
+  min-width: 180px;
+}
+
+#add-btn {
+  white-space: nowrap;
+  height: 42px;
+}
+
+/* Modale réduite */
 .modal {
   position: fixed;
   top: 0; left: 0;
@@ -92,23 +108,36 @@ button:hover {
 
 .modal-content {
   background: white;
-  padding: 20px;
-  border-radius: 12px;
+  padding: 15px;
+  border-radius: 10px;
   width: 90%;
-  max-width: 450px;
+  max-width: 380px;
+  font-size: 0.95em;
   box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 
 .modal-buttons {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 15px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
-/* Bouton Débog discret */
+/* Bouton Débog */
 #main-screen button[onclick*="fixOldEvents"] {
   background-color: #888;
   font-size: 12px;
   padding: 6px 12px;
+}
+
+/* CALENDRIER : ajustement par classe selon semaine */
+.fc-daygrid-day.future-week {
+  transform: scale(0.92);
+  opacity: 0.9;
+}
+
+.fc-daygrid-day.current-week {
+  transform: scale(1.06);
+  font-weight: bold;
+  background-color: #eef7ff;
 }
