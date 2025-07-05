@@ -153,24 +153,11 @@ function addEvent() {
 }
 
 function confirmDelete() {
-  document.getElementById("confirm-modal").classList.remove("hidden");
+  alert("Suppression non fonctionnelle dans cette version.");
 }
 
 function deleteEvent(single) {
-  const eventId = currentClickedEvent?.id;
-  if (!eventId) return;
-
-  const baseId = eventId.split("-")[0];
-  events = events.filter(e => {
-    if (!e.id) return true;
-    if (single) return e.id !== eventId;
-    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
-  });
-
-  localStorage.setItem("events", JSON.stringify(events));
-  closeAddModal();
-  closeConfirmModal();
-  renderCalendar();
+  alert("Suppression non fonctionnelle dans cette version.");
 }
 
 function closeAddModal() {
