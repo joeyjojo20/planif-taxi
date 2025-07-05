@@ -164,6 +164,37 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
+
+  function deleteEvent(single) {
+  if (!currentClickedEvent) {
+    alert("Aucun événement sélectionné.");
+    closeConfirmModal();
+    return;
+  }
+
+  console.log("➡️ Suppression déclenchée. Single =", single);
+
+  const eventId = currentClickedEvent?.id;
+  if (!eventId) {
+    alert("Erreur : Aucun événement à supprimer.");
+    closeConfirmModal();
+    return;
+  }
+
+  const baseId = eventId.split("-")[0];
+  events = events.filter(e => {
+    if (!e.id) return true;
+    if (single) return e.id !== eventId;
+    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
+  });
+
+  console.log("✅ Événements restants :", events);
+
+  localStorage.setItem("events", JSON.stringify(events));
+  closeAddModal();
+  closeConfirmModal();
+  renderCalendar();
+}
   console.log("➡️ Suppression déclenchée. Single =", single);
 
   const eventId = currentClickedEvent?.id;
