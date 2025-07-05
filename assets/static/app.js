@@ -1,3 +1,5 @@
+# Réécriture du fichier app.js complet avec le correctif demandé (vérification currentClickedEvent)
+app_js_corrige = """
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar;
@@ -164,37 +166,12 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
-
-  function deleteEvent(single) {
   if (!currentClickedEvent) {
     alert("Aucun événement sélectionné.");
     closeConfirmModal();
     return;
   }
 
-  console.log("➡️ Suppression déclenchée. Single =", single);
-
-  const eventId = currentClickedEvent?.id;
-  if (!eventId) {
-    alert("Erreur : Aucun événement à supprimer.");
-    closeConfirmModal();
-    return;
-  }
-
-  const baseId = eventId.split("-")[0];
-  events = events.filter(e => {
-    if (!e.id) return true;
-    if (single) return e.id !== eventId;
-    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
-  });
-
-  console.log("✅ Événements restants :", events);
-
-  localStorage.setItem("events", JSON.stringify(events));
-  closeAddModal();
-  closeConfirmModal();
-  renderCalendar();
-}
   console.log("➡️ Suppression déclenchée. Single =", single);
 
   const eventId = currentClickedEvent?.id;
@@ -239,3 +216,10 @@ function closeAddModal() {
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.remove("show");
 }
+"""
+
+# Sauvegarder le nouveau fichier corrigé
+with open("/mnt/data/app-corrige-final.js", "w") as f:
+    f.write(app_js_corrige)
+
+"/mnt/data/app-corrige-final.js"
