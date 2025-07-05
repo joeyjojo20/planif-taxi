@@ -145,7 +145,23 @@ function confirmDelete() {
 }
 
 function deleteEvent(single) {
-  // Cette fonction ne répond pas encore (c’est la version à corriger)
+  const eventId = currentClickedEvent?.id;
+  if (!eventId) {
+    alert("Aucun élément à supprimer.");
+    return;
+  }
+
+  const baseId = eventId.split("-")[0];
+  events = events.filter(e => {
+    if (!e.id) return true;
+    if (single) return e.id !== eventId;
+    return !(e.id === baseId || e.id.startsWith(baseId + "-"));
+  });
+
+  localStorage.setItem("events", JSON.stringify(events));
+  closeAddModal();
+  closeConfirmModal();
+  renderCalendar();
 }
 
 function showAddModal() {
