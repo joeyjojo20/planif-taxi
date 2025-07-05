@@ -81,8 +81,17 @@ function renderCalendar() {
 // Clic sur un événement = Modifier
 function onEventClick(info) {
   const event = info.event;
-  const [name, trajet] = event.title.split(" – ");
-  const [pickup, dropoff] = trajet.split(" > ");
+  let name = "", pickup = "", dropoff = "";
+
+  if (event.title.includes(" – ") && event.title.includes(" > ")) {
+    const [titlePart, trajetPart] = event.title.split(" – ");
+    [pickup, dropoff] = trajetPart.split(" > ");
+    name = titlePart;
+  } else {
+    name = event.title;
+    pickup = "";
+    dropoff = "";
+  }
 
   document.getElementById("client-name").value = name;
   document.getElementById("pickup-address").value = pickup;
@@ -97,6 +106,14 @@ function onEventClick(info) {
 
 // Afficher / Cacher formulaire
 function showEventForm() {
+  document.getElementById("client-name").value = "";
+  document.getElementById("pickup-address").value = "";
+  document.getElementById("dropoff-address").value = "";
+  document.getElementById("event-date").value = "";
+  document.getElementById("recurrence").value = "none";
+  document.getElementById("notification").value = "none";
+  delete document.getElementById("event-form").dataset.editId;
+
   document.getElementById("event-form").classList.remove("hidden");
 }
 
@@ -107,9 +124,9 @@ function hideEventForm() {
 
 // Sauvegarder ou modifier un RDV
 function saveEvent() {
-  const name = document.getElementById("client-name").value;
-  const pickup = document.getElementById("pickup-address").value;
-  const dropoff = document.getElementById("dropoff-address").value;
+  const name = document.getElementById("client-name").value.trim();
+  const pickup = document.getElementById("pickup-address").value.trim();
+  const dropoff = document.getElementById("dropoff-address").value.trim();
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
