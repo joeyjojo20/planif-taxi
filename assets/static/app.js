@@ -2,7 +2,7 @@ let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
 
-// Interfaces de connexion
+// Connexion / inscription
 function showLogin() {
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("register-screen").classList.add("hidden");
@@ -81,11 +81,11 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Clic RDV = ouvrir modale
+// Clic RDV
 function onEventClick(info) {
   const event = info.event;
   const [name, trajet] = event.title.split(" – ");
-  const [pickup, dropoff] = trajet.split(" > ");
+  const [pickup, dropoff] = (trajet || "").split(" > ");
 
   document.getElementById("client-name").value = name || "";
   document.getElementById("pickup-address").value = pickup || "";
@@ -95,10 +95,10 @@ function onEventClick(info) {
   document.getElementById("notification").value = "none";
   document.getElementById("event-form").dataset.editId = event.id;
 
-  document.getElementById("add-modal").classList.remove("hidden");
+  document.getElementById("event-form").classList.remove("hidden");
 }
 
-// Modale ajout
+// Affichage formulaire
 function showEventForm() {
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
@@ -108,15 +108,15 @@ function showEventForm() {
   document.getElementById("notification").value = "none";
   delete document.getElementById("event-form").dataset.editId;
 
-  document.getElementById("add-modal").classList.remove("hidden");
+  document.getElementById("event-form").classList.remove("hidden");
 }
 
 function hideEventForm() {
-  document.getElementById("add-modal").classList.add("hidden");
+  document.getElementById("event-form").classList.add("hidden");
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Sauvegarder RDV
+// Sauvegarde / modification
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -154,7 +154,7 @@ function saveEvent() {
   }
 
   if (editId) {
-    events = events.filter(e => !e.id || !e.id.startsWith(baseId));
+    events = events.filter(e => e.id && !e.id.startsWith(baseId));
   }
 
   events = [...events, ...eventList];
@@ -188,4 +188,27 @@ function deleteEvent(single) {
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm();
   renderCalendar();
+}
+
+// Réparer anciens RDV sans ID
+function fixOldEvents() {
+  let changed = false;
+  events = events.map(e => {
+    if (!e.id || e.id.trim() === "") {
+      changed = true;
+      return {
+        ...e,
+        id: Date.now().toString() + "-" + Math.floor(Math.random() * 10000)
+      };
+    }
+    return e;
+  });
+
+  if (changed) {
+    localStorage.setItem("events", JSON.stringify(events));
+    alert("Anciens RDV réparés.");
+    renderCalendar();
+  } else {
+    alert("Aucun RDV à réparer.");
+  }
 }
