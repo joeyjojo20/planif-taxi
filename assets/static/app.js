@@ -1,5 +1,4 @@
-# Réécriture du fichier app.js complet avec le correctif demandé (vérification currentClickedEvent)
-app_js_corrige = """
+
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar;
@@ -216,10 +215,3 @@ function closeAddModal() {
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.remove("show");
 }
-"""
-
-# Sauvegarder le nouveau fichier corrigé
-with open("/mnt/data/app-corrige-final.js", "w") as f:
-    f.write(app_js_corrige)
-
-"/mnt/data/app-corrige-final.js"
