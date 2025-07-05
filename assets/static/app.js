@@ -21,9 +21,11 @@ function login() {
   const found = users.find(u => u.email === email && u.password === password);
   if (found) {
     currentUser = found;
-    showApp();
-  } else {
-    document.getElementById("login-error").textContent = "Identifiants incorrects.";
+   function showApp() {
+  const calendarEl = document.getElementById('calendar');
+  if (calendarEl) {
+    calendarEl.style.display = 'block';
+    
   }
 }
 
