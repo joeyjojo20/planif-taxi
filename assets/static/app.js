@@ -155,12 +155,23 @@ function addEvent() {
 }
 
 function confirmDelete() {
+  if (!currentClickedEvent) {
+    alert("Aucun rendez-vous sélectionné.");
+    return;
+  }
+  console.log("➡️ Confirmation suppression demandée pour l’événement :", currentClickedEvent.id);
   document.getElementById("confirm-modal").classList.add("show");
 }
 
 function deleteEvent(single) {
+  console.log("➡️ Suppression déclenchée. Single =", single);
+
   const eventId = currentClickedEvent?.id;
-  if (!eventId) return;
+  if (!eventId) {
+    alert("Erreur : Aucun événement à supprimer.");
+    closeConfirmModal();
+    return;
+  }
 
   const baseId = eventId.split("-")[0];
   events = events.filter(e => {
@@ -168,6 +179,8 @@ function deleteEvent(single) {
     if (single) return e.id !== eventId;
     return !(e.id === baseId || e.id.startsWith(baseId + "-"));
   });
+
+  console.log("✅ Événements restants :", events);
 
   localStorage.setItem("events", JSON.stringify(events));
   closeAddModal();
