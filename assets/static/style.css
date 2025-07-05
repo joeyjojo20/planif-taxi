@@ -1,9 +1,15 @@
+
 body {
   font-family: Arial, sans-serif;
   background-color: #f9f9f9;
   margin: 0;
   padding: 0;
 }
+
+h1, h2, h3 {
+  margin-top: 0;
+}
+
 input, select {
   display: block;
   margin: 10px 0;
@@ -11,6 +17,7 @@ input, select {
   width: 100%;
   box-sizing: border-box;
 }
+
 button {
   padding: 10px 15px;
   margin-top: 10px;
@@ -21,16 +28,20 @@ button {
   font-weight: bold;
   cursor: pointer;
 }
+
 button:hover {
   background-color: #0056b3;
 }
+
 .error {
   color: red;
   font-size: 0.9em;
 }
+
 .hidden {
   display: none;
 }
+
 #login-screen,
 #register-screen,
 #app-screen {
@@ -41,6 +52,7 @@ button:hover {
   border-radius: 10px;
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
+
 #calendar {
   margin-top: 20px;
   background: white;
@@ -48,6 +60,7 @@ button:hover {
   padding: 10px;
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
+
 .modal {
   position: fixed;
   top: 0; left: 0;
@@ -58,13 +71,16 @@ button:hover {
   justify-content: center;
   z-index: 1000;
 }
-.modal-content {
+
+#add-modal,
+#confirm-modal {
   background-color: white;
   padding: 25px;
   border-radius: 10px;
   width: 90%;
   max-width: 400px;
 }
+
 .modal-buttons {
   margin-top: 20px;
   display: flex;
