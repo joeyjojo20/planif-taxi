@@ -207,13 +207,13 @@ function saveEvent() {
   const start = new Date(date);
   let eventList = [{ id: baseId, title: fullTitle, start: date, allDay: false }];
 
-  for (let i = 1; i <= 24; i++) {
-    let newDate = new Date(start);
-    switch (repeat) {
-      case "daily": newDate.setDate(start.getDate() + i); break;
-      case "weekly": newDate.setDate(start.getDate() + 7 * i); break;
-      case "monthly": newDate.setMonth(start.getMonth() + i); break;
-    }
+ for (let i = 1; i <= 24; i++) {
+  let newDate = new Date(date); // nouvelle instance fraîche à chaque tour
+  switch (repeat) {
+    case "daily": newDate.setDate(newDate.getDate() + i); break;
+    case "weekly": newDate.setDate(newDate.getDate() + 7 * i); break;
+    case "monthly": newDate.setMonth(newDate.getMonth() + i); break;
+  }
     if (repeat !== "none") {
       eventList.push({
         id: `${baseId}-${i}`,
