@@ -58,6 +58,7 @@ button:hover {
   border-radius: 10px;
   padding: 10px;
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
+  overflow-x: auto;
 }
 
 .modal {
@@ -95,4 +96,21 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 16px;
+  }
+
+  #login-screen,
+  #register-screen,
+  #main-screen {
+    margin: 10px;
+    padding: 15px;
+  }
+
+  button {
+    width: 100%;
+  }
 }
