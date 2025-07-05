@@ -1,3 +1,4 @@
+
 let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar;
@@ -13,6 +14,7 @@ function showLogin() {
 function showRegister() {
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("register-screen").style.display = "block";
+  document.getElementById("app-screen").style.display = "none";
 }
 
 function login() {
