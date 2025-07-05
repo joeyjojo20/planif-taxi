@@ -60,10 +60,12 @@ button:hover {
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
+/* MODAL GLOBAL */
 .modal {
   position: fixed;
   top: 0; left: 0;
-  width: 100%; height: 100%;
+  width: 100%;
+  height: 100%;
   background-color: rgba(0,0,0,0.5);
   display: flex;
   align-items: center;
@@ -71,6 +73,7 @@ button:hover {
   z-index: 1000;
 }
 
+/* CONTENU des MODALES */
 #add-modal,
 #confirm-modal {
   background-color: white;
@@ -78,11 +81,9 @@ button:hover {
   border-radius: 10px;
   width: 90%;
   max-width: 400px;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px rgba(0,0,0,0.2);
   z-index: 1001;
+  display: block;
 }
 
 .modal-buttons {
