@@ -81,7 +81,7 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Clic RDV
+// Clic sur un événement
 function onEventClick(info) {
   const event = info.event;
   const [name, trajet] = event.title.split(" – ");
@@ -98,7 +98,7 @@ function onEventClick(info) {
   document.getElementById("event-form").classList.remove("hidden");
 }
 
-// Affichage formulaire
+// Formulaire (ajout ou modif)
 function showEventForm() {
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
@@ -116,7 +116,7 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Sauvegarde / modification
+// Ajouter ou modifier un RDV
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -154,7 +154,7 @@ function saveEvent() {
   }
 
   if (editId) {
-    events = events.filter(e => e.id && !e.id.startsWith(baseId));
+    events = events.filter(e => !e.id.startsWith(baseId));
   }
 
   events = [...events, ...eventList];
