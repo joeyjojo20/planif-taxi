@@ -89,8 +89,6 @@ function onEventClick(info) {
     name = titlePart;
   } else {
     name = event.title;
-    pickup = "";
-    dropoff = "";
   }
 
   document.getElementById("client-name").value = name;
