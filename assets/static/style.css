@@ -52,6 +52,7 @@ button:hover {
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
+/* Top bar avec déconnexion à droite */
 .top-bar {
   display: flex;
   justify-content: space-between;
@@ -59,20 +60,21 @@ button:hover {
   margin-bottom: 10px;
 }
 
+/* Bouton ajouter un RDV */
 #add-btn {
-  margin: 10px auto;
+  margin: 10px auto 20px auto;
   display: block;
 }
 
+/* Calendrier */
 #calendar {
-  margin-top: 10px;
   background: white;
   border-radius: 10px;
   padding: 10px;
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
-/* Modale (formulaire ajout/suppression) */
+/* Modale */
 .modal {
   position: fixed;
   top: 0; left: 0;
@@ -102,4 +104,11 @@ button:hover {
   flex-direction: column;
   gap: 10px;
   margin-top: 15px;
+}
+
+/* Bouton Débog discret */
+#main-screen button[onclick*="fixOldEvents"] {
+  background-color: #888;
+  font-size: 12px;
+  padding: 6px 12px;
 }
