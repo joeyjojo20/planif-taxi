@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>RDV Taxi</title>
-  <link rel="stylesheet" href="assets/static/style.css?v=1">
+  <link rel="stylesheet" href="assets/static/style.css?v=1"/>
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
 </head>
 <body onload="showLogin()">
@@ -34,13 +34,16 @@
   <div id="main-screen" class="hidden">
     <div class="top-bar">
       <span id="welcome"></span>
-      <div style="display: flex; gap: 10px;">
-        <button onclick="logout()">Déconnexion</button>
-        <button onclick="fixOldEvents()">Réparer les anciens RDV</button>
-      </div>
+      <button onclick="logout()" style="margin-left:auto;">Déconnexion</button>
     </div>
+
     <button id="add-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
     <div id="calendar"></div>
+
+    <!-- Bouton Débog (discret) -->
+    <div style="text-align: right; margin-top: 10px;">
+      <button onclick="fixOldEvents()" style="background:#888; font-size: 12px; padding: 6px 12px;">Débog</button>
+    </div>
   </div>
 
   <!-- Modale formulaire de RDV -->
