@@ -60,7 +60,6 @@ button:hover {
   box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
-/* --- MODALE CENTRÉE FIXÉE --- */
 .modal {
   position: fixed;
   top: 0; left: 0;
@@ -72,19 +71,15 @@ button:hover {
   z-index: 1000;
 }
 
-/* --- MODALES CONTENU --- */
-#add-modal,
-#confirm-modal {
+.modal > div {
   background-color: white;
   padding: 25px;
   border-radius: 10px;
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 0 8px rgba(0,0,0,0.2);
-  z-index: 1001;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
 }
 
-/* --- BOUTONS DANS LES MODALES --- */
 .modal-buttons {
   margin-top: 20px;
   display: flex;
