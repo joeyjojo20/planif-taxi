@@ -1,16 +1,15 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RDV Taxi</title>
-  <link rel="stylesheet" href="assets/static/style.css" />
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/static/style.css?v=1">
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
 </head>
 <body onload="showLogin()">
-  
-  <!-- Login -->
+
+  <!-- Écran de connexion -->
   <div id="login-screen">
     <h2>Connexion</h2>
     <input type="email" id="email" placeholder="Email" />
@@ -19,66 +18,64 @@
     <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
   </div>
 
-  <!-- Register -->
+  <!-- Écran d'inscription -->
   <div id="register-screen" class="hidden">
     <h2>Créer un compte</h2>
     <input type="email" id="register-email" placeholder="Email" />
     <input type="password" id="register-password" placeholder="Mot de passe" />
     <select id="register-role">
-      <option value="chauffeur">Chauffeur</option>
-      <option value="répartiteur">Répartiteur</option>
+      <option value="user">Utilisateur</option>
     </select>
     <button onclick="register()">S'inscrire</button>
-    <p><a href="#" onclick="showLogin()">Déjà un compte ?</a></p>
+    <p><a href="#" onclick="showLogin()">Retour</a></p>
   </div>
 
-  <!-- Application principale -->
+  <!-- Écran principal -->
   <div id="main-screen" class="hidden">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <span id="welcome">Bonjour</span>
-      <button onclick="logout()">Déconnexion</button>
+    <div class="top-bar">
+      <span id="welcome"></span>
+      <div style="display: flex; gap: 10px;">
+        <button onclick="logout()">Déconnexion</button>
+        <button onclick="fixOldEvents()">Réparer les anciens RDV</button>
+      </div>
     </div>
-
-    <button onclick="showEventForm()">Ajouter un rendez-vous</button>
-
+    <button id="add-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
     <div id="calendar"></div>
   </div>
 
-  <!-- Modale Ajouter/Modifier RDV -->
-  <div id="add-modal" class="modal hidden">
+  <!-- Modale formulaire de RDV -->
+  <div id="event-form" class="modal hidden">
     <div class="modal-content">
       <h3>Rendez-vous</h3>
-      <form id="event-form">
-        <input type="text" id="client-name" placeholder="Nom du client" />
-        <input type="text" id="pickup-address" placeholder="Adresse de départ" />
-        <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
-        <input type="datetime-local" id="event-date" />
-        <label for="recurrence">Répétition</label>
-        <select id="recurrence">
-          <option value="none">Aucune</option>
-          <option value="daily">Quotidien</option>
-          <option value="weekly">Hebdomadaire</option>
-          <option value="monthly">Mensuel</option>
-        </select>
-        <label for="notification">Notification avant</label>
-        <select id="notification">
-          <option value="none">Aucune</option>
-          <option value="15">15 minutes</option>
-          <option value="30">30 minutes</option>
-          <option value="120">2 heures</option>
-          <option value="1440">1 jour</option>
-        </select>
-
-        <div class="modal-buttons">
-          <button type="button" onclick="saveEvent()">Sauvegarder</button>
-          <button type="button" onclick="deleteEvent(true)">Supprimer ce RDV</button>
-          <button type="button" onclick="deleteEvent(false)">Supprimer toute la série</button>
-          <button type="button" onclick="hideEventForm()">Annuler</button>
-        </div>
-      </form>
+      <input type="text" id="client-name" placeholder="Nom du client" />
+      <input type="text" id="pickup-address" placeholder="Adresse de départ" />
+      <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
+      <input type="datetime-local" id="event-date" />
+      <label for="recurrence">Répétition</label>
+      <select id="recurrence">
+        <option value="none">Aucune</option>
+        <option value="daily">Quotidienne</option>
+        <option value="weekly">Hebdomadaire</option>
+        <option value="monthly">Mensuelle</option>
+      </select>
+      <label for="notification">Notification avant</label>
+      <select id="notification">
+        <option value="none">Aucune</option>
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="120">2 heures</option>
+        <option value="1440">1 jour</option>
+        <option value="7200">5 jours</option>
+      </select>
+      <div class="modal-buttons">
+        <button onclick="saveEvent()">Sauvegarder</button>
+        <button onclick="deleteEvent(true)">Supprimer ce RDV</button>
+        <button onclick="deleteEvent(false)">Supprimer toute la série</button>
+        <button onclick="hideEventForm()">Annuler</button>
+      </div>
     </div>
   </div>
 
-  <script src="assets/static/app.js"></script>
+  <script src="assets/static/app.js?v=1"></script>
 </body>
 </html>
