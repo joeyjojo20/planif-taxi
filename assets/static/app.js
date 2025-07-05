@@ -8,17 +8,11 @@ let currentClickedEvent = null;
 function showLogin() {
   document.getElementById("login-screen").style.display = "block";
   document.getElementById("register-screen").style.display = "none";
-  document.getElementById("app-screen").style.display = "none";
-  closeAddModal();
-  closeConfirmModal();
 }
 
 function showRegister() {
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("register-screen").style.display = "block";
-  document.getElementById("app-screen").style.display = "none";
-  closeAddModal();
-  closeConfirmModal();
 }
 
 function login() {
@@ -84,11 +78,10 @@ function renderCalendar() {
       document.getElementById("rdv-address").value = trajet[0] || "";
       document.getElementById("rdv-destination").value = trajet[1] || "";
       document.getElementById("rdv-date").value = info.event.startStr.slice(0, 16);
-      document.getElementById("rdv-repeat").value = info.event.extendedProps?.repeat || "none";
-      document.getElementById("rdv-notify").value = info.event.extendedProps?.notify?.toString() || "none";
+      document.getElementById("rdv-repeat").value = "none";
+      document.getElementById("rdv-notify").value = "none";
 
-      document.querySelector("#add-modal button[onclick='confirmDelete()']").style.display = "block";
-      document.getElementById("add-modal").classList.add("show");
+      document.getElementById("add-modal").classList.remove("hidden");
     }
   });
   calendar.render();
@@ -115,13 +108,7 @@ function addEvent() {
   }
 
   const start = new Date(dateStr);
-  const eventList = [{
-    id: baseId,
-    title,
-    start: dateStr,
-    allDay: false,
-    extendedProps: { repeat, notify: isNaN(notifyMin) ? "none" : notifyMin }
-  }];
+  const eventList = [{ id: baseId, title, start: dateStr, allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
@@ -136,8 +123,7 @@ function addEvent() {
         id: `${baseId}-${i}`,
         title,
         start: newDate.toISOString().slice(0, 16),
-        allDay: false,
-        extendedProps: { repeat, notify: isNaN(notifyMin) ? "none" : notifyMin }
+        allDay: false
       });
     }
   }
@@ -156,29 +142,12 @@ function addEvent() {
 }
 
 function confirmDelete() {
-  if (!currentClickedEvent) {
-    alert("Aucun rendez-vous sélectionné.");
-    return;
-  }
-  console.log("➡️ Confirmation suppression demandée pour l’événement :", currentClickedEvent.id);
-  document.getElementById("confirm-modal").classList.add("show");
+  document.getElementById("confirm-modal").classList.remove("hidden");
 }
 
 function deleteEvent(single) {
-  if (!currentClickedEvent) {
-    alert("Aucun événement sélectionné.");
-    closeConfirmModal();
-    return;
-  }
-
-  console.log("➡️ Suppression déclenchée. Single =", single);
-
   const eventId = currentClickedEvent?.id;
-  if (!eventId) {
-    alert("Erreur : Aucun événement à supprimer.");
-    closeConfirmModal();
-    return;
-  }
+  if (!eventId) return;
 
   const baseId = eventId.split("-")[0];
   events = events.filter(e => {
@@ -186,8 +155,6 @@ function deleteEvent(single) {
     if (single) return e.id !== eventId;
     return !(e.id === baseId || e.id.startsWith(baseId + "-"));
   });
-
-  console.log("✅ Événements restants :", events);
 
   localStorage.setItem("events", JSON.stringify(events));
   closeAddModal();
@@ -198,20 +165,19 @@ function deleteEvent(single) {
 function showAddModal() {
   editingEventId = null;
   currentClickedEvent = null;
-  document.getElementById("add-modal").classList.add("show");
+  document.getElementById("add-modal").classList.remove("hidden");
   document.getElementById("rdv-name").value = "";
   document.getElementById("rdv-address").value = "";
   document.getElementById("rdv-destination").value = "";
   document.getElementById("rdv-date").value = "";
   document.getElementById("rdv-repeat").value = "none";
   document.getElementById("rdv-notify").value = "none";
-  document.querySelector("#add-modal button[onclick='confirmDelete()']").style.display = "none";
 }
 
 function closeAddModal() {
-  document.getElementById("add-modal").classList.remove("show");
+  document.getElementById("add-modal").classList.add("hidden");
 }
 
 function closeConfirmModal() {
-  document.getElementById("confirm-modal").classList.remove("show");
+  document.getElementById("confirm-modal").classList.add("hidden");
 }
