@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
 
-  <!-- Feuille de style -->
-  <link rel="stylesheet" href="assets/static/style.css?v=1" />
+  <!-- Style local -->
+  <link rel="stylesheet" href="assets/static/style.css" />
 
   <!-- FullCalendar -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
@@ -46,51 +46,42 @@
     <div id="calendar"></div>
   </div>
 
-  <!-- Formulaire de rendez-vous -->
-  <div id="event-form" class="hidden">
-    <h3>Rendez-vous</h3>
-    <input type="text" id="client-name" placeholder="Nom du client" />
-    <input type="text" id="pickup-address" placeholder="Adresse de départ" />
-    <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
-    <input type="datetime-local" id="event-date" />
-    <label>Répétition
-      <select id="recurrence">
-        <option value="none">Aucune</option>
-        <option value="daily">Quotidienne</option>
-        <option value="weekly">Hebdomadaire</option>
-        <option value="monthly">Mensuelle</option>
-      </select>
-    </label>
-    <label>Notification avant
-      <select id="notification">
-        <option value="none">Aucune</option>
-        <option value="15">15 minutes</option>
-        <option value="30">30 minutes</option>
-        <option value="120">2 heures</option>
-        <option value="1440">1 jour</option>
-        <option value="7200">5 jours</option>
-      </select>
-    </label>
-    <button onclick="saveEvent()">Sauvegarder</button>
-    <button onclick="deleteEvent(true)">Supprimer ce RDV</button>
-    <button onclick="deleteEvent(false)">Supprimer toute la série</button>
-    <button onclick="hideEventForm()">Annuler</button>
-  </div>
-
-  <!-- Modale de confirmation de suppression (optionnelle) -->
-  <div id="confirm-modal" class="modal hidden">
+  <!-- MENU CONTEXTUEL POUR FORMULAIRE RDV -->
+  <div id="event-form" class="modal-overlay hidden">
     <div class="modal-content">
-      <h3>Supprimer le rendez-vous</h3>
-      <p>Souhaitez-vous supprimer :</p>
+      <h3>Rendez-vous</h3>
+      <input type="text" id="client-name" placeholder="Nom du client" />
+      <input type="text" id="pickup-address" placeholder="Adresse de départ" />
+      <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
+      <input type="datetime-local" id="event-date" />
+      <label>Répétition
+        <select id="recurrence">
+          <option value="none">Aucune</option>
+          <option value="daily">Quotidienne</option>
+          <option value="weekly">Hebdomadaire</option>
+          <option value="monthly">Mensuelle</option>
+        </select>
+      </label>
+      <label>Notification avant
+        <select id="notification">
+          <option value="none">Aucune</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="120">2 heures</option>
+          <option value="1440">1 jour</option>
+          <option value="7200">5 jours</option>
+        </select>
+      </label>
       <div class="modal-buttons">
-        <button onclick="deleteEvent(true)">Seulement ce rendez-vous</button>
-        <button onclick="deleteEvent(false)">Toute la série</button>
-        <button onclick="closeConfirmModal()">Annuler</button>
+        <button onclick="saveEvent()">Sauvegarder</button>
+        <button onclick="deleteEvent(true)">Supprimer ce RDV</button>
+        <button onclick="deleteEvent(false)">Supprimer toute la série</button>
+        <button onclick="hideEventForm()">Annuler</button>
       </div>
     </div>
   </div>
 
-  <!-- SCRIPT JS À LA FIN (chargement correct) -->
-  <script src="assets/static/app.js?v=1"></script>
+  <!-- Script principal -->
+  <script src="assets/static/app.js"></script>
 </body>
 </html>
