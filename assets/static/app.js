@@ -2,7 +2,7 @@ let currentUser = null;
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
 
-// Connexion / Inscription
+// Écrans de connexion / inscription
 function showLogin() {
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("register-screen").classList.add("hidden");
@@ -57,7 +57,7 @@ function showApp() {
   renderCalendar();
 }
 
-// Calendrier
+// Affichage du calendrier
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
@@ -78,31 +78,24 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Clic sur un événement = Modifier
+// Ouvrir le formulaire avec un RDV existant
 function onEventClick(info) {
   const event = info.event;
-  let name = "", pickup = "", dropoff = "";
+  const [name, trajet] = event.title.split(" – ");
+  const [pickup, dropoff] = trajet ? trajet.split(" > ") : ["", ""];
 
-  if (event.title.includes(" – ") && event.title.includes(" > ")) {
-    const [titlePart, trajetPart] = event.title.split(" – ");
-    [pickup, dropoff] = trajetPart.split(" > ");
-    name = titlePart;
-  } else {
-    name = event.title;
-  }
-
-  document.getElementById("client-name").value = name;
-  document.getElementById("pickup-address").value = pickup;
-  document.getElementById("dropoff-address").value = dropoff;
+  document.getElementById("client-name").value = name || "";
+  document.getElementById("pickup-address").value = pickup || "";
+  document.getElementById("dropoff-address").value = dropoff || "";
   document.getElementById("event-date").value = event.startStr.slice(0, 16);
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
   document.getElementById("event-form").dataset.editId = event.id;
 
-  document.getElementById("event-form").classList.remove("hidden");
+  showEventForm();
 }
 
-// Afficher / Cacher formulaire
+// Ouvrir le formulaire vide pour ajouter un RDV
 function showEventForm() {
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
@@ -110,17 +103,16 @@ function showEventForm() {
   document.getElementById("event-date").value = "";
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
-  delete document.getElementById("event-form").dataset.editId;
-
   document.getElementById("event-form").classList.remove("hidden");
 }
 
+// Fermer le formulaire
 function hideEventForm() {
   document.getElementById("event-form").classList.add("hidden");
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Sauvegarder ou modifier un RDV
+// Enregistrer ou modifier un RDV
 function saveEvent() {
   const name = document.getElementById("client-name").value.trim();
   const pickup = document.getElementById("pickup-address").value.trim();
@@ -128,7 +120,6 @@ function saveEvent() {
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
-
   const editId = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) {
@@ -139,7 +130,7 @@ function saveEvent() {
   const title = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const start = new Date(date);
-  let eventList = [{ id: baseId, title, start: date, allDay: false }];
+  let newEvents = [{ id: baseId, title, start: date, allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
@@ -149,7 +140,7 @@ function saveEvent() {
       case "monthly": newDate.setMonth(start.getMonth() + i); break;
     }
     if (repeat !== "none") {
-      eventList.push({
+      newEvents.push({
         id: `${baseId}-${i}`,
         title,
         start: newDate.toISOString().slice(0, 16),
@@ -162,7 +153,7 @@ function saveEvent() {
     events = events.filter(e => !e.id.startsWith(baseId));
   }
 
-  events = [...events, ...eventList];
+  events = [...events, ...newEvents];
   localStorage.setItem("events", JSON.stringify(events));
 
   if (notify !== "none") {
@@ -178,23 +169,20 @@ function saveEvent() {
   renderCalendar();
 }
 
-// Supprimer RDV
-function deleteEvent(single) {
+// Supprimer un RDV ou une série
+function deleteEvent(onlyOne) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
 
   const baseId = editId.split("-")[0];
-  if (single) {
-    events = events.filter(e => e.id !== editId);
-  } else {
-    events = events.filter(e => !e.id.startsWith(baseId));
-  }
+  events = events.filter(e => onlyOne ? e.id !== editId : !e.id.startsWith(baseId));
 
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm();
   renderCalendar();
 }
 
+// Fermer la modale de confirmation (si utilisée plus tard)
 function closeConfirmModal() {
   document.getElementById("confirm-modal").classList.add("hidden");
 }
