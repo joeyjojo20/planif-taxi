@@ -9,7 +9,7 @@
 </head>
 <body onload="showLogin()">
 
-  <!-- Écran de connexion -->
+  <!-- Connexion -->
   <div id="login-screen">
     <h2>Connexion</h2>
     <input type="email" id="email" placeholder="Email" />
@@ -18,7 +18,7 @@
     <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
   </div>
 
-  <!-- Écran d'inscription -->
+  <!-- Inscription -->
   <div id="register-screen" class="hidden">
     <h2>Créer un compte</h2>
     <input type="email" id="register-email" placeholder="Email" />
@@ -34,19 +34,23 @@
   <div id="main-screen" class="hidden">
     <div class="top-bar">
       <span id="welcome"></span>
-      <button onclick="logout()" style="margin-left:auto;">Déconnexion</button>
+      <button onclick="logout()">Déconnexion</button>
     </div>
 
-    <button id="add-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+    <!-- Contrôles : notes + ajouter -->
+    <div id="controls-row">
+      <textarea id="notes-box" placeholder="Notes internes, #requête, etc."></textarea>
+      <button id="add-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+    </div>
+
     <div id="calendar"></div>
 
-    <!-- Bouton Débog (discret) -->
     <div style="text-align: right; margin-top: 10px;">
       <button onclick="fixOldEvents()" style="background:#888; font-size: 12px; padding: 6px 12px;">Débog</button>
     </div>
   </div>
 
-  <!-- Modale formulaire de RDV -->
+  <!-- Formulaire de RDV -->
   <div id="event-form" class="modal hidden">
     <div class="modal-content">
       <h3>Rendez-vous</h3>
@@ -72,9 +76,20 @@
       </select>
       <div class="modal-buttons">
         <button onclick="saveEvent()">Sauvegarder</button>
-        <button onclick="deleteEvent(true)">Supprimer ce RDV</button>
-        <button onclick="deleteEvent(false)">Supprimer toute la série</button>
+        <button id="btn-delete-one" onclick="deleteEvent(true)">Supprimer ce RDV</button>
+        <button id="btn-delete-series" onclick="deleteEvent(false)">Supprimer toute la série</button>
         <button onclick="hideEventForm()">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popup notes une fois -->
+  <div id="notes-popup" class="modal hidden">
+    <div class="modal-content">
+      <h3>Note interne</h3>
+      <p id="popup-note-text"></p>
+      <div class="modal-buttons">
+        <button onclick="hideNotesPopup()">OK</button>
       </div>
     </div>
   </div>
