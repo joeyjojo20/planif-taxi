@@ -9,7 +9,6 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 </head>
 <body>
-  <!-- Écran de connexion -->
   <div id="login-screen">
     <h2>Connexion</h2>
     <input type="text" id="email" placeholder="Email" />
@@ -19,7 +18,6 @@
     <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
   </div>
 
-  <!-- Écran d'inscription -->
   <div id="register-screen" class="hidden">
     <h2>Créer un compte</h2>
     <input type="text" id="new-email" placeholder="Email" />
@@ -33,7 +31,6 @@
     <p><a href="#" onclick="showLogin()">Se connecter</a></p>
   </div>
 
-  <!-- Application principale -->
   <div id="app-screen" class="hidden">
     <h2 id="welcome"></h2>
     <button onclick="showAddModal()">Ajouter un rendez-vous</button>
@@ -41,7 +38,6 @@
     <div id="calendar"></div>
   </div>
 
-  <!-- Modale : Ajouter / Modifier -->
   <div id="add-modal" class="modal hidden">
     <div class="modal-content">
       <h3>Rendez-vous</h3>
@@ -74,7 +70,6 @@
     </div>
   </div>
 
-  <!-- Modale : Confirmation suppression -->
   <div id="confirm-modal" class="modal hidden">
     <div class="modal-content">
       <h3>Supprimer le rendez-vous</h3>
