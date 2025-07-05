@@ -175,11 +175,16 @@ function saveEvent() {
 // Suppression RDV
 function deleteEvent(onlyThis) {
   if (!currentEventId) return;
+
   const baseId = currentEventId.includes("-") ? currentEventId.split("-")[0] : currentEventId;
 
   events = events.filter(e => {
-    if (onlyThis) return e.id !== currentEventId;
-    return !e.id.startsWith(baseId);
+    if (!e.id) return true; // sécurité si ID manquant
+    if (onlyThis) {
+      return e.id !== currentEventId;
+    } else {
+      return !(e.id === baseId || e.id.startsWith(baseId));
+    }
   });
 
   localStorage.setItem("events", JSON.stringify(events));
