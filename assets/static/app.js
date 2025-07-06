@@ -185,15 +185,31 @@ function saveEvent() {
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const start = new Date(date);
-  const eventList = [{ id: baseId, title: fullTitle, start: start.toISOString(), allDay: false }];
+  const eventList = [{
+    id: baseId,
+    title: fullTitle,
+    start: start.toISOString(),
+    allDay: false
+  }];
 
   for (let i = 1; i <= 24; i++) {
-    let newDate = new Date(start);
+    let newDate = new Date(start.getTime());
     switch (repeat) {
-      case "daily": newDate.setDate(start.getDate() + i); break;
-      case "weekly": newDate.setDate(start.getDate() + 7 * i); break;
-      case "monthly": newDate.setMonth(start.getMonth() + i); break;
+      case "daily":
+        newDate.setDate(newDate.getDate() + i);
+        break;
+      case "weekly":
+        newDate.setDate(newDate.getDate() + 7 * i);
+        break;
+      case "monthly":
+        const day = newDate.getDate();
+        newDate.setMonth(newDate.getMonth() + i);
+        if (newDate.getDate() < day) {
+          newDate.setDate(0);
+        }
+        break;
     }
+
     if (repeat !== "none") {
       eventList.push({
         id: `${baseId}-${i}`,
