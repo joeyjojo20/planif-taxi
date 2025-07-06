@@ -1,6 +1,6 @@
 body {
   font-family: Arial, sans-serif;
-  background-color: #f4f4f4;
+  background-color: #f3f3f3;
   margin: 0;
   padding: 0;
 }
@@ -11,25 +11,23 @@ body {
 
 input, select, textarea {
   display: block;
-  width: 100%;
   margin: 10px 0;
   padding: 8px;
+  width: 100%;
   box-sizing: border-box;
-}
-
-textarea {
-  resize: vertical;
-  min-height: 60px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 14px;
 }
 
 button {
-  background-color: #007bff;
-  border: none;
-  color: white;
-  padding: 10px;
+  padding: 10px 15px;
   margin: 5px 0;
-  font-weight: bold;
+  border: none;
   border-radius: 5px;
+  background-color: #007bff;
+  color: white;
+  font-weight: bold;
   cursor: pointer;
 }
 
@@ -37,24 +35,20 @@ button:hover {
   background-color: #0056b3;
 }
 
-h2, h3 {
-  margin-top: 0;
+button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
 
 #login-screen,
-#register-screen {
-  max-width: 400px;
-  margin: 40px auto;
+#register-screen,
+#main-screen {
+  max-width: 480px;
+  margin: 20px auto;
   padding: 20px;
   background: white;
   border-radius: 10px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.1);
-}
-
-#main-screen {
-  padding: 10px;
-  max-width: 900px;
-  margin: 0 auto;
+  box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
 .header {
@@ -63,48 +57,49 @@ h2, h3 {
   align-items: center;
 }
 
-.top-right {
-  position: absolute;
-  top: 15px;
-  right: 15px;
+#logout-btn {
+  background-color: #dc3545;
 }
 
-.toolbar {
+#logout-btn:hover {
+  background-color: #c82333;
+}
+
+.top-bar {
   display: flex;
+  justify-content: space-between;
   gap: 10px;
-  align-items: flex-start;
-  margin-bottom: 10px;
+  margin-top: 10px;
+}
+
+#notes-box {
+  width: 40%;
+  height: 70px;
+  resize: none;
+  font-size: 12px;
+}
+
+.calendar-actions {
+  width: 60%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 #calendar {
+  margin-top: 15px;
   background: white;
-  padding: 10px;
   border-radius: 10px;
-  box-shadow: 0 0 8px rgba(0,0,0,0.1);
+  padding: 8px;
+  box-shadow: 0 0 6px rgba(0,0,0,0.1);
 }
 
-/* Bouton Débog */
-#fix-btn {
-  position: fixed;
-  bottom: 10px;
-  left: 10px;
-  background-color: #888;
-  font-size: 0.8em;
-  padding: 6px 10px;
-  opacity: 0.8;
-}
-
-#fix-btn:hover {
-  opacity: 1;
-  background-color: #555;
-}
-
-/* MODALES */
 .modal {
   position: fixed;
   top: 0; left: 0;
   width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.4);
+  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,39 +108,50 @@ h2, h3 {
 
 .modal-content {
   background-color: white;
-  padding: 20px;
-  width: 90%;
-  max-width: 400px;
+  padding: 18px;
   border-radius: 10px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.2);
+  width: 95%;
+  max-width: 400px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 
 .modal-buttons {
+  margin-top: 15px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 15px;
+  gap: 8px;
 }
 
-/* Surlignage semaine */
+/* Couleurs pour les événements selon semaine */
 .fc-event.current-week {
+  background-color: #007bff !important;
+  color: white !important;
   font-weight: bold;
-  background-color: #00c6ff !important;
-  border: none;
+}
+.fc-event.future-week {
+  background-color: #d1e7ff !important;
+  color: #333 !important;
 }
 
-.fc-event.future-week {
-  opacity: 0.8;
+/* Taille ajustée des cellules */
+.fc .fc-daygrid-day-frame {
+  min-height: 70px;
+}
+.fc .fc-daygrid-day.fc-day-today {
+  background-color: #e0f0ff !important;
 }
 
 /* Responsive */
-@media (max-width: 600px) {
-  .toolbar {
+@media screen and (max-width: 500px) {
+  .top-bar {
     flex-direction: column;
   }
-
-  .top-right {
-    position: static;
-    margin-left: auto;
+  #notes-box {
+    width: 100%;
+  }
+  .calendar-actions {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
   }
 }
