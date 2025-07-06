@@ -56,6 +56,7 @@ function showApp() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.remove("hidden");
   document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
+
   const noteKey = "notes_" + currentUser.email;
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
@@ -86,7 +87,6 @@ document.getElementById("notes-box").addEventListener("input", () => {
   }
 });
 
-// Calendrier
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
@@ -136,13 +136,12 @@ function shortenEvent(title, dateStr) {
   const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
   const date = new Date(dateStr);
   const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
-  return `${name} – ${heure} – ${pickup}`;
+  return `${heure} ${name} ${pickup}`;
 }
 
-// Affichage modale
 function onEventClick(info) {
   const event = info.event;
-  const [name, , pickup] = event.title.split(" – ");
+  const [heure, name, pickup] = event.title.split(" ");
   const full = events.find(e => e.id === event.id);
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
@@ -157,6 +156,7 @@ function onEventClick(info) {
 
   document.getElementById("btn-delete-one").disabled = false;
   document.getElementById("btn-delete-series").disabled = false;
+
   document.getElementById("event-form").classList.remove("hidden");
 }
 
@@ -171,6 +171,7 @@ function showEventForm() {
 
   document.getElementById("btn-delete-one").disabled = true;
   document.getElementById("btn-delete-series").disabled = true;
+
   document.getElementById("event-form").classList.remove("hidden");
 }
 
@@ -179,7 +180,6 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Sauvegarde et récurrence
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -189,7 +189,6 @@ function saveEvent() {
   const notify = document.getElementById("notification").value;
 
   const editId = document.getElementById("event-form").dataset.editId;
-
   if (!name || !date) {
     alert("Nom et date requis");
     return;
@@ -197,27 +196,19 @@ function saveEvent() {
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
-  const startDate = new Date(date);
-
-  let eventList = [{
-    id: baseId,
-    title: fullTitle,
-    start: startDate.toISOString().slice(0, 16),
-    allDay: false
-  }];
+  const start = new Date(date);
+  let eventList = [{ id: baseId, title: fullTitle, start: start.toISOString().slice(0, 16), allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
-    let next = new Date(startDate);
-    switch (repeat) {
-      case "daily": next.setDate(next.getDate() + i); break;
-      case "weekly": next.setDate(next.getDate() + 7 * i); break;
-      case "monthly": next.setMonth(next.getMonth() + i); break;
-    }
+    let clone = new Date(start);
+    if (repeat === "daily") clone.setDate(clone.getDate() + i);
+    if (repeat === "weekly") clone.setDate(clone.getDate() + 7 * i);
+    if (repeat === "monthly") clone.setMonth(clone.getMonth() + i);
     if (repeat !== "none") {
       eventList.push({
         id: `${baseId}-${i}`,
         title: fullTitle,
-        start: next.toISOString().slice(0, 16),
+        start: clone.toISOString().slice(0, 16),
         allDay: false
       });
     }
@@ -231,7 +222,7 @@ function saveEvent() {
   localStorage.setItem("events", JSON.stringify(events));
 
   if (notify !== "none") {
-    const delay = startDate.getTime() - Date.now() - parseInt(notify) * 60000;
+    const delay = start.getTime() - Date.now() - parseInt(notify) * 60000;
     if (delay > 0) {
       setTimeout(() => {
         alert(`Rappel : RDV avec ${name} à ${pickup}`);
@@ -243,7 +234,6 @@ function saveEvent() {
   renderCalendar();
 }
 
-// Suppression
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
