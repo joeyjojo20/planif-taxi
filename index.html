@@ -35,22 +35,14 @@
 
   <!-- Écran principal -->
   <div id="main-screen" class="hidden">
-    <!-- En-tête avec bouton Déconnexion -->
     <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
       <span id="welcome"></span>
       <button onclick="logout()">Déconnexion</button>
     </div>
 
-    <!-- Zone de notes internes -->
     <textarea id="notes-box" placeholder="Notes internes..."></textarea>
-
-    <!-- Bouton Ajouter -->
     <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
-
-    <!-- Calendrier -->
     <div id="calendar"></div>
-
-    <!-- Bouton Débog -->
     <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
   </div>
 
@@ -62,19 +54,27 @@
       <input type="text" id="pickup-address" placeholder="Adresse de départ" />
       <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
       <input type="datetime-local" id="event-date" />
+
       <label>Répétition
         <select id="recurrence">
-         <label id="recurrence-duration-label" class="hidden">Durée de répétition
-  <select id="recurrence-duration">
-    <option value="1w">1 semaine</option>
-    <option value="2w">2 semaines</option>
-    <option value="1m">1 mois</option>
-    <option value="2m">2 mois</option>
-    <option value="3m">3 mois</option>
-    <option value="6m">6 mois</option>
-    <option value="12m">1 an</option>
-  </select>
-</label>
+          <option value="none">Aucune</option>
+          <option value="daily">Quotidienne</option>
+          <option value="weekly">Hebdomadaire</option>
+          <option value="monthly">Mensuelle</option>
+        </select>
+      </label>
+
+      <label id="recurrence-duration-label" class="hidden">Durée de répétition
+        <select id="recurrence-duration">
+          <option value="1w">1 semaine</option>
+          <option value="2w">2 semaines</option>
+          <option value="1m">1 mois</option>
+          <option value="2m">2 mois</option>
+          <option value="3m">3 mois</option>
+          <option value="6m">6 mois</option>
+          <option value="12m">1 an</option>
+        </select>
+      </label>
 
       <label>Notification avant
         <select id="notification">
@@ -86,6 +86,7 @@
           <option value="7200">5 jours</option>
         </select>
       </label>
+
       <div class="modal-buttons">
         <button onclick="saveEvent()">Sauvegarder</button>
         <button onclick="hideEventForm()">Annuler</button>
