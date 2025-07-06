@@ -63,6 +63,7 @@ function showApp() {
   renderCalendar();
 }
 
+// Afficher note interne une seule fois
 function showNotesIfAny() {
   const noteKey = "notes_" + currentUser.email;
   const alreadySeen = localStorage.getItem("popup_shown_" + currentUser.email);
@@ -111,6 +112,7 @@ function renderCalendar() {
   calendar.render();
 }
 
+// Abréger pour affichage rapide
 function shortenEvent(title, dateStr) {
   const parts = title.split(" – ");
   const name = parts[0];
@@ -121,7 +123,28 @@ function shortenEvent(title, dateStr) {
   return `${name} – ${heure} – ${pickup}`;
 }
 
-// Ajouter / Modifier événement
+// Afficher le formulaire
+function showEventForm() {
+  document.getElementById("client-name").value = "";
+  document.getElementById("pickup-address").value = "";
+  document.getElementById("dropoff-address").value = "";
+  document.getElementById("event-date").value = "";
+  document.getElementById("recurrence").value = "none";
+  document.getElementById("notification").value = "none";
+  delete document.getElementById("event-form").dataset.editId;
+
+  document.getElementById("btn-delete-one").disabled = true;
+  document.getElementById("btn-delete-series").disabled = true;
+
+  document.getElementById("event-form").classList.remove("hidden");
+}
+
+function hideEventForm() {
+  document.getElementById("event-form").classList.add("hidden");
+  delete document.getElementById("event-form").dataset.editId;
+}
+
+// Clic sur événement pour modifier
 function onEventClick(info) {
   const event = info.event;
   const [name, , pickup] = event.title.split(" – ");
@@ -143,26 +166,7 @@ function onEventClick(info) {
   document.getElementById("event-form").classList.remove("hidden");
 }
 
-function showEventForm() {
-  document.getElementById("client-name").value = "";
-  document.getElementById("pickup-address").value = "";
-  document.getElementById("dropoff-address").value = "";
-  document.getElementById("event-date").value = "";
-  document.getElementById("recurrence").value = "none";
-  document.getElementById("notification").value = "none";
-  delete document.getElementById("event-form").dataset.editId;
-
-  document.getElementById("btn-delete-one").disabled = true;
-  document.getElementById("btn-delete-series").disabled = true;
-
-  document.getElementById("event-form").classList.remove("hidden");
-}
-
-function hideEventForm() {
-  document.getElementById("event-form").classList.add("hidden");
-  delete document.getElementById("event-form").dataset.editId;
-}
-
+// Sauvegarde
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -170,6 +174,7 @@ function saveEvent() {
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
+
   const editId = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) {
@@ -180,7 +185,7 @@ function saveEvent() {
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const start = new Date(date);
-  let eventList = [{ id: baseId, title: fullTitle, start: date, allDay: false }];
+  const eventList = [{ id: baseId, title: fullTitle, start: start.toISOString(), allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
@@ -193,7 +198,7 @@ function saveEvent() {
       eventList.push({
         id: `${baseId}-${i}`,
         title: fullTitle,
-        start: newDate.toISOString().slice(0, 16),
+        start: newDate.toISOString(),
         allDay: false
       });
     }
