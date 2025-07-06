@@ -2,55 +2,55 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
-  <link rel="stylesheet" href="assets/static/style.css?v=1"/>
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
-</head>
-<body onload="showLogin()">
 
-  <!-- Connexion -->
+  <link rel="stylesheet" href="assets/static/style.css" />
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+</head>
+<body>
+
+  <!-- Écran de connexion -->
   <div id="login-screen">
     <h2>Connexion</h2>
-    <input type="email" id="email" placeholder="Email" />
+    <input type="text" id="email" placeholder="Email" />
     <input type="password" id="password" placeholder="Mot de passe" />
     <button onclick="login()">Connexion</button>
     <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
   </div>
 
-  <!-- Inscription -->
+  <!-- Écran d'inscription -->
   <div id="register-screen" class="hidden">
     <h2>Créer un compte</h2>
-    <input type="email" id="register-email" placeholder="Email" />
+    <input type="text" id="register-email" placeholder="Email" />
     <input type="password" id="register-password" placeholder="Mot de passe" />
     <select id="register-role">
       <option value="user">Utilisateur</option>
+      <option value="admin">Admin</option>
     </select>
-    <button onclick="register()">S'inscrire</button>
-    <p><a href="#" onclick="showLogin()">Retour</a></p>
+    <button onclick="register()">Créer</button>
+    <p><a href="#" onclick="showLogin()">Se connecter</a></p>
   </div>
 
   <!-- Écran principal -->
   <div id="main-screen" class="hidden">
-    <div class="top-bar">
+    <div class="header">
       <span id="welcome"></span>
-      <button onclick="logout()">Déconnexion</button>
+      <button class="top-right" onclick="logout()">Déconnexion</button>
     </div>
 
-    <!-- Contrôles : notes + ajouter -->
-    <div id="controls-row">
-      <textarea id="notes-box" placeholder="Notes internes, #requête, etc."></textarea>
-      <button id="add-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+    <div class="toolbar">
+      <textarea id="notes-box" placeholder="Notes internes..."></textarea>
+      <button onclick="showEventForm()">Ajouter un rendez-vous</button>
     </div>
 
     <div id="calendar"></div>
 
-    <div style="text-align: right; margin-top: 10px;">
-      <button onclick="fixOldEvents()" style="background:#888; font-size: 12px; padding: 6px 12px;">Débog</button>
-    </div>
+    <button id="fix-btn" onclick="fixOldEvents()">Débog</button>
   </div>
 
-  <!-- Formulaire de RDV -->
+  <!-- Formulaire de rendez-vous -->
   <div id="event-form" class="modal hidden">
     <div class="modal-content">
       <h3>Rendez-vous</h3>
@@ -58,22 +58,27 @@
       <input type="text" id="pickup-address" placeholder="Adresse de départ" />
       <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
       <input type="datetime-local" id="event-date" />
-      <label for="recurrence">Répétition</label>
-      <select id="recurrence">
-        <option value="none">Aucune</option>
-        <option value="daily">Quotidienne</option>
-        <option value="weekly">Hebdomadaire</option>
-        <option value="monthly">Mensuelle</option>
-      </select>
-      <label for="notification">Notification avant</label>
-      <select id="notification">
-        <option value="none">Aucune</option>
-        <option value="15">15 minutes</option>
-        <option value="30">30 minutes</option>
-        <option value="120">2 heures</option>
-        <option value="1440">1 jour</option>
-        <option value="7200">5 jours</option>
-      </select>
+
+      <label>Répétition :
+        <select id="recurrence">
+          <option value="none">Aucune</option>
+          <option value="daily">Quotidienne</option>
+          <option value="weekly">Hebdomadaire</option>
+          <option value="monthly">Mensuelle</option>
+        </select>
+      </label>
+
+      <label>Notification avant :
+        <select id="notification">
+          <option value="none">Aucune</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="120">2 heures</option>
+          <option value="1440">1 jour</option>
+          <option value="7200">5 jours</option>
+        </select>
+      </label>
+
       <div class="modal-buttons">
         <button onclick="saveEvent()">Sauvegarder</button>
         <button id="btn-delete-one" onclick="deleteEvent(true)">Supprimer ce RDV</button>
@@ -83,17 +88,15 @@
     </div>
   </div>
 
-  <!-- Popup notes une fois -->
+  <!-- Popup notes internes -->
   <div id="notes-popup" class="modal hidden">
     <div class="modal-content">
-      <h3>Note interne</h3>
+      <h3>Notes internes</h3>
       <p id="popup-note-text"></p>
-      <div class="modal-buttons">
-        <button onclick="hideNotesPopup()">OK</button>
-      </div>
+      <button onclick="hideNotesPopup()">Fermer</button>
     </div>
   </div>
 
-  <script src="assets/static/app.js?v=1"></script>
+  <script src="assets/static/app.js"></script>
 </body>
 </html>
