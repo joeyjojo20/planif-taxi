@@ -56,12 +56,14 @@ function showApp() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.remove("hidden");
   document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
+
   const noteKey = "notes_" + currentUser.email;
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
   renderCalendar();
 }
 
+// Notes internes
 function showNotesIfAny() {
   const noteKey = "notes_" + currentUser.email;
   const alreadySeen = localStorage.getItem("popup_shown_" + currentUser.email);
@@ -86,6 +88,7 @@ document.getElementById("notes-box").addEventListener("input", () => {
   }
 });
 
+// Calendrier
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
@@ -103,10 +106,29 @@ function renderCalendar() {
       ...e,
       title: shortenEvent(e.title, e.start)
     })),
+    eventDidMount: function(info) {
+      const today = new Date();
+      const date = new Date(info.event.start);
+      const week1 = getWeekNumber(today);
+      const week2 = getWeekNumber(date);
+      if (week1 === week2) {
+        info.el.classList.add("current-week");
+      } else {
+        info.el.classList.add("future-week");
+      }
+    },
     eventClick: onEventClick
   });
 
   calendar.render();
+}
+
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 }
 
 function shortenEvent(title, dateStr) {
@@ -119,12 +141,12 @@ function shortenEvent(title, dateStr) {
   return `${name} – ${heure} – ${pickup}`;
 }
 
+// Affichage
 function onEventClick(info) {
   const event = info.event;
   const [name, , pickup] = event.title.split(" – ");
   const full = events.find(e => e.id === event.id);
-  const original = full?.title.split(" – ");
-  const trajet = original?.[1]?.split(" > ") || ["", ""];
+  const trajet = full?.title.split(" – ")[1]?.split(" > ") || ["", ""];
 
   document.getElementById("client-name").value = name || "";
   document.getElementById("pickup-address").value = trajet[0] || pickup || "";
@@ -160,6 +182,7 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
+// Sauvegarder un événement
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -177,14 +200,16 @@ function saveEvent() {
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const start = new Date(date);
-  let eventList = [{ id: baseId, title: fullTitle, start: date, allDay: false }];
+  const isoBase = start.toISOString().slice(0, 16);
+
+  let eventList = [{ id: baseId, title: fullTitle, start: isoBase, allDay: false }];
 
   for (let i = 1; i <= 24; i++) {
     let newDate = new Date(start);
     switch (repeat) {
-      case "daily": newDate.setDate(newDate.getDate() + i); break;
-      case "weekly": newDate.setDate(newDate.getDate() + 7 * i); break;
-      case "monthly": newDate.setMonth(newDate.getMonth() + i); break;
+      case "daily": newDate.setDate(start.getDate() + i); break;
+      case "weekly": newDate.setDate(start.getDate() + 7 * i); break;
+      case "monthly": newDate.setMonth(start.getMonth() + i); break;
     }
     if (repeat !== "none") {
       eventList.push({
@@ -216,6 +241,7 @@ function saveEvent() {
   renderCalendar();
 }
 
+// Suppression
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
