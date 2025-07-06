@@ -418,6 +418,13 @@ function confirmDelete(type) {
   closeDeleteModal();
   hideEventForm();
   renderCalendar();
+  function openDeleteModal() {
+  document.getElementById("delete-modal").classList.remove("hidden");
+}
+
+function closeDeleteModal() {
+  document.getElementById("delete-modal").classList.add("hidden");
+}
 }
 
 }
