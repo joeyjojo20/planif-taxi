@@ -91,7 +91,27 @@
         <button onclick="saveEvent()">Sauvegarder</button>
         <button onclick="hideEventForm()">Annuler</button>
         <button id="btn-delete-one" onclick="deleteEvent(true)" disabled>Supprimer ce RDV</button>
-        <button id="btn-delete-series" onclick="deleteEvent(false)" disabled>Supprimer la série</button>
+        <button id="btn-delete-series" onclick="openDeleteModal()" disabled>Supprimer la série</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale de suppression avancée -->
+  <div id="delete-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Supprimer la récurrence</h3>
+      <p>Choisissez la portée de la suppression :</p>
+      <div class="modal-buttons">
+        <button onclick="confirmDelete('one')">Ce RDV seulement</button>
+        <button onclick="confirmDelete('all')">Toute la série</button>
+        <button onclick="confirmDelete('1w')">RDV dans 1 semaine</button>
+        <button onclick="confirmDelete('2w')">RDV dans 2 semaines</button>
+        <button onclick="confirmDelete('1m')">RDV dans 1 mois</button>
+        <button onclick="confirmDelete('2m')">RDV dans 2 mois</button>
+        <button onclick="confirmDelete('3m')">RDV dans 3 mois</button>
+        <button onclick="confirmDelete('6m')">RDV dans 6 mois</button>
+        <button onclick="confirmDelete('12m')">RDV dans 1 an</button>
+        <button onclick="closeDeleteModal()">Annuler</button>
       </div>
     </div>
   </div>
