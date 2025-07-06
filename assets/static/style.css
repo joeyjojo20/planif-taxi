@@ -95,13 +95,15 @@ button:disabled {
 
 #add-modal,
 #confirm-modal,
-#notes-popup {
+#notes-popup,
+#delete-modal {
   display: none;
 }
 
 #add-modal:not(.hidden),
 #confirm-modal:not(.hidden),
-#notes-popup:not(.hidden) {
+#notes-popup:not(.hidden),
+#delete-modal:not(.hidden) {
   display: flex;
 }
 
@@ -175,4 +177,18 @@ button:disabled {
 .fc-event.future-week {
   background-color: #6c757d !important;
   color: white !important;
+}
+
+/* Empêche les titres de RDV de déborder */
+.fc-event-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.fc-event {
+  font-size: 0.8rem;
+  line-height: 1.2;
+  padding: 2px 4px;
 }
