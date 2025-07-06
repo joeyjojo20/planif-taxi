@@ -56,14 +56,12 @@ function showApp() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.remove("hidden");
   document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
-
   const noteKey = "notes_" + currentUser.email;
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
   renderCalendar();
 }
 
-// Notes internes
 function showNotesIfAny() {
   const noteKey = "notes_" + currentUser.email;
   const alreadySeen = localStorage.getItem("popup_shown_" + currentUser.email);
@@ -88,7 +86,25 @@ document.getElementById("notes-box").addEventListener("input", () => {
   }
 });
 
-// Calendrier
+// Raccourci
+function shortenEvent(title, dateStr) {
+  const parts = title.split(" – ");
+  const name = parts[0];
+  const trajet = parts[1]?.split(" > ") || ["", ""];
+  const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
+  const date = new Date(dateStr);
+  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
+  return `${name} – ${heure} – ${pickup}`;
+}
+
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
@@ -123,30 +139,12 @@ function renderCalendar() {
   calendar.render();
 }
 
-function getWeekNumber(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-}
-
-function shortenEvent(title, dateStr) {
-  const parts = title.split(" – ");
-  const name = parts[0];
-  const trajet = parts[1]?.split(" > ") || ["", ""];
-  const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
-  const date = new Date(dateStr);
-  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
-  return `${name} – ${heure} – ${pickup}`;
-}
-
-// Affichage
 function onEventClick(info) {
   const event = info.event;
   const [name, , pickup] = event.title.split(" – ");
   const full = events.find(e => e.id === event.id);
-  const trajet = full?.title.split(" – ")[1]?.split(" > ") || ["", ""];
+  const original = full?.title.split(" – ");
+  const trajet = original?.[1]?.split(" > ") || ["", ""];
 
   document.getElementById("client-name").value = name || "";
   document.getElementById("pickup-address").value = trajet[0] || pickup || "";
@@ -182,39 +180,47 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Sauvegarder un événement
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
   const dropoff = document.getElementById("dropoff-address").value;
-  const date = document.getElementById("event-date").value;
+  const dateStr = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
   const editId = document.getElementById("event-form").dataset.editId;
 
-  if (!name || !date) {
+  if (!name || !dateStr) {
     alert("Nom et date requis");
     return;
   }
 
-  const fullTitle = `${name} – ${pickup} > ${dropoff}`;
+  const title = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
-  const start = new Date(date);
-  const isoBase = start.toISOString().slice(0, 16);
+  const startDate = new Date(dateStr);
+  const hour = startDate.getHours();
+  const minutes = startDate.getMinutes();
 
-  let eventList = [{ id: baseId, title: fullTitle, start: isoBase, allDay: false }];
+  let eventList = [{
+    id: baseId,
+    title,
+    start: dateStr,
+    allDay: false
+  }];
 
   for (let i = 1; i <= 24; i++) {
-    let newDate = new Date(start);
+    let newDate = new Date(startDate.getTime());
     switch (repeat) {
-      case "daily": newDate.setDate(start.getDate() + i); break;
-      case "weekly": newDate.setDate(start.getDate() + 7 * i); break;
-      case "monthly": newDate.setMonth(start.getMonth() + i); break;
+      case "daily": newDate.setDate(startDate.getDate() + i); break;
+      case "weekly": newDate.setDate(startDate.getDate() + 7 * i); break;
+      case "monthly": newDate.setMonth(startDate.getMonth() + i); break;
     }
+
+    newDate.setHours(hour, minutes);
+
     if (repeat !== "none") {
       eventList.push({
         id: `${baseId}-${i}`,
-        title: fullTitle,
+        title,
         start: newDate.toISOString().slice(0, 16),
         allDay: false
       });
@@ -229,7 +235,7 @@ function saveEvent() {
   localStorage.setItem("events", JSON.stringify(events));
 
   if (notify !== "none") {
-    const delay = new Date(date).getTime() - Date.now() - parseInt(notify) * 60000;
+    const delay = new Date(dateStr).getTime() - Date.now() - parseInt(notify) * 60000;
     if (delay > 0) {
       setTimeout(() => {
         alert(`Rappel : RDV avec ${name} à ${pickup}`);
@@ -241,7 +247,6 @@ function saveEvent() {
   renderCalendar();
 }
 
-// Suppression
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
