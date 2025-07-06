@@ -114,15 +114,6 @@ button:disabled {
   gap: 8px;
 }
 
-/* Barre supérieure */
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-/* Notes internes */
 #notes-box {
   width: 100%;
   max-height: 60px;
@@ -130,7 +121,6 @@ button:disabled {
   padding: 6px;
 }
 
-/* Boutons */
 #add-event-btn {
   margin-top: 10px;
 }
@@ -140,7 +130,6 @@ button:disabled {
   margin-top: 5px;
 }
 
-/* Responsive */
 @media screen and (max-width: 600px) {
   #main-screen {
     margin: 15px;
@@ -173,22 +162,23 @@ button:disabled {
   color: white !important;
 }
 
-/* Autres semaines */
 .fc-event.future-week {
   background-color: #6c757d !important;
   color: white !important;
 }
 
-/* Empêche les titres de RDV de déborder */
+/* Éviter les débordements */
 .fc-event-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  display: block;
 }
 
 .fc-event {
   font-size: 0.8rem;
-  line-height: 1.2;
   padding: 2px 4px;
+  line-height: 1.2;
+  word-break: break-word;
 }
