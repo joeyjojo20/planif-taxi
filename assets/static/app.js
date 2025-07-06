@@ -326,5 +326,52 @@ function confirmDelete(type) {
   closeDeleteModal();
   hideEventForm();
   renderCalendar();
+  function openDeleteModal() {
+  document.getElementById("delete-modal").classList.remove("hidden");
+}
+
+function closeDeleteModal() {
+  document.getElementById("delete-modal").classList.add("hidden");
+}
+
+function confirmDelete(type) {
+  const editId = document.getElementById("event-form").dataset.editId;
+  if (!editId) return;
+  const baseId = editId.split("-")[0];
+  const original = events.find(e => e.id === editId);
+  if (!original) return;
+
+  const startDate = new Date(original.start);
+  let limitDate = new Date(startDate);
+
+  switch (type) {
+    case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
+    case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
+    case "1m": limitDate.setMonth(limitDate.getMonth() + 1); break;
+    case "2m": limitDate.setMonth(limitDate.getMonth() + 2); break;
+    case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
+    case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
+    case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
+    case "one":
+      events = events.filter(e => e.id !== editId);
+      break;
+    case "all":
+      events = events.filter(e => !e.id.startsWith(baseId));
+      break;
+  }
+
+  if (["1w", "2w", "1m", "2m", "3m", "6m", "12m"].includes(type)) {
+    events = events.filter(e => {
+      if (!e.id.startsWith(baseId)) return true;
+      const d = new Date(e.start);
+      return d > limitDate;
+    });
+  }
+
+  localStorage.setItem("events", JSON.stringify(events));
+  closeDeleteModal();
+  hideEventForm();
+  renderCalendar();
+}
 }
 }
