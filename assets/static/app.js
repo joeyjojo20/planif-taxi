@@ -88,6 +88,16 @@ document.getElementById("notes-box").addEventListener("input", () => {
   }
 });
 
+document.getElementById("recurrence").addEventListener("change", () => {
+  const repeat = document.getElementById("recurrence").value;
+  const durationField = document.getElementById("recurrence-duration-label");
+  if (repeat !== "none") {
+    durationField.classList.remove("hidden");
+  } else {
+    durationField.classList.add("hidden");
+  }
+});
+
 // Calendrier
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
@@ -112,7 +122,6 @@ function renderCalendar() {
   calendar.render();
 }
 
-// Abréger pour affichage rapide
 function shortenEvent(title, dateStr) {
   const parts = title.split(" – ");
   const name = parts[0];
@@ -123,7 +132,6 @@ function shortenEvent(title, dateStr) {
   return `${name} – ${heure} – ${pickup}`;
 }
 
-// Afficher le formulaire
 function showEventForm() {
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
@@ -131,6 +139,8 @@ function showEventForm() {
   document.getElementById("event-date").value = "";
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
+  document.getElementById("recurrence-duration-label").classList.add("hidden");
+  document.getElementById("recurrence-duration").value = "1w";
   delete document.getElementById("event-form").dataset.editId;
 
   document.getElementById("btn-delete-one").disabled = true;
@@ -144,7 +154,6 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
-// Clic sur événement pour modifier
 function onEventClick(info) {
   const event = info.event;
   const [name, , pickup] = event.title.split(" – ");
@@ -158,6 +167,7 @@ function onEventClick(info) {
   document.getElementById("event-date").value = event.startStr.slice(0, 16);
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
+  document.getElementById("recurrence-duration-label").classList.add("hidden");
   document.getElementById("event-form").dataset.editId = event.id;
 
   document.getElementById("btn-delete-one").disabled = false;
@@ -166,7 +176,6 @@ function onEventClick(info) {
   document.getElementById("event-form").classList.remove("hidden");
 }
 
-// Sauvegarde
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
@@ -174,6 +183,7 @@ function saveEvent() {
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
+  const duration = document.getElementById("recurrence-duration").value;
 
   const editId = document.getElementById("event-form").dataset.editId;
 
@@ -192,32 +202,40 @@ function saveEvent() {
     allDay: false
   }];
 
-  for (let i = 1; i <= 24; i++) {
+  let limitDate = new Date(start);
+  switch (duration) {
+    case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
+    case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
+    case "1m": limitDate.setMonth(limitDate.getMonth() + 1); break;
+    case "2m": limitDate.setMonth(limitDate.getMonth() + 2); break;
+    case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
+    case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
+    case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
+  }
+
+  let count = 1;
+  while (repeat !== "none") {
     let newDate = new Date(start.getTime());
     switch (repeat) {
-      case "daily":
-        newDate.setDate(newDate.getDate() + i);
-        break;
-      case "weekly":
-        newDate.setDate(newDate.getDate() + 7 * i);
-        break;
+      case "daily": newDate.setDate(newDate.getDate() + count); break;
+      case "weekly": newDate.setDate(newDate.getDate() + 7 * count); break;
       case "monthly":
         const day = newDate.getDate();
-        newDate.setMonth(newDate.getMonth() + i);
-        if (newDate.getDate() < day) {
-          newDate.setDate(0);
-        }
+        newDate.setMonth(newDate.getMonth() + count);
+        if (newDate.getDate() < day) newDate.setDate(0);
         break;
     }
 
-    if (repeat !== "none") {
-      eventList.push({
-        id: `${baseId}-${i}`,
-        title: fullTitle,
-        start: newDate.toISOString(),
-        allDay: false
-      });
-    }
+    if (newDate > limitDate) break;
+
+    eventList.push({
+      id: `${baseId}-${count}`,
+      title: fullTitle,
+      start: newDate.toISOString(),
+      allDay: false
+    });
+
+    count++;
   }
 
   if (editId) {
