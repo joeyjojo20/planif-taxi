@@ -329,6 +329,8 @@ function confirmDelete(type) {
   function openDeleteModal() {
   document.getElementById("delete-modal").classList.remove("hidden");
 }
+window.openDeleteModal = openDeleteModal;
+window.closeDeleteModal = closeDeleteModal;
 
 function closeDeleteModal() {
   document.getElementById("delete-modal").classList.add("hidden");
