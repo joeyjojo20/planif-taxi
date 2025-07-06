@@ -35,18 +35,22 @@
 
   <!-- Écran principal -->
   <div id="main-screen" class="hidden">
+    <!-- En-tête avec bouton Déconnexion -->
     <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
       <span id="welcome"></span>
       <button onclick="logout()">Déconnexion</button>
     </div>
 
-    <!-- Zone de notes + bouton Ajouter -->
-    <div id="top-bar">
-      <textarea id="notes-box" placeholder="Notes internes..."></textarea>
-      <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
-    </div>
+    <!-- Zone de notes internes -->
+    <textarea id="notes-box" placeholder="Notes internes..."></textarea>
 
+    <!-- Bouton Ajouter -->
+    <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+
+    <!-- Calendrier -->
     <div id="calendar"></div>
+
+    <!-- Bouton Débog -->
     <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
   </div>
 
