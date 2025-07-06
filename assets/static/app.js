@@ -86,25 +86,7 @@ document.getElementById("notes-box").addEventListener("input", () => {
   }
 });
 
-// Raccourci
-function shortenEvent(title, dateStr) {
-  const parts = title.split(" – ");
-  const name = parts[0];
-  const trajet = parts[1]?.split(" > ") || ["", ""];
-  const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
-  const date = new Date(dateStr);
-  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
-  return `${name} – ${heure} – ${pickup}`;
-}
-
-function getWeekNumber(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-}
-
+// Calendrier
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
@@ -139,6 +121,25 @@ function renderCalendar() {
   calendar.render();
 }
 
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+function shortenEvent(title, dateStr) {
+  const parts = title.split(" – ");
+  const name = parts[0];
+  const trajet = parts[1]?.split(" > ") || ["", ""];
+  const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
+  const date = new Date(dateStr);
+  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
+  return `${name} – ${heure} – ${pickup}`;
+}
+
+// Affichage modale
 function onEventClick(info) {
   const event = info.event;
   const [name, , pickup] = event.title.split(" – ");
@@ -156,7 +157,6 @@ function onEventClick(info) {
 
   document.getElementById("btn-delete-one").disabled = false;
   document.getElementById("btn-delete-series").disabled = false;
-
   document.getElementById("event-form").classList.remove("hidden");
 }
 
@@ -171,7 +171,6 @@ function showEventForm() {
 
   document.getElementById("btn-delete-one").disabled = true;
   document.getElementById("btn-delete-series").disabled = true;
-
   document.getElementById("event-form").classList.remove("hidden");
 }
 
@@ -180,48 +179,45 @@ function hideEventForm() {
   delete document.getElementById("event-form").dataset.editId;
 }
 
+// Sauvegarde et récurrence
 function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
   const dropoff = document.getElementById("dropoff-address").value;
-  const dateStr = document.getElementById("event-date").value;
+  const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
+
   const editId = document.getElementById("event-form").dataset.editId;
 
-  if (!name || !dateStr) {
+  if (!name || !date) {
     alert("Nom et date requis");
     return;
   }
 
-  const title = `${name} – ${pickup} > ${dropoff}`;
+  const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
-  const startDate = new Date(dateStr);
-  const hour = startDate.getHours();
-  const minutes = startDate.getMinutes();
+  const startDate = new Date(date);
 
   let eventList = [{
     id: baseId,
-    title,
-    start: dateStr,
+    title: fullTitle,
+    start: startDate.toISOString().slice(0, 16),
     allDay: false
   }];
 
   for (let i = 1; i <= 24; i++) {
-    let newDate = new Date(startDate.getTime());
+    let next = new Date(startDate);
     switch (repeat) {
-      case "daily": newDate.setDate(startDate.getDate() + i); break;
-      case "weekly": newDate.setDate(startDate.getDate() + 7 * i); break;
-      case "monthly": newDate.setMonth(startDate.getMonth() + i); break;
+      case "daily": next.setDate(next.getDate() + i); break;
+      case "weekly": next.setDate(next.getDate() + 7 * i); break;
+      case "monthly": next.setMonth(next.getMonth() + i); break;
     }
-
-    newDate.setHours(hour, minutes);
-
     if (repeat !== "none") {
       eventList.push({
         id: `${baseId}-${i}`,
-        title,
-        start: newDate.toISOString().slice(0, 16),
+        title: fullTitle,
+        start: next.toISOString().slice(0, 16),
         allDay: false
       });
     }
@@ -235,7 +231,7 @@ function saveEvent() {
   localStorage.setItem("events", JSON.stringify(events));
 
   if (notify !== "none") {
-    const delay = new Date(dateStr).getTime() - Date.now() - parseInt(notify) * 60000;
+    const delay = startDate.getTime() - Date.now() - parseInt(notify) * 60000;
     if (delay > 0) {
       setTimeout(() => {
         alert(`Rappel : RDV avec ${name} à ${pickup}`);
@@ -247,6 +243,7 @@ function saveEvent() {
   renderCalendar();
 }
 
+// Suppression
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
