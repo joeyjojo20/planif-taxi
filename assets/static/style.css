@@ -129,8 +129,13 @@ button:disabled {
 }
 
 /* Boutons */
-#add-btn {
-  margin-left: 10px;
+#add-event-btn {
+  margin-top: 10px;
+}
+
+#btn-delete-one,
+#btn-delete-series {
+  margin-top: 5px;
 }
 
 /* Responsive */
@@ -143,6 +148,20 @@ button:disabled {
   .modal-content {
     width: 95%;
     padding: 15px;
+  }
+
+  #calendar {
+    font-size: 0.85rem;
+  }
+
+  button {
+    font-size: 0.9rem;
+    padding: 8px 12px;
+  }
+
+  input, select, textarea {
+    font-size: 0.95rem;
+    padding: 6px;
   }
 }
 
