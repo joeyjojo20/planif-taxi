@@ -9,169 +9,167 @@ h1, h2, h3 {
   margin-top: 0;
 }
 
-input, select, button, textarea {
-  font-size: 1rem;
-  margin-bottom: 0.5rem;
-  padding: 0.5rem;
+input, select, textarea {
+  display: block;
+  margin: 10px 0;
+  padding: 8px;
   width: 100%;
   box-sizing: border-box;
+  font-size: 16px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
 }
 
 button {
+  padding: 10px 15px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 5px;
   background-color: #007bff;
   color: white;
-  border: none;
+  font-weight: bold;
   cursor: pointer;
-  border-radius: 5px;
 }
 
 button:hover {
   background-color: #0056b3;
 }
 
+button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.error {
+  color: red;
+  font-size: 0.9em;
+}
+
 .hidden {
-  display: none;
+  display: none !important;
 }
 
-.screen {
+#login-screen,
+#register-screen,
+#main-screen {
   max-width: 500px;
-  margin: 2rem auto;
-  padding: 1rem;
+  margin: 30px auto;
+  padding: 15px;
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-
-textarea#notes-box {
-  min-height: 50px;
-  margin-bottom: 0.5rem;
+  border-radius: 10px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
 #calendar {
-  max-width: 100%;
-  margin: 1rem auto;
-}
-
-/* Événements actuels en gras */
-.current-week {
-  font-weight: bold;
-  background-color: #eef6ff !important;
-}
-
-.future-week {
-  opacity: 0.85;
-}
-
-.fc-event-title {
-  font-size: 0.85rem;
-  white-space: normal;
-}
-
-.fc .fc-daygrid-event {
-  padding: 1px 2px;
-}
-
-/* Pop-up note */
-#notes-popup {
-  position: fixed;
-  top: 30%;
-  left: 10%;
-  right: 10%;
+  margin-top: 20px;
   background: white;
-  border: 2px solid #007bff;
-  padding: 1rem;
-  z-index: 9999;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-radius: 8px;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.1);
 }
 
-/* Boutons en haut */
 #top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
-}
-
-#top-bar button {
-  margin-left: auto;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 #notes-box {
-  max-width: 60%;
-  margin-right: 1rem;
+  flex: 1;
+  min-width: 150px;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
 }
 
+#add-event-btn {
+  white-space: nowrap;
+}
+
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+#event-form,
+#confirm-modal,
+#notes-popup {
+  display: none;
+}
+
+#event-form:not(.hidden),
+#confirm-modal:not(.hidden),
+#notes-popup:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.fc .fc-daygrid-day.fc-day-today {
+  background-color: #e0f3ff;
+}
+
+.fc-daygrid-event {
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: normal;
+}
+
+.fc .fc-daygrid-day-number {
+  font-size: 14px;
+  padding: 4px;
+}
+
+.current-week .fc-daygrid-event {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.future-week .fc-daygrid-event {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* Responsive ajustements */
 @media (max-width: 600px) {
   #top-bar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  #notes-box {
-    max-width: 100%;
-    margin-right: 0;
-    margin-bottom: 0.5rem;
+  button, input, select, textarea {
+    font-size: 16px;
   }
 
-  button {
-    width: 100%;
-    margin-bottom: 0.5rem;
+  .modal-content {
+    max-width: 95%;
   }
-
-  #notes-popup {
-    left: 5%;
-    right: 5%;
-  }
-}
-
-/* Formulaire événement */
-#event-form {
-  background: white;
-  border: 1px solid #ccc;
-  padding: 0.5rem;
-  margin-top: 1rem;
-  border-radius: 8px;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-#event-form.hidden {
-  display: none;
-}
-
-#event-form button {
-  margin-top: 0.5rem;
-}
-
-/* Ajout d'espace pour petit écran */
-.fc .fc-scrollgrid {
-  font-size: 0.85rem;
-}
-
-.fc-daygrid-day-number {
-  font-size: 0.8rem;
-}
-
-/* Ajuste taille des jours */
-.fc .fc-daygrid-day-frame {
-  min-height: 80px;
-}
-
-.fc .fc-daygrid-day.fc-day-today {
-  background-color: #ffeeba !important;
-}
-
-/* Bouton de débog */
-#btn-fix-events {
-  position: fixed;
-  bottom: 10px;
-  left: 10px;
-  font-size: 0.75rem;
-  background-color: #6c757d;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 5px;
 }
