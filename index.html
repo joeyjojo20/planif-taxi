@@ -2,89 +2,96 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
   <link rel="stylesheet" href="assets/static/style.css" />
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+  <script defer src="assets/static/app.js"></script>
 </head>
 <body>
 
-  <!-- Écran connexion -->
-  <div id="login-screen" class="screen">
+  <!-- Écran de connexion -->
+  <div id="login-screen">
     <h2>Connexion</h2>
-    <input id="email" type="email" placeholder="Email" />
-    <input id="password" type="password" placeholder="Mot de passe" />
-    <button onclick="login()">Se connecter</button>
-    <button onclick="showRegister()">Créer un compte</button>
+    <input type="text" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Mot de passe" />
+    <button onclick="login()">Connexion</button>
+    <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
   </div>
 
-  <!-- Écran inscription -->
-  <div id="register-screen" class="screen hidden">
+  <!-- Écran d'inscription -->
+  <div id="register-screen" class="hidden">
     <h2>Créer un compte</h2>
-    <input id="register-email" type="email" placeholder="Email" />
-    <input id="register-password" type="password" placeholder="Mot de passe" />
+    <input type="text" id="register-email" placeholder="Email" />
+    <input type="password" id="register-password" placeholder="Mot de passe" />
     <select id="register-role">
-      <option value="usager">Usager</option>
+      <option value="user">Utilisateur</option>
       <option value="admin">Admin</option>
     </select>
-    <button onclick="register()">S'inscrire</button>
-    <button onclick="showLogin()">Déjà un compte ? Connexion</button>
+    <button onclick="register()">Créer</button>
+    <p><a href="#" onclick="showLogin()">Se connecter</a></p>
   </div>
 
   <!-- Écran principal -->
-  <div id="main-screen" class="screen hidden">
-    <div id="top-bar">
+  <div id="main-screen" class="hidden">
+    <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
       <span id="welcome"></span>
       <button onclick="logout()">Déconnexion</button>
     </div>
 
+    <!-- Zone de notes + bouton Ajouter -->
     <div id="top-bar">
       <textarea id="notes-box" placeholder="Notes internes..."></textarea>
-      <button onclick="showEventForm()">Ajouter un RDV</button>
+      <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
     </div>
 
     <div id="calendar"></div>
-
-    <form id="event-form" class="hidden">
-      <h3>Rendez-vous</h3>
-      <input id="client-name" placeholder="Nom du client" />
-      <input id="pickup-address" placeholder="Adresse de départ" />
-      <input id="dropoff-address" placeholder="Destination" />
-      <input id="event-date" type="datetime-local" />
-      <label for="recurrence">Récurrence :</label>
-      <select id="recurrence">
-        <option value="none">Aucune</option>
-        <option value="daily">Quotidienne</option>
-        <option value="weekly">Hebdomadaire</option>
-        <option value="monthly">Mensuelle</option>
-      </select>
-      <label for="notification">Notification avant :</label>
-      <select id="notification">
-        <option value="none">Aucune</option>
-        <option value="15">15 min</option>
-        <option value="30">30 min</option>
-        <option value="60">1 heure</option>
-        <option value="1440">1 jour</option>
-      </select>
-
-      <button type="button" onclick="saveEvent()">Enregistrer</button>
-      <button type="button" id="btn-delete-one" onclick="deleteEvent(true)">Supprimer ce RDV</button>
-      <button type="button" id="btn-delete-series" onclick="deleteEvent(false)">Supprimer toute la série</button>
-      <button type="button" onclick="hideEventForm()">Annuler</button>
-    </form>
-
-    <!-- Pop-up des notes internes -->
-    <div id="notes-popup" class="hidden">
-      <h3>Notes internes</h3>
-      <p id="popup-note-text"></p>
-      <button onclick="hideNotesPopup()">Fermer</button>
-    </div>
-
-    <!-- Bouton de débog (réparation des anciens RDV) -->
-    <button id="btn-fix-events" onclick="fixOldEvents()">Débog</button>
+    <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
-  <script src="assets/static/app.js"></script>
+  <!-- Formulaire de rendez-vous -->
+  <div id="event-form" class="modal hidden">
+    <div class="modal-content">
+      <h3>Rendez-vous</h3>
+      <input type="text" id="client-name" placeholder="Nom du client" />
+      <input type="text" id="pickup-address" placeholder="Adresse de départ" />
+      <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
+      <input type="datetime-local" id="event-date" />
+      <label>Répétition
+        <select id="recurrence">
+          <option value="none">Aucune</option>
+          <option value="daily">Quotidienne</option>
+          <option value="weekly">Hebdomadaire</option>
+          <option value="monthly">Mensuelle</option>
+        </select>
+      </label>
+      <label>Notification avant
+        <select id="notification">
+          <option value="none">Aucune</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="120">2 heures</option>
+          <option value="1440">1 jour</option>
+          <option value="7200">5 jours</option>
+        </select>
+      </label>
+      <div class="modal-buttons">
+        <button onclick="saveEvent()">Sauvegarder</button>
+        <button onclick="hideEventForm()">Annuler</button>
+        <button id="btn-delete-one" onclick="deleteEvent(true)" disabled>Supprimer ce RDV</button>
+        <button id="btn-delete-series" onclick="deleteEvent(false)" disabled>Supprimer la série</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popup de notes -->
+  <div id="notes-popup" class="modal hidden">
+    <div class="modal-content">
+      <h3>Note</h3>
+      <p id="popup-note-text"></p>
+      <button onclick="hideNotesPopup()">OK</button>
+    </div>
+  </div>
 </body>
 </html>
