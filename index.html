@@ -124,6 +124,21 @@
       <button onclick="hideNotesPopup()">OK</button>
     </div>
   </div>
-
+<div id="delete-series-modal" class="hidden modal">
+  <div class="modal-content">
+    <h3>Supprimer cette série de rendez-vous</h3>
+    <label for="delete-weeks">Combien de semaines supprimer ?</label>
+    <select id="delete-weeks">
+      <option value="1">1 semaine</option>
+      <option value="2">2 semaines</option>
+      <option value="3">3 semaines</option>
+      <option value="4">4 semaines</option>
+      <option value="8">8 semaines</option>
+      <option value="12">12 semaines</option>
+    </select>
+    <button onclick="confirmDeleteSeries()">Supprimer</button>
+    <button onclick="closeDeleteSeriesModal()">Annuler</button>
+  </div>
+</div>
 </body>
 </html>
