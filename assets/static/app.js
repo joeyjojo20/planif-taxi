@@ -460,3 +460,33 @@ function confirmDeleteSeries() {
 }
 }
 }
+
+
+function openDeleteSeriesModal(editId) {
+  document.getElementById("delete-series-modal").classList.remove("hidden");
+  document.getElementById("delete-series-modal").dataset.editId = editId;
+}
+
+function closeDeleteSeriesModal() {
+  document.getElementById("delete-series-modal").classList.add("hidden");
+  delete document.getElementById("delete-series-modal").dataset.editId;
+}
+
+function confirmDeleteSeries() {
+  const modal = document.getElementById("delete-series-modal");
+  const baseId = modal.dataset.editId.split("-")[0];
+  const weeks = parseInt(document.getElementById("delete-weeks").value);
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() + weeks * 7);
+
+  events = events.filter(e => {
+    const eBase = e.id.split("-")[0];
+    const eDate = new Date(e.start);
+    return eBase !== baseId || eDate > cutoffDate;
+  });
+
+  localStorage.setItem("events", JSON.stringify(events));
+  calendar.refetchEvents();
+  closeDeleteSeriesModal();
+  hideEventForm();
+}
