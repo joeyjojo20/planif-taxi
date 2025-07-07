@@ -140,5 +140,27 @@
     <button onclick="closeDeleteSeriesModal()">Annuler</button>
   </div>
 </div>
+
+<!-- MODAL Suppression de série -->
+<div id="delete-series-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>Supprimer cette série</h3>
+    <label for="delete-weeks">Durée :</label>
+    <select id="delete-weeks">
+      <option value="1">1 semaine</option>
+      <option value="2">2 semaines</option>
+      <option value="4">1 mois</option>
+      <option value="8">2 mois</option>
+      <option value="12">3 mois</option>
+      <option value="24">6 mois</option>
+      <option value="52">12 mois</option>
+      <option value="9999">Tout</option>
+    </select>
+    <br><br>
+    <button onclick="confirmDeleteSeries()">Confirmer</button>
+    <button onclick="closeDeleteSeriesModal()">Annuler</button>
+  </div>
+</div>
 </body>
+
 </html>
