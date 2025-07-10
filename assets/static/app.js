@@ -474,7 +474,10 @@ function closeDeleteSeriesModal() {
 
 function confirmDeleteSeries() {
   const modal = document.getElementById("delete-series-modal");
-  const baseId = modal.dataset.editId.split("-")[0];
+  const editId = document.getElementById("event-form").dataset.editId;
+  if (!editId) return;
+
+  const baseId = editId.split("-")[0];
   const weeks = parseInt(document.getElementById("delete-weeks").value);
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() + weeks * 7);
@@ -486,7 +489,7 @@ function confirmDeleteSeries() {
   });
 
   localStorage.setItem("events", JSON.stringify(events));
-  calendar.refetchEvents();
   closeDeleteSeriesModal();
   hideEventForm();
+  renderCalendar();
 }
