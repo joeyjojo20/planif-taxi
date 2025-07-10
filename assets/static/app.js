@@ -493,3 +493,26 @@ function confirmDeleteSeries() {
   hideEventForm();
   renderCalendar();
 }
+function openConfigModal() {
+  document.getElementById("config-modal").classList.remove("hidden");
+}
+
+function closeConfigModal() {
+  document.getElementById("config-modal").classList.add("hidden");
+}
+
+function savePdfConfig() {
+  const email = document.getElementById("monitoredEmail").value;
+  const folder = document.getElementById("monitoredFolder").value;
+  const keyword = document.getElementById("pdfKeyword").value;
+
+  const config = {
+    monitoredEmail: email,
+    monitoredFolder: folder,
+    pdfKeyword: keyword
+  };
+
+  localStorage.setItem("pdfConfig", JSON.stringify(config));
+  alert("Configuration PDF enregistrée.");
+  closeConfigModal();
+}
