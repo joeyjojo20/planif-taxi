@@ -508,7 +508,18 @@ function openConfigModal() {
 
 function closeConfigModal() {
   document.getElementById("config-modal").classList.add("hidden");
+
+  
 }
+
+function openImapModal() {
+  document.getElementById("imap-modal").classList.remove("hidden");
+}
+
+function closeImapModal() {
+  document.getElementById("imap-modal").classList.add("hidden");
+}
+
 
 function savePdfConfig() {
   const email = document.getElementById("monitoredEmail").value;
