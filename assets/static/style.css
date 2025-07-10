@@ -188,3 +188,12 @@ button:disabled {
   line-height: 1.2;
   word-break: break-word;
 }
+/* Bouton configuration PDF */
+#config-btn {
+  margin-left: 10px;
+  background-color: #28a745;
+}
+
+#config-btn:hover {
+  background-color: #1e7e34;
+}
