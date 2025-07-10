@@ -127,6 +127,24 @@
     <button onclick="hideNotesPopup()">OK</button>
   </div>
 </div>
+<!-- MODALE DE CONFIGURATION PDF -->
+<div id="config-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>Configuration de l'import PDF</h3>
+
+    <label for="monitoredEmail">Adresse email à surveiller :</label>
+    <input type="email" id="monitoredEmail" placeholder="exemple@domaine.com" />
+
+    <label for="monitoredFolder">Nom du dossier email :</label>
+    <input type="text" id="monitoredFolder" placeholder="ex: Inbox/Taxi500" />
+
+    <label for="pdfKeyword">Mot-clé à détecter dans le PDF :</label>
+    <input type="text" id="pdfKeyword" placeholder="ex: Taxi 500" />
+
+    <button onclick="savePdfConfig()">Sauvegarder</button>
+    <button onclick="closeConfigModal()">Annuler</button>
+  </div>
+</div>
 
 </body>
 </html>
