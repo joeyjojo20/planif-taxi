@@ -48,30 +48,6 @@
   <div id="calendar"></div>
   <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
 </div>
-<!-- Paramètres personnels de connexion IMAP -->
-<div id="imap-settings" class="user-settings">
-  <h2>Mes paramètres de messagerie (IMAP)</h2>
-
-  <label for="imap-email">Mon adresse email à surveiller</label>
-  <input type="email" id="imap-email" name="imap-email" />
-
-  <label for="imap-password">Mot de passe (ou mot de passe d’application)</label>
-  <input type="password" id="imap-password" name="imap-password" />
-
-  <label for="imap-server">Serveur IMAP</label>
-  <input type="text" id="imap-server" name="imap-server" placeholder="imap.gmail.com" />
-
-  <label for="imap-port">Port</label>
-  <input type="number" id="imap-port" name="imap-port" value="993" />
-
-  <label for="imap-folder">Dossier à surveiller</label>
-  <input type="text" id="imap-folder" name="imap-folder" value="INBOX" />
-
-  <label for="imap-keyword">Mot-clé (optionnel)</label>
-  <input type="text" id="imap-keyword" name="imap-keyword" placeholder="planning, horaire..." />
-
-  <button onclick="saveImapConfig()">💾 Sauvegarder mes paramètres</button>
-</div>
 
 <!-- Formulaire de rendez-vous -->
 <div id="event-form" class="modal hidden">
