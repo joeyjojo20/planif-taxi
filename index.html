@@ -164,11 +164,15 @@
     <label for="imap-port">Port</label>
     <input type="number" id="imap-port" value="993" />
 
-    <label for="imap-folder">Dossier à surveiller</label>
-    <input type="text" id="imap-folder" value="INBOX" />
+  <!-- Séparateur visuel -->
+<hr style="margin: 20px 0;">
+<p><strong>Détection des PDF à importer</strong></p>
 
-    <label for="imap-keyword">Mot-clé (optionnel)</label>
-    <input type="text" id="imap-keyword" placeholder="planning, horaire..." />
+<label for="imap-folder">📁 Dossier à surveiller</label>
+<input type="text" id="imap-folder" value="INBOX" />
+
+<label for="imap-keyword">🔍 Mot-clé à filtrer (optionnel)</label>
+<input type="text" id="imap-keyword" placeholder="ex: planning, horaire..." />
 
     <button onclick="saveImapConfig()">💾 Sauvegarder</button>
     <button onclick="closeImapModal()">Annuler</button>
