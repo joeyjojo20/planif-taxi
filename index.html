@@ -34,12 +34,19 @@
 </div>
 
 <!-- Écran principal -->
-<div class="header" style="display: flex; justify-content: space-between; align-items: center;">
-  <span id="welcome"></span>
-  <div>
-    <button id="config-btn" onclick="openConfigModal()">Configuration PDF</button>
-    <button onclick="logout()">Déconnexion</button>
+<div id="main-screen" class="hidden">
+  <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+    <span id="welcome"></span>
+    <div>
+      <button id="config-btn" onclick="openConfigModal()">Configuration PDF</button>
+      <button onclick="logout()">Déconnexion</button>
+    </div>
   </div>
+
+  <textarea id="notes-box" placeholder="Notes internes..."></textarea>
+  <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+  <div id="calendar"></div>
+  <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
 </div>
 
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
