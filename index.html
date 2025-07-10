@@ -147,6 +147,32 @@
     <button onclick="closeConfigModal()">Annuler</button>
   </div>
 </div>
+<!-- MODALE DE CONFIGURATION IMAP -->
+<div id="imap-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>Paramètres de messagerie (IMAP)</h3>
 
+    <label for="imap-email">Mon adresse email à surveiller</label>
+    <input type="email" id="imap-email" />
+
+    <label for="imap-password">Mot de passe (ou mot de passe d’application)</label>
+    <input type="password" id="imap-password" />
+
+    <label for="imap-server">Serveur IMAP</label>
+    <input type="text" id="imap-server" placeholder="imap.gmail.com" />
+
+    <label for="imap-port">Port</label>
+    <input type="number" id="imap-port" value="993" />
+
+    <label for="imap-folder">Dossier à surveiller</label>
+    <input type="text" id="imap-folder" value="INBOX" />
+
+    <label for="imap-keyword">Mot-clé (optionnel)</label>
+    <input type="text" id="imap-keyword" placeholder="planning, horaire..." />
+
+    <button onclick="saveImapConfig()">💾 Sauvegarder</button>
+    <button onclick="closeImapModal()">Annuler</button>
+  </div>
+</div>
 </body>
 </html>
