@@ -33,7 +33,7 @@
   <p><a href="#" onclick="showLogin()">Se connecter</a></p>
 </div>
 
-<!-- Écran principal -->
+<!-- Écran principal (calendrier, boutons, config, etc.) -->
 <div id="main-screen" class="hidden">
   <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
     <span id="welcome"></span>
@@ -42,12 +42,6 @@
       <button onclick="logout()">Déconnexion</button>
     </div>
   </div>
-
-  <textarea id="notes-box" placeholder="Notes internes..."></textarea>
-  <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
-  <div id="calendar"></div>
-  <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
-</div>
 
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
   <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
@@ -105,7 +99,7 @@
   </div>
 </div>
 
-<!-- MODAL Suppression de série -->
+<!-- Modale suppression série -->
 <div id="delete-series-modal" class="modal hidden">
   <div class="modal-content">
     <h3>Supprimer cette série</h3>
@@ -134,6 +128,7 @@
     <button onclick="hideNotesPopup()">OK</button>
   </div>
 </div>
+
 <!-- MODALE DE CONFIGURATION PDF -->
 <div id="config-modal" class="modal hidden">
   <div class="modal-content">
