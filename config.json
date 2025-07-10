@@ -1,0 +1,11 @@
+{
+  "imap": {
+    "host": "imap.example.com",
+    "port": 993,
+    "user": "planning@taxi.com",
+    "password": "motdepasse",
+    "folder": "INBOX/RDV-Taxi"
+  },
+  "authorizedSender": "requetes@clsc.com",
+  "checkIntervalMinutes": 5
+}
