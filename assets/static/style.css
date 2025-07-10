@@ -197,3 +197,7 @@ button:disabled {
 #config-btn:hover {
   background-color: #1e7e34;
 }
+.modal-content {
+  max-height: 90vh;
+  overflow-y: auto;
+}
