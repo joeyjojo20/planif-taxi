@@ -519,6 +519,14 @@ function openImapModal() {
 function closeImapModal() {
   document.getElementById("imap-modal").classList.add("hidden");
 }
+function confirmDate() {
+  const dateInput = document.getElementById("event-date");
+  if (dateInput && dateInput.value) {
+    alert("Date sélectionnée : " + new Date(dateInput.value).toLocaleString());
+  } else {
+    alert("Veuillez choisir une date.");
+  }
+}
 
 
 function savePdfConfig() {
