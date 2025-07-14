@@ -130,36 +130,7 @@ function renderCalendar() {
       openDayView(info.dateStr);
     }
   });
-function openDayView(dateStr) {
-  const events = JSON.parse(localStorage.getItem("events") || "[]");
 
-  const eventsForDay = events.filter(e => {
-   const eventDate = new Date(e.start);
-const eventDay = eventDate.getFullYear() + '-' +
-                 String(eventDate.getMonth() + 1).padStart(2, '0') + '-' +
-                 String(eventDate.getDate()).padStart(2, '0');
-return eventDay === dateStr;
-  });
-
-  const container = document.getElementById("day-view-content");
-  const title = document.getElementById("day-view-title");
-  title.textContent = "Rendez-vous du " + new Date(dateStr).toLocaleDateString("fr-CA", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric"
-  });
-
-  if (eventsForDay.length === 0) {
-    container.innerHTML = "<p>Aucun rendez-vous ce jour-là.</p>";
-  } else {
-    container.innerHTML = eventsForDay.map(e => `
-      <div style="margin-bottom: 12px; border-bottom: 1px solid #ccc; padding-bottom: 6px;">
-        <strong>🕒 ${new Date(e.start).toLocaleTimeString("fr-CA", {hour: '2-digit', minute: '2-digit'})}</strong> - ${e.title}<br>
-        🚕 De : ${e.pickup || "?"} → À : ${e.dropoff || "?"}
-      </div>
-    `).join('');
-  }
-
-  document.getElementById("day-view-modal").classList.remove("hidden");
-}
 
 function closeDayView() {
   document.getElementById("day-view-modal").classList.add("hidden");
@@ -573,4 +544,35 @@ function savePdfConfig() {
   localStorage.setItem("pdfConfig", JSON.stringify(config));
   alert("Configuration PDF enregistrée.");
   closeConfigModal();
+  
+}
+function openDayView(dateStr) {
+  const events = JSON.parse(localStorage.getItem("events") || "[]");
+
+  const eventsForDay = events.filter(e => {
+   const eventDate = new Date(e.start);
+const eventDay = eventDate.getFullYear() + '-' +
+                 String(eventDate.getMonth() + 1).padStart(2, '0') + '-' +
+                 String(eventDate.getDate()).padStart(2, '0');
+return eventDay === dateStr;
+  });
+
+  const container = document.getElementById("day-view-content");
+  const title = document.getElementById("day-view-title");
+  title.textContent = "Rendez-vous du " + new Date(dateStr).toLocaleDateString("fr-CA", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric"
+  });
+
+  if (eventsForDay.length === 0) {
+    container.innerHTML = "<p>Aucun rendez-vous ce jour-là.</p>";
+  } else {
+    container.innerHTML = eventsForDay.map(e => `
+      <div style="margin-bottom: 12px; border-bottom: 1px solid #ccc; padding-bottom: 6px;">
+        <strong>🕒 ${new Date(e.start).toLocaleTimeString("fr-CA", {hour: '2-digit', minute: '2-digit'})}</strong> - ${e.title}<br>
+        🚕 De : ${e.pickup || "?"} → À : ${e.dropoff || "?"}
+      </div>
+    `).join('');
+  }
+
+  document.getElementById("day-view-modal").classList.remove("hidden");
 }
