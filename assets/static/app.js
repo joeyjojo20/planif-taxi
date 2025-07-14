@@ -576,3 +576,4 @@ return eventDay === dateStr;
 
   document.getElementById("day-view-modal").classList.remove("hidden");
 }
+window.openDayView = openDayView;
