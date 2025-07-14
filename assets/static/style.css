@@ -219,3 +219,6 @@ button:disabled {
   max-height: 70px;
   overflow-y: auto;
 }
+#day-view-modal:not(.hidden) {
+  display: flex;
+}
