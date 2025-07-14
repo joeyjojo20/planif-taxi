@@ -14,21 +14,33 @@
 <!-- Écran de connexion -->
 <div id="login-screen">
   <h2>Connexion</h2>
+
+  <label for="email">Adresse email</label>
   <input type="text" id="email" placeholder="Email" />
+
+  <label for="password">Mot de passe</label>
   <input type="password" id="password" placeholder="Mot de passe" />
+
   <button onclick="login()">Connexion</button>
   <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
 </div>
-
+  
 <!-- Écran d'inscription -->
 <div id="register-screen" class="hidden">
   <h2>Créer un compte</h2>
+
+  <label for="register-email">Adresse email</label>
   <input type="text" id="register-email" placeholder="Email" />
+
+  <label for="register-password">Mot de passe</label>
   <input type="password" id="register-password" placeholder="Mot de passe" />
+
+  <label for="register-role">Rôle</label>
   <select id="register-role">
     <option value="user">Utilisateur</option>
     <option value="admin">Admin</option>
   </select>
+
   <button onclick="register()">Créer</button>
   <p><a href="#" onclick="showLogin()">Se connecter</a></p>
 </div>
