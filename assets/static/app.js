@@ -207,8 +207,11 @@ function openDayView(dateStr) {
   const events = JSON.parse(localStorage.getItem("events") || "[]");
 
   const eventsForDay = events.filter(e => {
-    const eventDate = new Date(e.start).toISOString().split('T')[0];
-    return eventDate === dateStr;
+   const eventDate = new Date(e.start);
+const eventDay = eventDate.getFullYear() + '-' +
+                 String(eventDate.getMonth() + 1).padStart(2, '0') + '-' +
+                 String(eventDate.getDate()).padStart(2, '0');
+return eventDay === dateStr;
   });
 
   const container = document.getElementById("day-view-content");
