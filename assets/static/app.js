@@ -31,6 +31,15 @@ function login() {
   const found = users.find(u => u.email === email && u.password === password);
   if (found) {
     currentUser = found;
+        if (currentUser.role === "admin" && currentUser.approved === undefined) {
+      currentUser.approved = true;
+      const i = users.findIndex(u => u.email === currentUser.email);
+      if (i !== -1) {
+        users[i].approved = true;
+        localStorage.setItem("users", JSON.stringify(users));
+      }
+    }
+
     showApp();
     setTimeout(showNotesIfAny, 300);
   } else {
