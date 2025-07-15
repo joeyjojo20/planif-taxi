@@ -225,3 +225,8 @@ button:disabled {
   max-height: 90vh;
   overflow-y: auto;
 }
+/* Scroll pour le panneau de gestion des comptes */
+#account-panel .modal-content {
+  max-height: 90vh;
+  overflow-y: auto;
+}
