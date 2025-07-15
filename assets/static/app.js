@@ -597,12 +597,15 @@ function openAccountPanel() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
 
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
-    // Si c'est un utilisateur normal
     if (currentUser && currentUser.role === "user") {
-      content.innerHTML = `
-        <p>Vous êtes un utilisateur standard.</p>
-        <button onclick="requestAdmin()">Demander à devenir admin</button>
-      `;
+      content.innerHTML = "";
+      const p = document.createElement("p");
+      p.innerText = "Vous êtes un utilisateur standard.";
+      const btn = document.createElement("button");
+      btn.innerText = "Demander à devenir admin";
+      btn.onclick = requestAdmin;
+      content.appendChild(p);
+      content.appendChild(btn);
     } else {
       content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
     }
@@ -610,28 +613,40 @@ function openAccountPanel() {
     return;
   }
 
-  // Vue admin
-  content.innerHTML = "<h4>Utilisateurs enregistrés</h4>";
+  content.innerHTML = "";
+  const title = document.createElement("h4");
+  title.innerText = "Utilisateurs enregistrés";
+  content.appendChild(title);
+
   users.forEach((u, index) => {
     const line = document.createElement("div");
     line.style.borderBottom = "1px solid #ccc";
     line.style.padding = "5px 0";
 
-    const status = u.role === "admin"
-      ? (u.approved ? "Admin approuvé" : "Demande admin")
-      : "Utilisateur";
+    const email = document.createElement("strong");
+    email.innerText = u.email;
+    line.appendChild(email);
+    line.appendChild(document.createElement("br"));
 
-    line.innerHTML = `
-      <strong>${u.email}</strong><br>
-      Rôle : ${u.role}<br>
-      Statut : ${status}<br>
-    `;
+    const role = document.createElement("span");
+    role.innerText = "Rôle : " + u.role;
+    line.appendChild(role);
+    line.appendChild(document.createElement("br"));
+
+    const status = document.createElement("span");
+    status.innerText = "Statut : " + (
+      u.role === "admin"
+        ? (u.approved ? "Admin approuvé" : "Demande admin")
+        : "Utilisateur"
+    );
+    line.appendChild(status);
+    line.appendChild(document.createElement("br"));
 
     if (u.email !== currentUser.email) {
-      const btn = document.createElement("button");
-      btn.textContent = "Supprimer";
-      btn.style.marginTop = "5px";
-      btn.onclick = () => {
+      const delBtn = document.createElement("button");
+      delBtn.innerText = "Supprimer";
+      delBtn.style.marginTop = "5px";
+      delBtn.onclick = () => {
         if (confirm("Supprimer le compte " + u.email + " ?")) {
           users.splice(index, 1);
           localStorage.setItem("users", JSON.stringify(users));
@@ -639,7 +654,7 @@ function openAccountPanel() {
           openAccountPanel();
         }
       };
-      line.appendChild(btn);
+      line.appendChild(delBtn);
     }
 
     if (u.wantsAdmin && u.role === "user") {
@@ -650,14 +665,13 @@ function openAccountPanel() {
         option.textContent = opt;
         select.appendChild(option);
       });
-      select.style.marginTop = "5px";
       line.appendChild(document.createElement("br"));
       line.appendChild(select);
 
-      const btnApprove = document.createElement("button");
-      btnApprove.textContent = "Valider";
-      btnApprove.style.marginLeft = "5px";
-      btnApprove.onclick = () => {
+      const valider = document.createElement("button");
+      valider.innerText = "Valider";
+      valider.style.marginLeft = "5px";
+      valider.onclick = () => {
         const value = select.value;
         if (value === "approuvé") {
           approveUser(u.email);
@@ -665,16 +679,13 @@ function openAccountPanel() {
           rejectUser(u.email);
         }
       };
-      line.appendChild(btnApprove);
+      line.appendChild(valider);
     }
 
     content.appendChild(line);
   });
 
   panel.classList.remove("hidden");
-}
-
-
 }
 
 function closeAccountPanel() {
