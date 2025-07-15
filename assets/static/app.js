@@ -111,34 +111,24 @@ document.getElementById("recurrence").addEventListener("change", () => {
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
+  if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     locale: 'fr',
-    nowIndicator: true,
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
       right: 'dayGridMonth,timeGridWeek'
     },
-    dateClick: function(info) {
-      openDayView(info.dateStr);
-    },
-    events: getEventsForCurrentUser()
+    events: events.map(e => ({
+      ...e,
+      title: shortenEvent(e.title, e.start)
+    })),
+    eventClick: onEventClick
   });
 
-  calendar.render(); // très important
-}
-
-function closeDayView() {
-  document.getElementById("day-view-modal").classList.add("hidden");
   calendar.render();
-}
-
-// On rend la fonction accessible globalement (HTML onclick)
-window.closeDayView = closeDayView;
-
-
 }
 
 function shortenEvent(title, dateStr) {
@@ -210,7 +200,6 @@ function saveEvent() {
     alert("Nom et date requis");
     return;
   }
-
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
@@ -546,49 +535,4 @@ function savePdfConfig() {
   localStorage.setItem("pdfConfig", JSON.stringify(config));
   alert("Configuration PDF enregistrée.");
   closeConfigModal();
-  
 }
-function openDayView(dateStr) {
-  const events = JSON.parse(localStorage.getItem("events") || "[]");
-
-  const eventsForDay = events.filter(e => {
-   const eventDate = new Date(e.start);
-const eventDay = eventDate.getFullYear() + '-' +
-                 String(eventDate.getMonth() + 1).padStart(2, '0') + '-' +
-                 String(eventDate.getDate()).padStart(2, '0');
-return eventDay === dateStr;
-  });
-
-  const container = document.getElementById("day-view-content");
-  const title = document.getElementById("day-view-title");
-  title.textContent = "Rendez-vous du " + new Date(dateStr).toLocaleDateString("fr-CA", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric"
-  });
-
-  if (eventsForDay.length === 0) {
-    container.innerHTML = "<p>Aucun rendez-vous ce jour-là.</p>";
-  } else {
-    container.innerHTML = eventsForDay.map(e => `
-      <div style="margin-bottom: 12px; border-bottom: 1px solid #ccc; padding-bottom: 6px;">
-        <strong>🕒 ${new Date(e.start).toLocaleTimeString("fr-CA", {hour: '2-digit', minute: '2-digit'})}</strong> - ${e.title}<br>
-        🚕 De : ${e.pickup || "?"} → À : ${e.dropoff || "?"}
-      </div>
-    `).join('');
-  }
-
-  document.getElementById("day-view-modal").classList.remove("hidden");
-}
-window.openDayView = openDayView;
-window.openDayView = openDayView;
-window.closeDayView = closeDayView;
-window.login = login;
-window.register = register;
-window.showRegister = showRegister;
-window.showLogin = showLogin;
-window.logout = logout;
-window.showEventForm = showEventForm;
-window.hideEventForm = hideEventForm;
-window.saveEvent = saveEvent;
-window.openImapModal = openImapModal;
-window.closeImapModal = closeImapModal;
-window.fixOldEvents = fixOldEvents;
