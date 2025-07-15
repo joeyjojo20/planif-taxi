@@ -104,6 +104,11 @@ function updateAccountNotification() {
   const hasPending = users.some(u => u.wantsAdmin);
   const btn = document.getElementById("btn-account");
 
+  if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) {
+    btn?.classList.remove("notification");  // Ne rien afficher pour les users
+    return;
+  }
+
   if (btn) {
     if (hasPending) {
       btn.classList.add("notification");
@@ -112,6 +117,7 @@ function updateAccountNotification() {
     }
   }
 }
+
 
 // Afficher note interne une seule fois
 function showNotesIfAny() {
