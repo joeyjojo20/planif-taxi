@@ -41,19 +41,34 @@ function login() {
 function register() {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
-  const role = document.getElementById("register-role").value;
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const roleChoice = document.getElementById("register-role").value;
+
+  const users = JSON.parse(localStorage.getItem("users") || []);
   if (users.some(u => u.email === email)) {
     alert("Email déjà utilisé");
     return;
   }
-  const newUser = { email, password, role };
+
+  const newUser = {
+    email,
+    password,
+    role: "user",
+    approved: true,
+    wantsAdmin: roleChoice === "admin"
+  };
+
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
+
+  if (newUser.wantsAdmin) {
+    alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
+  }
+
   currentUser = newUser;
   showApp();
   setTimeout(showNotesIfAny, 300);
 }
+
 
 function logout() {
   currentUser = null;
