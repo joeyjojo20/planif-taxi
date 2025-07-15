@@ -1,4 +1,4 @@
-console.log("Chargement JS OK");
+
 let currentUser = null;
 // Auto-crée un compte admin si aucun utilisateur n'est présent
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
