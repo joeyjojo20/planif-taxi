@@ -639,3 +639,8 @@ function rejectUser(email) {
   alert(`Compte ${email} refusé.`);
   renderAccountPanel();
 }
+function showApp() {
+  ...
+  renderCalendar();
+  renderAccountPanel(); // <--- ajoute ceci
+}
