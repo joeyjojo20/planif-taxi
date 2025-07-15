@@ -616,3 +616,42 @@ function openAccountPanel() {
 
   panel.classList.remove("hidden");
 }
+
+function closeAccountPanel() {
+  document.getElementById("account-panel").classList.add("hidden");
+}
+
+function approveUser(email) {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const user = users.find(u => u.email === email);
+  if (user) {
+    user.role = "admin";
+    user.wantsAdmin = false;
+    localStorage.setItem("users", JSON.stringify(users));
+    alert(`${email} est maintenant admin.`);
+    openAccountPanel(); // refresh panel
+  }
+}
+
+function rejectUser(email) {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const user = users.find(u => u.email === email);
+  if (user) {
+    user.wantsAdmin = false;
+    localStorage.setItem("users", JSON.stringify(users));
+    alert(`Demande de ${email} refusée.`);
+    openAccountPanel(); // refresh panel
+  }
+}
+
+function requestAdmin() {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const user = users.find(u => u.email === currentUser.email);
+  if (user) {
+    user.wantsAdmin = true;
+    localStorage.setItem("users", JSON.stringify(users));
+    alert("Demande envoyée.");
+    currentUser.wantsAdmin = true;
+    openAccountPanel(); // refresh
+  }
+}
