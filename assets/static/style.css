@@ -201,24 +201,3 @@ button:disabled {
   max-height: 90vh;
   overflow-y: auto;
 }
-/* Augmenter la hauteur des cases dans la vue "mois" */
-.fc-daygrid-day-frame {
-  min-height: 80px !important; /* tu peux augmenter à 100px si besoin */
-  padding: 2px;
-}
-
-/* Empêche les RDV de dépasser */
-.fc-event {
-  white-space: normal !important;
-  overflow-wrap: break-word;
-  font-size: 0.8em;
-}
-
-/* Pour que les RDV s'affichent dans la limite */
-.fc-daygrid-event-harness {
-  max-height: 70px;
-  overflow-y: auto;
-}
-#day-view-modal:not(.hidden) {
-  display: flex;
-}
