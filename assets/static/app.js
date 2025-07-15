@@ -580,3 +580,39 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal() {
   document.getElementById("day-events-modal").classList.add("hidden");
 }
+function openAccountPanel() {
+  const panel = document.getElementById("account-panel");
+  const content = document.getElementById("account-content");
+  content.innerHTML = "";
+
+  if (currentUser.role === "admin") {
+    // Liste des utilisateurs non approuvés avec demande admin
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const pending = users.filter(u => u.wantsAdmin && u.role === "user");
+
+    if (pending.length === 0) {
+      content.innerHTML = "<p>Aucune demande en attente.</p>";
+    } else {
+      pending.forEach((user, index) => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <p><strong>${user.email}</strong> souhaite devenir admin</p>
+          <button onclick="approveUser('${user.email}')">Approuver</button>
+          <button onclick="rejectUser('${user.email}')">Refuser</button>
+        `;
+        content.appendChild(div);
+      });
+    }
+  } else {
+    if (currentUser.wantsAdmin) {
+      content.innerHTML = "<p>Votre demande d'accès admin est en attente.</p>";
+    } else {
+      content.innerHTML = `
+        <p>Vous êtes un utilisateur normal.</p>
+        <button onclick="requestAdmin()">Demander à devenir admin</button>
+      `;
+    }
+  }
+
+  panel.classList.remove("hidden");
+}
