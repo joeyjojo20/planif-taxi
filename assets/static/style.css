@@ -230,3 +230,18 @@ button:disabled {
   max-height: 90vh;
   overflow-y: auto;
 }
+/* Pastille rouge sur le bouton Compte s’il y a des demandes admin */
+#btn-account.notification {
+  position: relative;
+}
+
+#btn-account.notification::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  background: red;
+  border-radius: 50%;
+}
