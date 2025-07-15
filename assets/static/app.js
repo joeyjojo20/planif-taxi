@@ -580,3 +580,16 @@ return eventDay === dateStr;
   document.getElementById("day-view-modal").classList.remove("hidden");
 }
 window.openDayView = openDayView;
+window.openDayView = openDayView;
+window.closeDayView = closeDayView;
+window.login = login;
+window.register = register;
+window.showRegister = showRegister;
+window.showLogin = showLogin;
+window.logout = logout;
+window.showEventForm = showEventForm;
+window.hideEventForm = hideEventForm;
+window.saveEvent = saveEvent;
+window.openImapModal = openImapModal;
+window.closeImapModal = closeImapModal;
+window.fixOldEvents = fixOldEvents;
