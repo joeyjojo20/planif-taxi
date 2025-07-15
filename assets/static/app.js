@@ -18,7 +18,7 @@ function showLogin() {
   document.getElementById("main-screen").classList.add("hidden");
 }
 
-function showRegister() {
+function show() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
@@ -42,17 +42,27 @@ function register() {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const role = document.getElementById("register-role").value;
+  const approved = (role === "admin") ? false : true;
   const users = JSON.parse(localStorage.getItem("users") || "[]");
+
   if (users.some(u => u.email === email)) {
     alert("Email déjà utilisé");
     return;
   }
-  const newUser = { email, password, role };
+
+  const newUser = { email, password, role, approved };
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
-  currentUser = newUser;
-  showApp();
-  setTimeout(showNotesIfAny, 300);
+
+  if (!approved) {
+    alert("Demande d'approbation envoyée. Un admin doit valider votre compte.");
+    showLogin(); // retour à l'écran de connexion
+  } else {
+    currentUser = newUser;
+    showApp();
+    setTimeout(showNotesIfAny, 300);
+  }
+}
 }
 
 function logout() {
