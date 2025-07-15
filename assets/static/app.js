@@ -95,7 +95,7 @@ function showApp() {
   document.getElementById("notes-box").value = note;
 
   renderCalendar();
-  updateAccountNotification();
+  
 }
 
 
@@ -675,6 +675,7 @@ function openAccountPanel() {
           localStorage.setItem("users", JSON.stringify(users));
           alert("Compte supprimé.");
           openAccountPanel();
+          updateAccountNotification();
         }
       };
       line.appendChild(delBtn);
@@ -734,7 +735,8 @@ function rejectUser(email) {
     user.wantsAdmin = false;
     localStorage.setItem("users", JSON.stringify(users));
     alert(`Demande de ${email} refusée.`);
-    openAccountPanel(); // refresh panel
+    openAccountPanel();// refresh panel
+    updateAccountNotification(); 
   }
 }
 
@@ -747,5 +749,6 @@ function requestAdmin() {
     alert("Demande envoyée.");
     currentUser.wantsAdmin = true;
     openAccountPanel(); // refresh
+    updateAccountNotification();
   }
 }
