@@ -94,6 +94,21 @@ function showApp() {
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
   renderCalendar();
+   updateAccountNotification();  // ✅ Ajout pour la pastille
+}
+}
+function updateAccountNotification() {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const hasPending = users.some(u => u.wantsAdmin);
+  const btn = document.getElementById("btn-account");
+
+  if (btn) {
+    if (hasPending) {
+      btn.classList.add("notification");
+    } else {
+      btn.classList.remove("notification");
+    }
+  }
 }
 
 // Afficher note interne une seule fois
