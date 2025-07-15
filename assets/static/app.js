@@ -585,38 +585,51 @@ function closeDayEventsModal() {
 function openAccountPanel() {
   const panel = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
-  content.innerHTML = "";
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
 
-  if (currentUser.role === "admin") {
-    // Liste des utilisateurs non approuvés avec demande admin
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    const pending = users.filter(u => u.wantsAdmin && u.role === "user");
-
-    if (pending.length === 0) {
-      content.innerHTML = "<p>Aucune demande en attente.</p>";
-    } else {
-      pending.forEach((user, index) => {
-        const div = document.createElement("div");
-        div.innerHTML = `
-          <p><strong>${user.email}</strong> souhaite devenir admin</p>
-          <button onclick="approveUser('${user.email}')">Approuver</button>
-          <button onclick="rejectUser('${user.email}')">Refuser</button>
-        `;
-        content.appendChild(div);
-      });
-    }
-  } else {
-    if (currentUser.wantsAdmin) {
-      content.innerHTML = "<p>Votre demande d'accès admin est en attente.</p>";
-    } else {
-      content.innerHTML = `
-        <p>Vous êtes un utilisateur normal.</p>
-        <button onclick="requestAdmin()">Demander à devenir admin</button>
-      `;
-    }
+  // Vérifie si l'utilisateur est admin
+  if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
+    content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
+    panel.classList.remove("hidden");
+    return;
   }
 
+  content.innerHTML = "<h4>Utilisateurs enregistrés</h4>";
+  users.forEach((u, index) => {
+    const line = document.createElement("div");
+    line.style.borderBottom = "1px solid #ccc";
+    line.style.padding = "5px 0";
+
+    const status = u.role === "admin"
+      ? (u.approved ? "Admin approuvé" : "Demande admin")
+      : "Utilisateur";
+
+    line.innerHTML = `
+      <strong>${u.email}</strong><br>
+      Rôle : ${u.role}<br>
+      Statut : ${status}<br>
+    `;
+
+    if (u.email !== currentUser.email) {
+      const btn = document.createElement("button");
+      btn.textContent = "Supprimer";
+      btn.style.marginTop = "5px";
+      btn.onclick = () => {
+        if (confirm(`Supprimer le compte ${u.email} ?`)) {
+          users.splice(index, 1);
+          localStorage.setItem("users", JSON.stringify(users));
+          alert("Compte supprimé.");
+          openAccountPanel(); // refresh
+        }
+      };
+      line.appendChild(btn);
+    }
+
+    content.appendChild(line);
+  });
+
   panel.classList.remove("hidden");
+
 }
 
 function closeAccountPanel() {
