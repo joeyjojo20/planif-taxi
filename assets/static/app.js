@@ -112,30 +112,24 @@ document.getElementById("recurrence").addEventListener("change", () => {
 function renderCalendar() {
   const calendarEl = document.getElementById("calendar");
   if (!calendarEl) return;
-  if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     locale: 'fr',
+    nowIndicator: true,
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
       right: 'dayGridMonth,timeGridWeek'
     },
-    events: events.map(e => ({
-      ...e,
-      title: shortenEvent(e.title, e.start)
-    })),
-    eventClick: onEventClick,
     dateClick: function(info) {
       openDayView(info.dateStr);
-    }
+    },
+    events: getEventsForCurrentUser()
   });
 
-  calendar.render(); // très important !
+  calendar.render(); // très important
 }
-
-
 
 function closeDayView() {
   document.getElementById("day-view-modal").classList.add("hidden");
