@@ -94,9 +94,8 @@ function showApp() {
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
   renderCalendar();
-   updateAccountNotification();  // ✅ Ajout pour la pastille
-}
-}
+   updateAccountNotification();  
+
 function updateAccountNotification() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const hasPending = users.some(u => u.wantsAdmin);
