@@ -645,4 +645,5 @@ function showApp() {
   renderCalendar();
   renderAccountPanel(); // <--- ajoute ceci
 }
+window.login = login;
 window.register = register;
