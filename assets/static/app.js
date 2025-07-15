@@ -596,13 +596,21 @@ function openAccountPanel() {
   const content = document.getElementById("account-content");
   const users = JSON.parse(localStorage.getItem("users") || "[]");
 
-  // Vérifie si l'utilisateur est admin
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
-    content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
+    // Si c'est un utilisateur normal
+    if (currentUser && currentUser.role === "user") {
+      content.innerHTML = `
+        <p>Vous êtes un utilisateur standard.</p>
+        <button onclick="requestAdmin()">Demander à devenir admin</button>
+      `;
+    } else {
+      content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
+    }
     panel.classList.remove("hidden");
     return;
   }
 
+  // Vue admin
   content.innerHTML = "<h4>Utilisateurs enregistrés</h4>";
   users.forEach((u, index) => {
     const line = document.createElement("div");
@@ -624,20 +632,48 @@ function openAccountPanel() {
       btn.textContent = "Supprimer";
       btn.style.marginTop = "5px";
       btn.onclick = () => {
-        if (confirm(`Supprimer le compte ${u.email} ?`)) {
+        if (confirm("Supprimer le compte " + u.email + " ?")) {
           users.splice(index, 1);
           localStorage.setItem("users", JSON.stringify(users));
           alert("Compte supprimé.");
-          openAccountPanel(); // refresh
+          openAccountPanel();
         }
       };
       line.appendChild(btn);
+    }
+
+    if (u.wantsAdmin && u.role === "user") {
+      const select = document.createElement("select");
+      ["en attente", "approuvé", "refusé"].forEach(opt => {
+        const option = document.createElement("option");
+        option.value = opt;
+        option.textContent = opt;
+        select.appendChild(option);
+      });
+      select.style.marginTop = "5px";
+      line.appendChild(document.createElement("br"));
+      line.appendChild(select);
+
+      const btnApprove = document.createElement("button");
+      btnApprove.textContent = "Valider";
+      btnApprove.style.marginLeft = "5px";
+      btnApprove.onclick = () => {
+        const value = select.value;
+        if (value === "approuvé") {
+          approveUser(u.email);
+        } else if (value === "refusé") {
+          rejectUser(u.email);
+        }
+      };
+      line.appendChild(btnApprove);
     }
 
     content.appendChild(line);
   });
 
   panel.classList.remove("hidden");
+}
+
 
 }
 
