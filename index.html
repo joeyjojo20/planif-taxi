@@ -56,45 +56,47 @@
 <div id="event-form" class="modal hidden">
   <div class="modal-content">
     <h3>Rendez-vous</h3>
+
+    <label for="client-name">Nom du client</label>
     <input type="text" id="client-name" placeholder="Nom du client" />
+
+    <label for="pickup-address">Adresse de départ</label>
     <input type="text" id="pickup-address" placeholder="Adresse de départ" />
+
+    <label for="dropoff-address">Adresse de destination</label>
     <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
+
     <label for="event-date"><strong>Date et heure du rendez-vous</strong></label>
-<input type="datetime-local" id="event-date" placeholder="aaaa-mm-jj hh:mm" />
-    
-</div>
-    
-    <label>Répétition
-      <select id="recurrence">
-        <option value="none">Aucune</option>
-        <option value="daily">Quotidienne</option>
-        <option value="weekly">Hebdomadaire</option>
-        <option value="monthly">Mensuelle</option>
-      </select>
-    </label>
+    <input type="datetime-local" id="event-date" placeholder="aaaa-mm-jj hh:mm" />
 
-    <label id="recurrence-duration-label" class="hidden">Durée de répétition
-      <select id="recurrence-duration">
-        <option value="1w">1 semaine</option>
-        <option value="2w">2 semaines</option>
-        <option value="1m">1 mois</option>
-        <option value="2m">2 mois</option>
-        <option value="3m">3 mois</option>
-        <option value="6m">6 mois</option>
-        <option value="12m">1 an</option>
-      </select>
-    </label>
+    <label for="recurrence">Répétition</label>
+    <select id="recurrence">
+      <option value="none">Aucune</option>
+      <option value="daily">Quotidienne</option>
+      <option value="weekly">Hebdomadaire</option>
+      <option value="monthly">Mensuelle</option>
+    </select>
 
-    <label>Notification avant
-      <select id="notification">
-        <option value="none">Aucune</option>
-        <option value="15">15 minutes</option>
-        <option value="30">30 minutes</option>
-        <option value="120">2 heures</option>
-        <option value="1440">1 jour</option>
-        <option value="7200">5 jours</option>
-      </select>
-    </label>
+    <label for="recurrence-duration" id="recurrence-duration-label" class="hidden">Durée de répétition</label>
+    <select id="recurrence-duration" class="hidden">
+      <option value="1w">1 semaine</option>
+      <option value="2w">2 semaines</option>
+      <option value="1m">1 mois</option>
+      <option value="2m">2 mois</option>
+      <option value="3m">3 mois</option>
+      <option value="6m">6 mois</option>
+      <option value="12m">1 an</option>
+    </select>
+
+    <label for="notification">Notification avant</label>
+    <select id="notification">
+      <option value="none">Aucune</option>
+      <option value="15">15 minutes</option>
+      <option value="30">30 minutes</option>
+      <option value="120">2 heures</option>
+      <option value="1440">1 jour</option>
+      <option value="7200">5 jours</option>
+    </select>
 
     <div class="modal-buttons">
       <button onclick="saveEvent()">Sauvegarder</button>
@@ -104,6 +106,7 @@
     </div>
   </div>
 </div>
+
 
 <!-- Modale suppression série -->
 <div id="delete-series-modal" class="modal hidden">
