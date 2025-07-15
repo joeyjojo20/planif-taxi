@@ -114,6 +114,7 @@ function renderCalendar() {
   if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
+    dateClick: function(info) { openDayEventsModal(info.dateStr); },
     initialView: 'dayGridMonth',
     locale: 'fr',
     headerToolbar: {
@@ -535,4 +536,32 @@ function savePdfConfig() {
   localStorage.setItem("pdfConfig", JSON.stringify(config));
   alert("Configuration PDF enregistrée.");
   closeConfigModal();
+}
+
+function openDayEventsModal(dateStr) {
+  const list = document.getElementById("day-events-list");
+  const displayDate = new Date(dateStr).toLocaleDateString("fr-CA");
+
+  document.getElementById("day-events-date").textContent = displayDate;
+  list.innerHTML = "";
+
+  const dayEvents = events.filter(ev =>
+    ev.start.startsWith(dateStr)
+  );
+
+  if (dayEvents.length === 0) {
+    list.innerHTML = "<li>Aucun rendez-vous.</li>";
+  } else {
+    for (const ev of dayEvents) {
+      const li = document.createElement("li");
+      li.textContent = `${ev.title} - ${ev.start}`;
+      list.appendChild(li);
+    }
+  }
+
+  document.getElementById("day-events-modal").classList.remove("hidden");
+}
+
+function closeDayEventsModal() {
+  document.getElementById("day-events-modal").classList.add("hidden");
 }
