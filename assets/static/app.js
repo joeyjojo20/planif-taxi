@@ -577,3 +577,35 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal() {
   document.getElementById("day-events-modal").classList.add("hidden");
 }
+
+function renderAccountPanel() {
+  const panel = document.getElementById("account-panel");
+  panel.innerHTML = "";
+
+  if (!currentUser) return;
+
+  if (currentUser.role === "admin" && currentUser.approved) {
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const pending = users.filter(u => u.role === "admin" && !u.approved);
+
+    if (pending.length === 0) {
+      panel.innerHTML = "<p>Aucune demande en attente.</p>";
+      return;
+    }
+
+    const ul = document.createElement("ul");
+    for (const user of pending) {
+      const li = document.createElement("li");
+      li.innerHTML = `${user.email} 
+        <button onclick="approveUser('${user.email}')">Approuver</button>
+        <button onclick="rejectUser('${user.email}')">Refuser</button>`;
+      ul.appendChild(li);
+    }
+    panel.appendChild(ul);
+  } else if (currentUser.role === "user") {
+    const btn = document.createElement("button");
+    btn.textContent = "Demander à devenir admin";
+    btn.onclick = () => requestAdminRole(currentUser.email);
+    panel.appendChild(btn);
+  }
+}
