@@ -93,8 +93,11 @@ function showApp() {
   const noteKey = "notes_" + currentUser.email;
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
+
   renderCalendar();
-   updateAccountNotification();  
+  updateAccountNotification();
+}
+
 
 function updateAccountNotification() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
