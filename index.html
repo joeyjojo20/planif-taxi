@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RDV Taxi</title>
   <link rel="stylesheet" href="assets/static/style.css" />
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/fr.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <script src="assets/static/app.js" defer></script>
 </head>
 <body>
@@ -15,33 +14,21 @@
 <!-- Écran de connexion -->
 <div id="login-screen">
   <h2>Connexion</h2>
-
-  <label for="email">Adresse email</label>
   <input type="text" id="email" placeholder="Email" />
-
-  <label for="password">Mot de passe</label>
   <input type="password" id="password" placeholder="Mot de passe" />
-
   <button onclick="login()">Connexion</button>
   <p><a href="#" onclick="showRegister()">Créer un compte</a></p>
 </div>
-  
+
 <!-- Écran d'inscription -->
 <div id="register-screen" class="hidden">
   <h2>Créer un compte</h2>
-
-  <label for="register-email">Adresse email</label>
-  <input type="text" id="register-email" placeholder="Email" />
-
-  <label for="register-password">Mot de passe</label>
+  <input type="text" ="register-email" placeholder="Email" />
   <input type="password" id="register-password" placeholder="Mot de passe" />
-
-  <label for="register-role">Rôle</label>
   <select id="register-role">
     <option value="user">Utilisateur</option>
     <option value="admin">Admin</option>
   </select>
-
   <button onclick="register()">Créer</button>
   <p><a href="#" onclick="showLogin()">Se connecter</a></p>
 </div>
@@ -58,9 +45,7 @@
 
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
   <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
-  
   <div id="calendar"></div>
-  
   <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
 </div>
 
@@ -71,10 +56,7 @@
     <input type="text" id="client-name" placeholder="Nom du client" />
     <input type="text" id="pickup-address" placeholder="Adresse de départ" />
     <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
-    <label for="event-date" style="font-weight: bold;">Date et heure du rendez-vous</label>
-<input type="datetime-local" id="event-date" class="input" placeholder="Choisissez la date et l'heure">
-
-
+    <input type="datetime-local" id="event-date" />
 
     <label>Répétition
       <select id="recurrence">
@@ -194,14 +176,6 @@
 
     <button onclick="saveImapConfig()">💾 Sauvegarder</button>
     <button onclick="closeImapModal()">Annuler</button>
-  </div>
-</div>
-  <!-- MODALE : Vue jour personnalisée -->
-<div id="day-view-modal" class="modal hidden">
-  <div class="modal-content">
-    <h3 id="day-view-title">Rendez-vous du jour</h3>
-    <div id="day-view-content"></div>
-    <button onclick="closeDayView()">Fermer</button>
   </div>
 </div>
 </body>
