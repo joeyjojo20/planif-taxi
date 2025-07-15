@@ -569,7 +569,9 @@ function openDayEventsModal(dateStr) {
   } else {
     for (const ev of dayEvents) {
       const li = document.createElement("li");
-      li.textContent = `${ev.title} - ${ev.start}`;
+     const date = new Date(ev.start);
+const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+li.textContent = `${ev.title}   à ${heure}`;
       list.appendChild(li);
     }
   }
