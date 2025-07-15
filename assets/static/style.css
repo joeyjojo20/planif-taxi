@@ -1,4 +1,6 @@
 
+
+
 body {
   font-family: Arial, sans-serif;
   background-color: #f8f9fa;
@@ -83,7 +85,15 @@ button:disabled {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+}
 
+.modal-content {
+  background-color: white;
+  padding: 20px;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 
 #add-modal,
@@ -128,6 +138,12 @@ button:disabled {
     margin: 15px;
     padding: 15px;
   }
+
+  .modal-content {
+    width: 95%;
+    padding: 15px;
+  }
+
   #calendar {
     font-size: 0.85rem;
   }
@@ -182,6 +198,10 @@ button:disabled {
 #config-btn:hover {
   background-color: #1e7e34;
 }
+.modal-content {
+  max-height: 90vh;
+  overflow-y: auto;
+}
 
 
 /* Modale : RDV du jour */
@@ -197,10 +217,7 @@ button:disabled {
 }
 
 .modal-content {
-   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background-color: white;
+  background: white;
   padding: 20px;
   border-radius: 10px;
   width: 90%;
