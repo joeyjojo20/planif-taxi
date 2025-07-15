@@ -609,3 +609,33 @@ function renderAccountPanel() {
     panel.appendChild(btn);
   }
 }
+function requestAdminRole(email) {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const index = users.findIndex(u => u.email === email);
+  if (index !== -1) {
+    users[index].role = "admin";
+    users[index].approved = false;
+    localStorage.setItem("users", JSON.stringify(users));
+    alert("Demande envoyée. En attente d’approbation par un admin.");
+    logout();
+  }
+}
+
+function approveUser(email) {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const index = users.findIndex(u => u.email === email);
+  if (index !== -1) {
+    users[index].approved = true;
+    localStorage.setItem("users", JSON.stringify(users));
+    alert(`Compte ${email} approuvé.`);
+    renderAccountPanel();
+  }
+}
+
+function rejectUser(email) {
+  let users = JSON.parse(localStorage.getItem("users") || "[]");
+  users = users.filter(u => u.email !== email);
+  localStorage.setItem("users", JSON.stringify(users));
+  alert(`Compte ${email} refusé.`);
+  renderAccountPanel();
+}
