@@ -37,6 +37,7 @@ function login() {
     alert("Identifiants incorrects");
   }
 }
+window.login = login;
 
 function register() {
   const email = document.getElementById("register-email").value;
