@@ -18,7 +18,7 @@ function showLogin() {
   document.getElementById("main-screen").classList.add("hidden");
 }
 
-function show() {
+function showRegister() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
@@ -37,33 +37,22 @@ function login() {
     alert("Identifiants incorrects");
   }
 }
-window.login = login;
 
 function register() {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const role = document.getElementById("register-role").value;
-  const approved = (role === "admin") ? false : true;
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-
   if (users.some(u => u.email === email)) {
     alert("Email déjà utilisé");
     return;
   }
-
-  const newUser = { email, password, role, approved };
+  const newUser = { email, password, role };
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
-
-  if (!approved) {
-    alert("Demande d'approbation envoyée. Un admin doit valider votre compte.");
-    showLogin(); // retour à l'écran de connexion
-  } else {
-    currentUser = newUser;
-    showApp();
-    setTimeout(showNotesIfAny, 300);
-  }
-}
+  currentUser = newUser;
+  showApp();
+  setTimeout(showNotesIfAny, 300);
 }
 
 function logout() {
@@ -563,13 +552,11 @@ function openDayEventsModal(dateStr) {
   if (dayEvents.length === 0) {
     list.innerHTML = "<li>Aucun rendez-vous.</li>";
   } else {
-   for (const ev of dayEvents) {
-  const li = document.createElement("li");
-  const date = new Date(ev.start);
-  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
-  li.textContent = `${ev.title} à ${heure}`;
-  list.appendChild(li);
-}
+    for (const ev of dayEvents) {
+      const li = document.createElement("li");
+      li.textContent = `${ev.title} - ${ev.start}`;
+      list.appendChild(li);
+    }
   }
 
   document.getElementById("day-events-modal").classList.remove("hidden");
@@ -578,72 +565,3 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal() {
   document.getElementById("day-events-modal").classList.add("hidden");
 }
-
-function renderAccountPanel() {
-  const panel = document.getElementById("account-panel");
-  panel.innerHTML = "";
-
-  if (!currentUser) return;
-
-  if (currentUser.role === "admin" && currentUser.approved) {
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    const pending = users.filter(u => u.role === "admin" && !u.approved);
-
-    if (pending.length === 0) {
-      panel.innerHTML = "<p>Aucune demande en attente.</p>";
-      return;
-    }
-
-    const ul = document.createElement("ul");
-    for (const user of pending) {
-      const li = document.createElement("li");
-      li.innerHTML = `${user.email} 
-        <button onclick="approveUser('${user.email}')">Approuver</button>
-        <button onclick="rejectUser('${user.email}')">Refuser</button>`;
-      ul.appendChild(li);
-    }
-    panel.appendChild(ul);
-  } else if (currentUser.role === "user") {
-    const btn = document.createElement("button");
-    btn.textContent = "Demander à devenir admin";
-    btn.onclick = () => requestAdminRole(currentUser.email);
-    panel.appendChild(btn);
-  }
-}
-function requestAdminRole(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const index = users.findIndex(u => u.email === email);
-  if (index !== -1) {
-    users[index].role = "admin";
-    users[index].approved = false;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert("Demande envoyée. En attente d’approbation par un admin.");
-    logout();
-  }
-}
-
-function approveUser(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const index = users.findIndex(u => u.email === email);
-  if (index !== -1) {
-    users[index].approved = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`Compte ${email} approuvé.`);
-    renderAccountPanel();
-  }
-}
-
-function rejectUser(email) {
-  let users = JSON.parse(localStorage.getItem("users") || "[]");
-  users = users.filter(u => u.email !== email);
-  localStorage.setItem("users", JSON.stringify(users));
-  alert(`Compte ${email} refusé.`);
-  renderAccountPanel();
-}
-function showApp() {
-  ...
-  renderCalendar();
-  renderAccountPanel(); // <--- ajoute ceci
-}
-window.login = login;
-window.register = register;
