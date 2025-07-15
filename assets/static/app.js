@@ -134,9 +134,13 @@ function renderCalendar() {
 
 function closeDayView() {
   document.getElementById("day-view-modal").classList.add("hidden");
-}
-  
   calendar.render();
+}
+
+// On rend la fonction accessible globalement (HTML onclick)
+window.closeDayView = closeDayView;
+
+
 }
 
 function shortenEvent(title, dateStr) {
