@@ -197,7 +197,10 @@ button:disabled {
 }
 
 .modal-content {
-  background: white;
+   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: white;
   padding: 20px;
   border-radius: 10px;
   width: 90%;
