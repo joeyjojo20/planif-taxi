@@ -10,6 +10,28 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <script src="assets/static/app.js" defer></script>
 </head>
+  <style>
+  #account-panel {
+    max-height: 80vh;
+    overflow-y: auto;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.25);
+    min-width: 350px;
+    max-width: 90vw;
+  }
+
+  #account-content > div {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+  }
+
+  #account-content button,
+  #account-content select {
+    margin-top: 5px;
+  }
+</style>
+
 <body>
 
 <!-- Écran de connexion -->
