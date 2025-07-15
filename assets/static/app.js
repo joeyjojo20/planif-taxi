@@ -552,11 +552,13 @@ function openDayEventsModal(dateStr) {
   if (dayEvents.length === 0) {
     list.innerHTML = "<li>Aucun rendez-vous.</li>";
   } else {
-    for (const ev of dayEvents) {
-      const li = document.createElement("li");
-      li.textContent = `${ev.title} - ${ev.start}`;
-      list.appendChild(li);
-    }
+   for (const ev of dayEvents) {
+  const li = document.createElement("li");
+  const date = new Date(ev.start);
+  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
+  li.textContent = `${ev.title} à ${heure}`;
+  list.appendChild(li);
+}
   }
 
   document.getElementById("day-events-modal").classList.remove("hidden");
