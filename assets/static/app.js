@@ -126,11 +126,15 @@ function renderCalendar() {
       ...e,
       title: shortenEvent(e.title, e.start)
     })),
-     eventClick: onEventClick,
+    eventClick: onEventClick,
     dateClick: function(info) {
       openDayView(info.dateStr);
     }
   });
+
+  calendar.render(); // très important !
+}
+
 
 
 function closeDayView() {
