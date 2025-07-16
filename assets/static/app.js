@@ -798,3 +798,94 @@ function storePdfFile(name, dataUrl) {
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
+document.getElementById("pdf-import").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const text = await extractTextFromPDF(file);
+  const dateFromPDF = extractDateFromPDFText(text);
+  if (!dateFromPDF) return alert("Impossible de trouver la date dans le PDF");
+
+  const rdvs = parseCoursesFromText(text, dateFromPDF);
+
+  rdvs.forEach(rdv => {
+    events.push({
+      title: `${rdv.nom} (${rdv.heure})`,
+      start: `${rdv.date}T${rdv.heure}`,
+      extendedProps: {
+        adresseDepart: rdv.adresseDepart,
+        adresseArrivee: rdv.adresseArrivee
+      }
+    });
+  });
+
+  localStorage.setItem("events", JSON.stringify(events));
+  calendar.refetchEvents();
+  alert("Import terminé !");
+});
+
+function extractDateFromPDFText(text) {
+  const mois = {
+    janvier: "01", février: "02", mars: "03", avril: "04", mai: "05", juin: "06",
+    juillet: "07", août: "08", septembre: "09", octobre: "10", novembre: "11", décembre: "12"
+  };
+  const regex = /(\d{1,2})\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+(\d{4})/i;
+  const match = text.match(regex);
+  if (!match) return null;
+
+  const jour = match[1].padStart(2, '0');
+  const moisNum = mois[match[2].toLowerCase()];
+  const annee = match[3];
+  return `${annee}-${moisNum}-${jour}`;
+}
+
+async function extractTextFromPDF(file) {
+  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+  const reader = new FileReader();
+  return new Promise((resolve) => {
+    reader.onload = async function () {
+      const typedarray = new Uint8Array(this.result);
+      const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+      let fullText = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const strings = content.items.map(item => item.str);
+        fullText += strings.join(" ") + "\n";
+      }
+      resolve(fullText);
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function parseCoursesFromText(text, date) {
+  const lines = text.split("\n");
+  const rdvs = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const heureMatch = line.match(/(\d{1,2}:\d{2})/);
+    if (heureMatch) {
+      const heure = heureMatch[1];
+      const adresseDepart = line.match(/^(.+?),MON/);
+      const adresseArrivee = line.match(/MON\s(.+?),?MON/);
+      const nextLine = lines[i + 1] || "";
+      const nom = nextLine.match(/([A-ZÉÈÀÙÎÏÖÛ\- ]+,[ ]?[A-Z\-]+)/i)?.[0];
+
+      if (heure && adresseDepart && adresseArrivee && nom) {
+        rdvs.push({
+          date: date,
+          heure: heure,
+          nom: nom.trim(),
+          adresseDepart: adresseDepart[1].trim(),
+          adresseArrivee: adresseArrivee[1].trim()
+        });
+      }
+    }
+  }
+
+  return rdvs;
+}
