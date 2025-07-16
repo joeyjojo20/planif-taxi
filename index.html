@@ -69,7 +69,13 @@
   </div>
 
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
   <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
+  <div>
+    <button onclick="document.getElementById('pdf-import').click()">📤 Importer un PDF</button>
+    <input type="file" id="pdf-import" accept="application/pdf" style="display:none" />
+  </div>
+</div>
   <div id="calendar"></div>
 
 <div style="display: flex; justify-content: space-between; margin-top: 10px;">
