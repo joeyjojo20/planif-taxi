@@ -752,3 +752,35 @@ function requestAdmin() {
     updateAccountNotification();
   }
 }
+function openPdfPanel() {
+  const panel = document.getElementById("pdf-panel");
+  const list = document.getElementById("pdf-list");
+
+  const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
+
+  const now = Date.now();
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const filtered = stored.filter(file => file.timestamp >= sevenDaysAgo);
+
+  list.innerHTML = "";
+  if (filtered.length === 0) {
+    list.innerHTML = "<li>Aucun fichier PDF récent.</li>";
+  } else {
+    filtered.forEach(file => {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = file.dataUrl;
+      link.textContent = file.name;
+      link.download = file.name;
+      link.target = "_blank";
+      li.appendChild(link);
+      list.appendChild(li);
+    });
+  }
+
+  panel.classList.remove("hidden");
+}
+
+function closePdfPanel() {
+  document.getElementById("pdf-panel").classList.add("hidden");
+}
