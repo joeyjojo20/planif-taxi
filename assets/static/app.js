@@ -789,6 +789,7 @@ function openPdfPanel() {
 
   panel.classList.remove("hidden");
 }
+window.openPdfPanel = openPdfPanel;
 
 function closePdfPanel() {
   document.getElementById("pdf-panel").classList.add("hidden");
