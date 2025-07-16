@@ -821,10 +821,10 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
     fullText += text.items.map(item => item.str).join(" ") + "\n";
   }
 
-  const events = parseTaxiPdf(fullText, dateFromName);
-  for (const evt of events) {
-    calendar.addEvent(evt);
-  }
+ const parsedEvents = parseTaxiPdf(fullText, dateFromName);
+  for (const evt of parsedEvents) {
+  calendar.addEvent(evt);
+}
 
   alert(`✅ ${events.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
   e.target.value = ""; // reset input
