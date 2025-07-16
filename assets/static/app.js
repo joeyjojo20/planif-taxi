@@ -784,3 +784,8 @@ function openPdfPanel() {
 function closePdfPanel() {
   document.getElementById("pdf-panel").classList.add("hidden");
 }
+function storePdfFile(name, dataUrl) {
+  const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
+  existing.push({ name, dataUrl, timestamp: Date.now() });
+  localStorage.setItem("pdfFiles", JSON.stringify(existing));
+}
