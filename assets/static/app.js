@@ -845,24 +845,54 @@ function extractDateFromFileName(fileName) {
 
 // Extrait les RDV depuis le texte du PDF
 function parseTaxiPdf(text, baseDate) {
-  const lines = text.split(/\n/);
   const events = [];
+  const lignes = text.split(/\n/).map(l => l.trim()).filter(Boolean);
 
-  for (let line of lines) {
-    const match = line.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(.*?)\s+à\s+(.*?)\s+(\d{1,2}h\d{2})/i);
-    if (match) {
-      const [_, name, from, to, time] = match;
-      const [hours, minutes] = time.split("h").map(n => parseInt(n));
-      const date = new Date(baseDate);
-      date.setHours(hours, minutes, 0, 0);
+  for (let i = 0; i < lignes.length; i++) {
+    const line = lignes[i];
 
-      events.push({
-        title: `${name} (${from} → ${to})`,
-        start: date,
-        allDay: false
-      });
+    if (/^[A-Z\s,]+$/.test(line)) {
+      const nameRaw = line.replace(",", "").trim();
+      const name = nameRaw.replace(/\s+/g, " ");
+
+      for (let j = 1; j <= 3; j++) {
+        const next = lignes[i + j] || "";
+        const match = next.match(/(\d{1,2})[:hH](\d{2})/);
+
+        if (match) {
+          const hours = parseInt(match[1]);
+          const minutes = parseInt(match[2]);
+
+          const date = new Date(baseDate);
+          date.setHours(hours, minutes, 0, 0);
+
+          const addr1 = lignes[i + j - 1] || "";
+          const addr2 = lignes[i + j + 1] || "";
+
+          const from = cleanAddress(addr1);
+          const to = cleanAddress(addr2);
+
+          const heureAffichee = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+          events.push({
+            title: `${heureAffichee} – ${name} – ${from} > ${to}`,
+            start: date,
+            allDay: false
+          });
+
+          i += j + 1;
+          break;
+        }
+      }
     }
   }
 
   return events;
+}
+
+function cleanAddress(raw) {
+  return raw.replace(/\d{4,}/g, "")
+            .replace(/[^\w\s\-',]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
 }
