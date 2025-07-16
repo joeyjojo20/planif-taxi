@@ -852,7 +852,7 @@ function parseTaxiPdf(text, baseDate) {
   for (let i = 0; i < lignes.length; i++) {
     const line = lignes[i];
 
-    if (/^[A-Z\s,]+$/.test(line)) {
+    if (/^[A-ZÉÈÀÙÇ\s,'\-]+/i.test(line)) {
       const nameRaw = line.replace(",", "").trim();
       const name = nameRaw.replace(/\s+/g, " ");
 
