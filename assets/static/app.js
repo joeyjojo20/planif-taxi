@@ -798,3 +798,71 @@ function storePdfFile(name, dataUrl) {
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
+// Fonction d'importation PDF automatique
+document.getElementById("pdf-import").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const fileName = file.name;
+  const dateFromName = extractDateFromFileName(fileName);
+  if (!dateFromName) {
+    alert("Impossible de lire la date depuis le nom du fichier.");
+    return;
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const text = await page.getTextContent();
+    fullText += text.items.map(item => item.str).join(" ") + "\n";
+  }
+
+  const events = parseTaxiPdf(fullText, dateFromName);
+  for (const evt of events) {
+    calendar.addEvent(evt);
+  }
+
+  alert(`✅ ${events.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
+  e.target.value = ""; // reset input
+});
+
+// Convertit le nom du fichier en date JS
+function extractDateFromFileName(fileName) {
+  const match = fileName.match(/(\d{1,2})\s*(JUILLET|AOÛT|JUIN|MAI)/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1]);
+  const monthMap = {
+    "MAI": 4, "JUIN": 5, "JUILLET": 6, "AOÛT": 7
+  };
+  const month = monthMap[match[2].toUpperCase()];
+  const year = new Date().getFullYear();
+  return new Date(year, month, day);
+}
+
+// Extrait les RDV depuis le texte du PDF
+function parseTaxiPdf(text, baseDate) {
+  const lines = text.split(/\n/);
+  const events = [];
+
+  for (let line of lines) {
+    const match = line.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(.*?)\s+à\s+(.*?)\s+(\d{1,2}h\d{2})/i);
+    if (match) {
+      const [_, name, from, to, time] = match;
+      const [hours, minutes] = time.split("h").map(n => parseInt(n));
+      const date = new Date(baseDate);
+      date.setHours(hours, minutes, 0, 0);
+
+      events.push({
+        title: `${name} (${from} → ${to})`,
+        start: date,
+        allDay: false
+      });
+    }
+  }
+
+  return events;
+}
