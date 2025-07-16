@@ -70,9 +70,11 @@
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
   <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
   <div id="calendar"></div>
-  <button onclick="fixOldEvents()" style="margin-top: 10px; font-size: 12px;">Débog</button>
-</div>
 
+<div style="display: flex; justify-content: space-between; margin-top: 10px;">
+  <button onclick="fixOldEvents()" style="font-size: 12px;">Débog</button>
+  <button onclick="openPdfFilesPanel()">📁 Fichiers PDF</button>
+</div>
   
 
 <!-- Formulaire de rendez-vous -->
@@ -229,6 +231,6 @@
     <button onclick="closePdfPanel()">Fermer</button>
   </div>
 </div>
-<button id="btn-pdf-files" onclick="openPdfPanel()">📂 Fichiers PDF</button>
+
 </body>
 </html>
