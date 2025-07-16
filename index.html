@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -23,7 +24,7 @@
 <!-- Écran d'inscription -->
 <div id="register-screen" class="hidden">
   <h2>Créer un compte</h2>
-  <input type="text" ="register-email" placeholder="Email" />
+  <input type="text" id="register-email" placeholder="Email" />
   <input type="password" id="register-password" placeholder="Mot de passe" />
   <select id="register-role">
     <option value="user">Utilisateur</option>
@@ -35,10 +36,10 @@
 
 <!-- Écran principal (calendrier, boutons, config, etc.) -->
 <div id="main-screen" class="hidden">
-  <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+  <div id="main-screen"><div class="header" style="display: flex; justify-content: space-between; align-items: center;">
     <span id="welcome"></span>
     <div>
-      <button id="config-btn" onclick="openImapModal()">Config Mail</button>
+      <button id="config-btn" onclick="openConfigModal()">Config Mail</button>
       <button onclick="logout()">Déconnexion</button>
     </div>
   </div>
@@ -56,8 +57,7 @@
     <input type="text" id="client-name" placeholder="Nom du client" />
     <input type="text" id="pickup-address" placeholder="Adresse de départ" />
     <input type="text" id="dropoff-address" placeholder="Adresse de destination" />
-    <label for="event-date"><strong>Date et heure du rendez-vous</strong></label>
-<input type="datetime-local" id="event-date" placeholder="aaaa-mm-jj hh:mm" />
+    <input type="datetime-local" id="event-date" />
 
     <label>Répétition
       <select id="recurrence">
@@ -135,10 +135,10 @@
   <div class="modal-content">
     <h3>Configuration de l'import PDF</h3>
 
-    <label for="monitoredEmail">Mon Email :</label>
+    <label for="monitoredEmail">Adresse email à surveiller :</label>
     <input type="email" id="monitoredEmail" placeholder="exemple@domaine.com" />
 
-    <label for="monitoredFolder">Dossier Cible a surveiller :</label>
+    <label for="monitoredFolder">Nom du dossier email :</label>
     <input type="text" id="monitoredFolder" placeholder="ex: Inbox/Taxi500" />
 
     <label for="pdfKeyword">Mot-clé à détecter dans le PDF :</label>
@@ -148,36 +148,6 @@
     <button onclick="closeConfigModal()">Annuler</button>
   </div>
 </div>
-<!-- MODALE DE CONFIGURATION IMAP -->
-<div id="imap-modal" class="modal hidden">
-  <div class="modal-content">
-    <h3>Paramètres de messagerie (IMAP)</h3>
 
-    <label for="imap-email">Mon adresse email à surveiller</label>
-    <input type="email" id="imap-email" />
-
-    <label for="imap-password">Mot de passe (ou mot de passe d’application)</label>
-    <input type="password" id="imap-password" />
-
-    <label for="imap-server">Serveur IMAP</label>
-    <input type="text" id="imap-server" placeholder="imap.gmail.com" />
-
-    <label for="imap-port">Port</label>
-    <input type="number" id="imap-port" value="993" />
-
-  <!-- Séparateur visuel -->
-<hr style="margin: 20px 0;">
-<p><strong>Détection des PDF à importer</strong></p>
-
-<label for="imap-folder">📁 Dossier à surveiller</label>
-<input type="text" id="imap-folder" value="INBOX" />
-
-<label for="imap-keyword">🔍 Mot-clé à filtrer (optionnel)</label>
-<input type="text" id="imap-keyword" placeholder="ex: planning, horaire..." />
-
-    <button onclick="saveImapConfig()">💾 Sauvegarder</button>
-    <button onclick="closeImapModal()">Annuler</button>
-  </div>
-</div>
 </body>
 </html>
