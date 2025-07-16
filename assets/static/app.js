@@ -95,7 +95,7 @@ function showApp() {
   document.getElementById("notes-box").value = note;
 
   renderCalendar();
-  
+  updateAccountNotification(); 
 }
 
 
