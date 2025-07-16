@@ -96,6 +96,15 @@ function showApp() {
 
   renderCalendar();
   updateAccountNotification(); 
+    const configBtn = document.getElementById("config-btn");
+  if (currentUser.role === "admin" && currentUser.approved) {
+    configBtn.disabled = false;
+    configBtn.classList.remove("disabled");
+  } else {
+    configBtn.disabled = true;
+    configBtn.classList.add("disabled");
+  }
+
 }
 
 
