@@ -66,10 +66,17 @@
       <button onclick="logout()">Déconnexion</button>
     </div>
   </div>
+  <!-- Import PDF -->
+  <div style="text-align:center; margin-top: 10px;">
+    <button onclick="document.getElementById('pdf-import').click()">📤 Importer un PDF</button>
+    <input type="file" id="pdf-import" accept="application/pdf" style="display:none" />
+  </div>
+
+  <!-- Calendrier -->
+  <div id="calendar"></div>
 
   <textarea id="notes-box" placeholder="Notes internes..."></textarea>
   <button id="add-event-btn" onclick="showEventForm()">Ajouter un rendez-vous</button>
-  <div id="calendar"></div>
 
 <div style="display: flex; justify-content: space-between; margin-top: 10px;">
   <button onclick="fixOldEvents()" style="font-size: 12px;">Débog</button>
