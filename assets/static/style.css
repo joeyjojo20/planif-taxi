@@ -260,3 +260,8 @@ button:disabled {
 #btn-pdf-files:hover {
   background-color: #0056b3;
 }
+#config-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
