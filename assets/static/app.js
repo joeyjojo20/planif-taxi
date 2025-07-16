@@ -1,3 +1,4 @@
+
 let currentUser = null;
 // Auto-crée un compte admin si aucun utilisateur n'est présent
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
@@ -31,15 +32,6 @@ function login() {
   const found = users.find(u => u.email === email && u.password === password);
   if (found) {
     currentUser = found;
-        if (currentUser.role === "admin" && currentUser.approved === undefined) {
-      currentUser.approved = true;
-      const i = users.findIndex(u => u.email === currentUser.email);
-      if (i !== -1) {
-        users[i].approved = true;
-        localStorage.setItem("users", JSON.stringify(users));
-      }
-    }
-
     showApp();
     setTimeout(showNotesIfAny, 300);
   } else {
@@ -50,34 +42,19 @@ function login() {
 function register() {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
-  const roleChoice = document.getElementById("register-role").value;
-
-  const users = JSON.parse(localStorage.getItem("users") || []);
+  const role = document.getElementById("register-role").value;
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
   if (users.some(u => u.email === email)) {
     alert("Email déjà utilisé");
     return;
   }
-
-  const newUser = {
-    email,
-    password,
-    role: "user",
-    approved: true,
-    wantsAdmin: roleChoice === "admin"
-  };
-
+  const newUser = { email, password, role };
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
-
-  if (newUser.wantsAdmin) {
-    alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
-  }
-
   currentUser = newUser;
   showApp();
   setTimeout(showNotesIfAny, 300);
 }
-
 
 function logout() {
   currentUser = null;
@@ -93,40 +70,8 @@ function showApp() {
   const noteKey = "notes_" + currentUser.email;
   const note = localStorage.getItem(noteKey) || "";
   document.getElementById("notes-box").value = note;
-
   renderCalendar();
-  updateAccountNotification(); 
-    const configBtn = document.getElementById("config-btn");
-  if (currentUser.role === "admin" && currentUser.approved) {
-    configBtn.disabled = false;
-    configBtn.classList.remove("disabled");
-  } else {
-    configBtn.disabled = true;
-    configBtn.classList.add("disabled");
-  }
-
 }
-
-
-function updateAccountNotification() {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const hasPending = users.some(u => u.wantsAdmin);
-  const btn = document.getElementById("btn-account");
-
-  if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) {
-    btn?.classList.remove("notification");  // Ne rien afficher pour les users
-    return;
-  }
-
-  if (btn) {
-    if (hasPending) {
-      btn.classList.add("notification");
-    } else {
-      btn.classList.remove("notification");
-    }
-  }
-}
-
 
 // Afficher note interne une seule fois
 function showNotesIfAny() {
@@ -170,7 +115,6 @@ function renderCalendar() {
   if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
-    dateClick: function(info) { openDayEventsModal(info.dateStr); },
     initialView: 'dayGridMonth',
     locale: 'fr',
     headerToolbar: {
@@ -565,18 +509,7 @@ function openConfigModal() {
 
 function closeConfigModal() {
   document.getElementById("config-modal").classList.add("hidden");
-
-  
 }
-
-function openImapModal() {
-  document.getElementById("imap-modal").classList.remove("hidden");
-}
-
-function closeImapModal() {
-  document.getElementById("imap-modal").classList.add("hidden");
-}
-
 
 function savePdfConfig() {
   const email = document.getElementById("monitoredEmail").value;
@@ -592,300 +525,4 @@ function savePdfConfig() {
   localStorage.setItem("pdfConfig", JSON.stringify(config));
   alert("Configuration PDF enregistrée.");
   closeConfigModal();
-}
-
-function openDayEventsModal(dateStr) {
-  const list = document.getElementById("day-events-list");
-  const displayDate = new Date(dateStr).toLocaleDateString("fr-CA");
-
-  document.getElementById("day-events-date").textContent = displayDate;
-  list.innerHTML = "";
-
-  const dayEvents = events.filter(ev =>
-    ev.start.startsWith(dateStr)
-  );
-
-  if (dayEvents.length === 0) {
-    list.innerHTML = "<li>Aucun rendez-vous.</li>";
-  } else {
-    for (const ev of dayEvents) {
-      const li = document.createElement("li");
-     const date = new Date(ev.start);
-const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-li.textContent = `${ev.title}   à ${heure}`;
-      list.appendChild(li);
-    }
-  }
-
-  document.getElementById("day-events-modal").classList.remove("hidden");
-}
-
-function closeDayEventsModal() {
-  document.getElementById("day-events-modal").classList.add("hidden");
-}
-function openAccountPanel() {
-  const panel = document.getElementById("account-panel");
-  const content = document.getElementById("account-content");
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-
-  if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
-    if (currentUser && currentUser.role === "user") {
-      content.innerHTML = "";
-      const p = document.createElement("p");
-      p.innerText = "Vous êtes un utilisateur standard.";
-      const btn = document.createElement("button");
-      btn.innerText = "Demander à devenir admin";
-      btn.onclick = requestAdmin;
-      content.appendChild(p);
-      content.appendChild(btn);
-    } else {
-      content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
-    }
-    panel.classList.remove("hidden");
-    return;
-  }
-
-  content.innerHTML = "";
-  const title = document.createElement("h4");
-  title.innerText = "Utilisateurs enregistrés";
-  content.appendChild(title);
-
-  users.forEach((u, index) => {
-    const line = document.createElement("div");
-    line.style.borderBottom = "1px solid #ccc";
-    line.style.padding = "5px 0";
-
-    const email = document.createElement("strong");
-    email.innerText = u.email;
-    line.appendChild(email);
-    line.appendChild(document.createElement("br"));
-
-    const role = document.createElement("span");
-    role.innerText = "Rôle : " + u.role;
-    line.appendChild(role);
-    line.appendChild(document.createElement("br"));
-
-    const status = document.createElement("span");
-    status.innerText = "Statut : " + (
-      u.role === "admin"
-        ? (u.approved ? "Admin approuvé" : "Demande admin")
-        : "Utilisateur"
-    );
-    line.appendChild(status);
-    line.appendChild(document.createElement("br"));
-
-    if (u.email !== currentUser.email) {
-      const delBtn = document.createElement("button");
-      delBtn.innerText = "Supprimer";
-      delBtn.style.marginTop = "5px";
-      delBtn.onclick = () => {
-        if (confirm("Supprimer le compte " + u.email + " ?")) {
-          users.splice(index, 1);
-          localStorage.setItem("users", JSON.stringify(users));
-          alert("Compte supprimé.");
-          openAccountPanel();
-          updateAccountNotification();
-        }
-      };
-      line.appendChild(delBtn);
-    }
-
-    if (u.wantsAdmin && u.role === "user") {
-      const select = document.createElement("select");
-      ["en attente", "approuvé", "refusé"].forEach(opt => {
-        const option = document.createElement("option");
-        option.value = opt;
-        option.textContent = opt;
-        select.appendChild(option);
-      });
-      line.appendChild(document.createElement("br"));
-      line.appendChild(select);
-
-      const valider = document.createElement("button");
-      valider.innerText = "Valider";
-      valider.style.marginLeft = "5px";
-      valider.onclick = () => {
-        const value = select.value;
-        if (value === "approuvé") {
-          approveUser(u.email);
-        } else if (value === "refusé") {
-          rejectUser(u.email);
-        }
-      };
-      line.appendChild(valider);
-    }
-
-    content.appendChild(line);
-  });
-
-  panel.classList.remove("hidden");
-}
-
-function closeAccountPanel() {
-  document.getElementById("account-panel").classList.add("hidden");
-}
-
-function approveUser(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === email);
-  if (user) {
-    user.role = "admin";
-    user.wantsAdmin = false;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`${email} est maintenant admin.`);
-    openAccountPanel(); // refresh panel
-  }
-}
-
-function rejectUser(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === email);
-  if (user) {
-    user.wantsAdmin = false;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`Demande de ${email} refusée.`);
-    openAccountPanel();// refresh panel
-    updateAccountNotification(); 
-  }
-}
-
-function requestAdmin() {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === currentUser.email);
-  if (user) {
-    user.wantsAdmin = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert("Demande envoyée.");
-    currentUser.wantsAdmin = true;
-    openAccountPanel(); // refresh
-    updateAccountNotification();
-  }
-}
-function openPdfPanel() {
-  const panel = document.getElementById("pdf-panel");
-  const list = document.getElementById("pdf-list");
-
-  const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
-
-  const now = Date.now();
-  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const filtered = stored.filter(file => file.timestamp >= sevenDaysAgo);
-
-  list.innerHTML = "";
-  if (filtered.length === 0) {
-    list.innerHTML = "<li>Aucun fichier PDF récent.</li>";
-  } else {
-    filtered.forEach(file => {
-      const li = document.createElement("li");
-      const link = document.createElement("a");
-      link.href = file.dataUrl;
-      link.textContent = file.name;
-      link.download = file.name;
-      link.target = "_blank";
-      li.appendChild(link);
-      list.appendChild(li);
-    });
-  }
-
-  panel.classList.remove("hidden");
-}
-
-function closePdfPanel() {
-  document.getElementById("pdf-panel").classList.add("hidden");
-}
-function storePdfFile(name, dataUrl) {
-  const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
-  existing.push({ name, dataUrl, timestamp: Date.now() });
-  localStorage.setItem("pdfFiles", JSON.stringify(existing));
-}
-document.getElementById("pdf-import").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const text = await extractTextFromPDF(file);
-  const dateFromPDF = extractDateFromPDFText(text);
-  if (!dateFromPDF) return alert("Impossible de trouver la date dans le PDF");
-
-  const rdvs = parseCoursesFromText(text, dateFromPDF);
-
-  rdvs.forEach(rdv => {
-    events.push({
-      title: `${rdv.nom} (${rdv.heure})`,
-      start: `${rdv.date}T${rdv.heure}`,
-      extendedProps: {
-        adresseDepart: rdv.adresseDepart,
-        adresseArrivee: rdv.adresseArrivee
-      }
-    });
-  });
-
-  localStorage.setItem("events", JSON.stringify(events));
-  calendar.refetchEvents();
-  alert("Import terminé !");
-});
-
-function extractDateFromPDFText(text) {
-  const mois = {
-    janvier: "01", février: "02", mars: "03", avril: "04", mai: "05", juin: "06",
-    juillet: "07", août: "08", septembre: "09", octobre: "10", novembre: "11", décembre: "12"
-  };
-  const regex = /(\d{1,2})\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+(\d{4})/i;
-  const match = text.match(regex);
-  if (!match) return null;
-
-  const jour = match[1].padStart(2, '0');
-  const moisNum = mois[match[2].toLowerCase()];
-  const annee = match[3];
-  return `${annee}-${moisNum}-${jour}`;
-}
-
-async function extractTextFromPDF(file) {
-  const pdfjsLib = window['pdfjs-dist/build/pdf'];
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-  const reader = new FileReader();
-  return new Promise((resolve) => {
-    reader.onload = async function () {
-      const typedarray = new Uint8Array(this.result);
-      const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
-      let fullText = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const strings = content.items.map(item => item.str);
-        fullText += strings.join(" ") + "\n";
-      }
-      resolve(fullText);
-    };
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-function parseCoursesFromText(text, date) {
-  const lines = text.split("\n");
-  const rdvs = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    const heureMatch = line.match(/(\d{1,2}:\d{2})/);
-    if (heureMatch) {
-      const heure = heureMatch[1];
-      const adresseDepart = line.match(/^(.+?),MON/);
-      const adresseArrivee = line.match(/MON\s(.+?),?MON/);
-      const nextLine = lines[i + 1] || "";
-      const nom = nextLine.match(/([A-ZÉÈÀÙÎÏÖÛ\- ]+,[ ]?[A-Z\-]+)/i)?.[0];
-
-      if (heure && adresseDepart && adresseArrivee && nom) {
-        rdvs.push({
-          date: date,
-          heure: heure,
-          nom: nom.trim(),
-          adresseDepart: adresseDepart[1].trim(),
-          adresseArrivee: adresseArrivee[1].trim()
-        });
-      }
-    }
-  }
-
-  return rdvs;
 }
