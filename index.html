@@ -67,11 +67,11 @@
       <button onclick="logout()">Déconnexion</button>
     </div>
   </div>
-  <!-- Import PDF -->
-  <div style="text-align:center; margin-top: 10px;">
-    <button onclick="document.getElementById('pdf-import').click()">📤 Importer un PDF</button>
-    <input type="file" id="pdf-import" accept="application/pdf" style="display:none" />
-  </div>
+<!-- Import PDF (placé en haut à droite du calendrier) -->
+<div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+  <button onclick="document.getElementById('pdf-import').click()">📤 Importer un PDF</button>
+  <input type="file" id="pdf-import" accept="application/pdf" style="display:none" />
+</div>
 
   <!-- Calendrier -->
   <div id="calendar"></div>
