@@ -800,6 +800,7 @@ function storePdfFile(name, dataUrl) {
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 // Fonction d'importation PDF automatique
+// Fonction d'importation PDF automatique
 document.getElementById("pdf-import").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -821,14 +822,18 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
     fullText += text.items.map(item => item.str).join(" ") + "\n";
   }
 
- const parsedEvents = parseTaxiPdf(fullText, dateFromName);
-for (const evt of parsedEvents) {
-  calendar.addEvent(evt);
-}
+  const parsedEvents = parseTaxiPdf(fullText, dateFromName);
 
-  alert(`✅ ${events.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
+  for (const evt of parsedEvents) {
+    calendar.addEvent(evt);
+    events.push(evt);
+  }
+
+  localStorage.setItem("events", JSON.stringify(events));
+  alert(`✅ ${parsedEvents.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
   e.target.value = ""; // reset input
 });
+
 
 // Convertit le nom du fichier en date JS
 function extractDateFromFileName(fileName) {
