@@ -851,30 +851,36 @@ function extractDateFromFileName(fileName) {
 
 // Extrait les RDV depuis le texte du PDF
 function parseTaxiPdf(text, dateFromName) {
-  const events = [];
   const lines = text.split("\n").map(l => l.trim()).filter(l => l);
+  const events = [];
 
-  for (const line of lines) {
-    // Exemple de ligne valide : "BERNIER DANY – 106 RUE DU PARC > 300 BOUL LAVOIE 7:40"
-    const match = line.match(/^([A-Z\s,]+)[–-]\s+(.+?)\s*>\s*(.+?)\s+(\d{1,2}[:h]\d{2})$/i);
+  const rdvRegex = /^([A-ZÉÈÀÇ][A-ZÉÈÀÇ ,.'-]+)\s+([0-9]{1,2}:[0-9]{2})\s+(.*?)\s+>\s+(.*)$/i;
 
+  for (let line of lines) {
+    // Nettoyage : ignorer si contient des mots inutiles
+    if (/NILTRA|Téléphone|Tél|NASS|Code/i.test(line)) continue;
+
+    // Correction du sens s'il manque le ">" (on tente de le reconstituer)
+    if (!line.includes(">") && line.includes("  ")) {
+      const parts = line.split(/\s{2,}/);
+      if (parts.length === 3) {
+        line = `${parts[0]} > ${parts[1]} ${parts[2]}`;
+      }
+    }
+
+    // Ex: BERNIER DANY 07:40 106 RUE DU PARC > 300 BOUL LAVOIE
+    const match = line.match(/^(.+?)\s+([0-9]{1,2}:[0-9]{2})\s+(.*?)\s*>\s*(.*)$/);
     if (match) {
-      const name = match[1].trim().replace(/,/g, "");
-      const pickup = match[2].trim();
-      const dropoff = match[3].trim();
-      const hourStr = match[4].replace("h", ":");
+      const [_, name, time, from, to] = match;
 
-      // Fusionner date (du nom du fichier) + heure (de la ligne)
-      const [day, month, year] = [
-        dateFromName.getDate().toString().padStart(2, "0"),
-        (dateFromName.getMonth() + 1).toString().padStart(2, "0"),
-        dateFromName.getFullYear()
-      ];
-      const dateStr = `${year}-${month}-${day}T${hourStr}`;
+      // Recomposer la date complète
+      const [hours, minutes] = time.split(":").map(Number);
+      const date = new Date(dateFromName);
+      date.setHours(hours, minutes, 0, 0);
 
       events.push({
-        title: `${name} – ${pickup} > ${dropoff}`,
-        start: dateStr,
+        title: `${name} – ${from} > ${to}`,
+        start: date.toISOString(),
         allDay: false
       });
     }
@@ -882,6 +888,7 @@ function parseTaxiPdf(text, dateFromName) {
 
   return events;
 }
+
 
 
 function cleanAddress(raw) {
