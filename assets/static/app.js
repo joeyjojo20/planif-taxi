@@ -850,51 +850,40 @@ function extractDateFromFileName(fileName) {
 }
 
 // Extrait les RDV depuis le texte du PDF
-function parseTaxiPdf(text, baseDate) {
+function parseTaxiPdf(text, dateFromName) {
   const events = [];
-  const lignes = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l);
 
-  for (let i = 0; i < lignes.length; i++) {
-    const line = lignes[i];
+  for (const line of lines) {
+    // Exemple de ligne valide : "BERNIER DANY – 106 RUE DU PARC > 300 BOUL LAVOIE 7:40"
+    const match = line.match(/^([A-Z\s,]+)[–-]\s+(.+?)\s*>\s*(.+?)\s+(\d{1,2}[:h]\d{2})$/i);
 
-    if (/^[A-ZÉÈÀÙÇ\s,'\-]+/i.test(line)) {
-      const nameRaw = line.replace(",", "").trim();
-      const name = nameRaw.replace(/\s+/g, " ");
+    if (match) {
+      const name = match[1].trim().replace(/,/g, "");
+      const pickup = match[2].trim();
+      const dropoff = match[3].trim();
+      const hourStr = match[4].replace("h", ":");
 
-      for (let j = 1; j <= 3; j++) {
-        const next = lignes[i + j] || "";
-        const match = next.match(/(\d{1,2})[:hH](\d{2})/);
+      // Fusionner date (du nom du fichier) + heure (de la ligne)
+      const [day, month, year] = [
+        dateFromName.getDate().toString().padStart(2, "0"),
+        (dateFromName.getMonth() + 1).toString().padStart(2, "0"),
+        dateFromName.getFullYear()
+      ];
+      const dateStr = `${year}-${month}-${day}T${hourStr}`;
 
-        if (match) {
-          const hours = parseInt(match[1]);
-          const minutes = parseInt(match[2]);
-
-          const date = new Date(baseDate);
-          date.setHours(hours, minutes, 0, 0);
-
-          const addr1 = lignes[i + j - 1] || "";
-          const addr2 = lignes[i + j + 1] || "";
-
-          const from = cleanAddress(addr1);
-          const to = cleanAddress(addr2);
-
-          const heureAffichee = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
-          events.push({
-            title: `${heureAffichee} – ${name} – ${from} > ${to}`,
-            start: date,
-            allDay: false
-          });
-
-          i += j + 1;
-          break;
-        }
-      }
+      events.push({
+        title: `${name} – ${pickup} > ${dropoff}`,
+        start: dateStr,
+        allDay: false
+      });
     }
   }
 
   return events;
+
 }
+
 
 function cleanAddress(raw) {
   return raw.replace(/\d{4,}/g, "")
