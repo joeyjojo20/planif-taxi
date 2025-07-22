@@ -822,8 +822,12 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
   }
 
  const parsedEvents = parseTaxiPdf(fullText, dateFromName);
-  for (const evt of parsedEvents) {
+for (const evt of parsedEvents) {
   calendar.addEvent(evt);
+  events.push(evt); // Ajouté pour le stockage local
+}
+localStorage.setItem("events", JSON.stringify(events)); // Sauvegarde
+
 }
 
   alert(`✅ ${events.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
