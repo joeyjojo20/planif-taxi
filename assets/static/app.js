@@ -881,7 +881,6 @@ function parseTaxiPdf(text, dateFromName) {
   }
 
   return events;
-
 }
 
 
