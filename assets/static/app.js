@@ -805,24 +805,31 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  const fileName = file.name;
-  const dateFromName = extractDateFromFileName(fileName);
-  if (!dateFromName) {
-    alert("Impossible de lire la date depuis le nom du fichier.");
-    return;
-  }
-
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let fullText = "";
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const text = await page.getTextContent();
-    fullText += text.items.map(item => item.str).join(" ") + "\n";
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(" ");
+    fullText += "\n" + pageText;
   }
 
-  const parsedEvents = parseTaxiPdf(fullText, dateFromName);
+  const dateMatch = fullText.match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+(MAI|JUIN|JUILLET|AOÛT)/i);
+  if (!dateMatch) {
+    alert("❌ Impossible de détecter la date dans le PDF.");
+    return;
+  }
+
+  const day = parseInt(dateMatch[2]);
+  const monthStr = dateMatch[3].toUpperCase();
+  const year = new Date().getFullYear();
+  const monthMap = { "MAI": 4, "JUIN": 5, "JUILLET": 6, "AOÛT": 7 };
+  const month = monthMap[monthStr];
+
+  const baseDate = new Date(year, month, day);
+  const parsedEvents = parseTaxiPdfFromText(fullText, baseDate);
 
   for (const evt of parsedEvents) {
     calendar.addEvent(evt);
@@ -830,9 +837,10 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
   }
 
   localStorage.setItem("events", JSON.stringify(events));
-  alert(`✅ ${parsedEvents.length} rendez-vous importés pour le ${dateFromName.toLocaleDateString("fr-FR")}`);
-  e.target.value = ""; // reset input
+  alert(`✅ ${parsedEvents.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
+  e.target.value = "";
 });
+
 
 
 // Convertit le nom du fichier en date JS
@@ -849,52 +857,44 @@ function extractDateFromFileName(fileName) {
   return new Date(year, month, day);
 }
 
-// Extrait les RDV depuis le texte du PDF
-function parseTaxiPdf(text, date) {
-  const lines = text.split("\n");
-  const events = [];
+// import-pdf//
+function parseTaxiPdfFromText(fullText, baseDate) {
+  const lines = fullText.split(/\n|\r/).map(l => l.trim()).filter(l => l.length > 0);
+  const rdvs = [];
 
-  for (let line of lines) {
-    // Nettoyage
-    line = line.trim().replace(/\s+/g, " ");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const heureMatch = line.match(/\b(\d{1,2}):(\d{2})\b/);
+    if (!heureMatch) continue;
 
-    // Repère les lignes avec une heure (ex : 7:40 ou 12:15)
-    const hourMatch = line.match(/([0-9]{1,2}:[0-9]{2})/);
-    if (!hourMatch) continue;
+    const heure = heureMatch[0];
 
-    const hour = hourMatch[1];
+    // On prend quelques lignes autour pour capter nom + adresses
+    const bloc = lines.slice(i, i + 5).join(" ");
 
-    // Ignore les lignes trop courtes ou sans adresse
-    if (!line.includes(">")) continue;
+    // Exemple : BERNIER, DANY 106 RUE DU PARC > 300 BOUL LAVOIE
+    const nomMatch = bloc.match(/([A-ZÉÈÀÙÇ]+(?:[\s,][A-ZÉÈÀÙÇ]+)+)/);
+    const arrowMatch = bloc.match(/(\d{2,5} .+?)\s?>\s?(\d{2,5} .+?)\b/);
 
-    const parts = line.split(">");
-    if (parts.length !== 2) continue;
+    const nom = nomMatch ? nomMatch[1].replace(",", "").trim() : "";
+    const from = arrowMatch ? arrowMatch[1].trim() : "";
+    const to = arrowMatch ? arrowMatch[2].trim() : "";
 
-    const beforeArrow = parts[0].trim();
-    const afterArrow = parts[1].trim();
+    if (nom && from && to) {
+      const [h, m] = heure.split(":").map(Number);
+      const fullDate = new Date(baseDate);
+      fullDate.setHours(h, m, 0, 0);
 
-    // Enlève tout ce qui est après l'heure pour le nom
-    const namePart = beforeArrow.split(hour)[0].trim();
-    const addressFrom = beforeArrow.split(hour)[1]?.trim() || "";
-    const addressTo = afterArrow;
-
-    // Construction du titre
-    const title = `${namePart} – ${addressFrom} > ${addressTo} @ ${hour}`;
-
-    const startDate = new Date(date);
-    const [h, m] = hour.split(":");
-    startDate.setHours(+h);
-    startDate.setMinutes(+m);
-
-    events.push({
-      title,
-      start: startDate.toISOString(),
-    });
+      rdvs.push({
+        title: `${nom} – ${from} > ${to}`,
+        start: fullDate.toISOString(),
+        allDay: false
+      });
+    }
   }
 
-  return events;
+  return rdvs;
 }
-
 
 
 
