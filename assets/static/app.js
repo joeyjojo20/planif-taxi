@@ -901,11 +901,12 @@ function parseTaxiPdfFromText(text, baseDate) {
     startDate.setHours(+h);
     startDate.setMinutes(+m);
 
-    const title = `${name} – ${from} > ${to} @ ${hour}`;
-    events.push({
-      title,
-      start: startDate.toISOString(),
-    });
+   const title = `${name} – ${from} > ${to} @ ${hour}`;
+events.push({
+  title,
+  start: new Date(startDate), // PAS .toISOString()
+});
+
   }
 
   return events;
