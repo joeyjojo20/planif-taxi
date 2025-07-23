@@ -815,6 +815,7 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
     const pageText = content.items.map(item => item.str).join(" ");
     fullText += "\n" + pageText;
   }
+console.log("CONTENU DU PDF :", fullText);
 
   const dateMatch = fullText.match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+(MAI|JUIN|JUILLET|AOÛT)/i);
   if (!dateMatch) {
