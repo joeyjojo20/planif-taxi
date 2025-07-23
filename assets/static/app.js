@@ -598,14 +598,21 @@ function savePdfConfig() {
 
 function openDayEventsModal(dateStr) {
   const list = document.getElementById("day-events-list");
-  const displayDate = new Date(dateStr).toLocaleDateString("fr-CA");
-  document.getElementById("day-events-date").textContent = displayDate;
+
+  const clickedDate = new Date(dateStr);  // ← attention ici
+  const targetDateStr = clickedDate.toLocaleDateString('fr-CA'); // ex : 2025-07-23
+  document.getElementById("day-events-date").textContent = targetDateStr;
+
   list.innerHTML = "";
 
-  const target = new Date(dateStr).toISOString().slice(0, 10);
-  const dayEvents = events.filter(ev =>
-    new Date(ev.start).toISOString().slice(0, 10) === target
-  );
+  const dayEvents = events.filter(ev => {
+    const evDate = new Date(ev.start);
+    return (
+      evDate.getFullYear() === clickedDate.getFullYear() &&
+      evDate.getMonth() === clickedDate.getMonth() &&
+      evDate.getDate() === clickedDate.getDate()
+    );
+  });
 
   if (dayEvents.length === 0) {
     list.innerHTML = "<li>Aucun rendez-vous.</li>";
@@ -622,9 +629,6 @@ function openDayEventsModal(dateStr) {
   document.getElementById("day-events-modal").classList.remove("hidden");
 }
 
-function closeDayEventsModal() {
-  document.getElementById("day-events-modal").classList.add("hidden");
-}
 function openAccountPanel() {
   const panel = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
