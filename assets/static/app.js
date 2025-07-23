@@ -859,40 +859,57 @@ function extractDateFromFileName(fileName) {
 }
 
 // import-pdf//
+function cleanText(str) {
+  return str.replace(/\s+/g, " ").trim();
+}
+
+function cleanAddress(addr) {
+  return addr
+    .replace(/\s+/g, " ")
+    .replace(/[^\w\s\-À-ÿ]/g, "")  // Enlève tout sauf lettres, chiffres, tirets, accents
+    .trim();
+}
+//parseur detectection-injection//
 function parseTaxiPdfFromText(text, baseDate) {
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+  const lines = text.split("\n");
   const events = [];
 
-  for (let line of lines) { console.log("LIGNE :", line);
-    // Cherche une heure dans la ligne (ex : 7:40 ou 14:15)
-    const timeMatch = line.match(/\b\d{1,2}:\d{2}\b/);
+  for (let line of lines) {
+    line = cleanText(line);
+    console.log("LIGNE :", line);
+
+    // Trouve une heure (7:40, 14:30, etc.)
+    const timeMatch = line.match(/\b(\d{1,2})[:hH](\d{2})\b/);
     if (!timeMatch) continue;
 
-    const hour = timeMatch[0];
+    const hour = `${timeMatch[1]}:${timeMatch[2]}`;
 
-    // Doit contenir un '>' pour séparer les adresses
-    if (!line.includes(">")) continue;
+    // Trouve deux adresses
+    const addressMatch = line.match(/(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\s+(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\b/);
+    if (!addressMatch) continue;
 
-    // Tente de capturer : heure, nom, adresse1 > adresse2
-    const match = line.match(/^(\d{1,2}:\d{2})\s+(.+?)\s+(\d{1,5} .+?)\s*>\s*(\d{1,5} .+)$/);
-    if (!match) continue;
+    // Récupère un nom si possible
+    const nameMatch = line.match(/[A-Z][A-ZÉÈÀÂ\- ]{3,},? [A-Z][A-ZÉÈÀÂ\- ]{2,}/);
+    const name = nameMatch ? cleanText(nameMatch[0]) : "Client inconnu";
 
-    const [, , name, addressFrom, addressTo] = match;
+    const from = cleanAddress(addressMatch[1] + " " + addressMatch[2]);
+    const to = cleanAddress(addressMatch[3] + " " + addressMatch[4]);
 
-    const [h, m] = hour.split(":").map(Number);
-    const date = new Date(baseDate);
-    date.setHours(h);
-    date.setMinutes(m);
+    const startDate = new Date(baseDate);
+    const [h, m] = hour.split(":");
+    startDate.setHours(+h);
+    startDate.setMinutes(+m);
 
+    const title = `${name} – ${from} > ${to} @ ${hour}`;
     events.push({
-      title: `${name} – ${addressFrom} > ${addressTo}`,
-      start: date.toISOString(),
-      allDay: false,
+      title,
+      start: startDate.toISOString(),
     });
   }
 
   return events;
 }
+
 
 
 function cleanAddress(raw) {
