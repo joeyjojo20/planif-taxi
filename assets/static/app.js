@@ -858,44 +858,40 @@ function extractDateFromFileName(fileName) {
 }
 
 // import-pdf//
-function parseTaxiPdfFromText(fullText, baseDate) {
-  const lines = fullText.split(/\n|\r/).map(l => l.trim()).filter(l => l.length > 0);
-  const rdvs = [];
+function parseTaxiPdfFromText(text, baseDate) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+  const events = [];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const heureMatch = line.match(/\b(\d{1,2}):(\d{2})\b/);
-    if (!heureMatch) continue;
+  for (let line of lines) {
+    // Cherche une heure dans la ligne (ex : 7:40 ou 14:15)
+    const timeMatch = line.match(/\b\d{1,2}:\d{2}\b/);
+    if (!timeMatch) continue;
 
-    const heure = heureMatch[0];
+    const hour = timeMatch[0];
 
-    // On prend quelques lignes autour pour capter nom + adresses
-    const bloc = lines.slice(i, i + 5).join(" ");
+    // Doit contenir un '>' pour séparer les adresses
+    if (!line.includes(">")) continue;
 
-    // Exemple : BERNIER, DANY 106 RUE DU PARC > 300 BOUL LAVOIE
-    const nomMatch = bloc.match(/([A-ZÉÈÀÙÇ]+(?:[\s,][A-ZÉÈÀÙÇ]+)+)/);
-    const arrowMatch = bloc.match(/(\d{2,5} .+?)\s?>\s?(\d{2,5} .+?)\b/);
+    // Tente de capturer : heure, nom, adresse1 > adresse2
+    const match = line.match(/^(\d{1,2}:\d{2})\s+(.+?)\s+(\d{1,5} .+?)\s*>\s*(\d{1,5} .+)$/);
+    if (!match) continue;
 
-    const nom = nomMatch ? nomMatch[1].replace(",", "").trim() : "";
-    const from = arrowMatch ? arrowMatch[1].trim() : "";
-    const to = arrowMatch ? arrowMatch[2].trim() : "";
+    const [, , name, addressFrom, addressTo] = match;
 
-    if (nom && from && to) {
-      const [h, m] = heure.split(":").map(Number);
-      const fullDate = new Date(baseDate);
-      fullDate.setHours(h, m, 0, 0);
+    const [h, m] = hour.split(":").map(Number);
+    const date = new Date(baseDate);
+    date.setHours(h);
+    date.setMinutes(m);
 
-      rdvs.push({
-        title: `${nom} – ${from} > ${to}`,
-        start: fullDate.toISOString(),
-        allDay: false
-      });
-    }
+    events.push({
+      title: `${name} – ${addressFrom} > ${addressTo}`,
+      start: date.toISOString(),
+      allDay: false,
+    });
   }
 
-  return rdvs;
+  return events;
 }
-
 
 
 function cleanAddress(raw) {
