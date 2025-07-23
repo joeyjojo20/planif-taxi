@@ -906,6 +906,7 @@ function parseTaxiPdfFromText(text, baseDate) {
   start: new Date(startDate), // Passe directement l'objet Date sans conversion UTC
 });
 
+}
 
   return events;
 }
