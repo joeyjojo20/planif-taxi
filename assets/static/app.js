@@ -1,3 +1,4 @@
+
 let currentUser = null;
 // Auto-crée un compte admin si aucun utilisateur n'est présent
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
@@ -902,11 +903,10 @@ function parseTaxiPdfFromText(text, baseDate) {
 
     const title = `${name} – ${from} > ${to} @ ${hour}`;
     events.push({
-  title,
-  start: new Date(startDate), // Passe directement l'objet Date sans conversion UTC
-});
-
-}
+      title,
+      start: startDate.toISOString(),
+    });
+  }
 
   return events;
 }
