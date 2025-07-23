@@ -902,10 +902,10 @@ function parseTaxiPdfFromText(text, baseDate) {
 
     const title = `${name} – ${from} > ${to} @ ${hour}`;
     events.push({
-      title,
-      start: startDate.toISOString(),
-    });
-  }
+  title,
+  start: new Date(startDate), // Passe directement l'objet Date sans conversion UTC
+});
+
 
   return events;
 }
