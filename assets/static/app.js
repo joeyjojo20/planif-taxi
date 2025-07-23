@@ -914,7 +914,7 @@ function parseTaxiPdfFromText(text, baseDate) {
    const title = `${name} – ${from} > ${to} @ ${hour}`;
 events.push({
   title,
-  start: new Date(startDate), // PAS .toISOString()
+  start: formatLocalDateTime(startDate),
 });
 
   }
@@ -922,6 +922,10 @@ events.push({
   return events;
 }
 
+function formatLocalDateTime(date) {
+  const pad = n => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+}
 
 
 function cleanAddress(raw) {
