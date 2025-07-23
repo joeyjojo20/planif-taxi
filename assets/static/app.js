@@ -850,44 +850,51 @@ function extractDateFromFileName(fileName) {
 }
 
 // Extrait les RDV depuis le texte du PDF
-function parseTaxiPdf(text, dateFromName) {
-  const lines = text.split("\n").map(l => l.trim()).filter(l => l);
+function parseTaxiPdf(text, date) {
+  const lines = text.split("\n");
   const events = [];
 
-  const rdvRegex = /^([A-ZÉÈÀÇ][A-ZÉÈÀÇ ,.'-]+)\s+([0-9]{1,2}:[0-9]{2})\s+(.*?)\s+>\s+(.*)$/i;
-
   for (let line of lines) {
-    // Nettoyage : ignorer si contient des mots inutiles
-    if (/NILTRA|Téléphone|Tél|NASS|Code/i.test(line)) continue;
+    // Nettoyage
+    line = line.trim().replace(/\s+/g, " ");
 
-    // Correction du sens s'il manque le ">" (on tente de le reconstituer)
-    if (!line.includes(">") && line.includes("  ")) {
-      const parts = line.split(/\s{2,}/);
-      if (parts.length === 3) {
-        line = `${parts[0]} > ${parts[1]} ${parts[2]}`;
-      }
-    }
+    // Repère les lignes avec une heure (ex : 7:40 ou 12:15)
+    const hourMatch = line.match(/([0-9]{1,2}:[0-9]{2})/);
+    if (!hourMatch) continue;
 
-    // Ex: BERNIER DANY 07:40 106 RUE DU PARC > 300 BOUL LAVOIE
-    const match = line.match(/^(.+?)\s+([0-9]{1,2}:[0-9]{2})\s+(.*?)\s*>\s*(.*)$/);
-    if (match) {
-      const [_, name, time, from, to] = match;
+    const hour = hourMatch[1];
 
-      // Recomposer la date complète
-      const [hours, minutes] = time.split(":").map(Number);
-      const date = new Date(dateFromName);
-      date.setHours(hours, minutes, 0, 0);
+    // Ignore les lignes trop courtes ou sans adresse
+    if (!line.includes(">")) continue;
 
-      events.push({
-        title: `${name} – ${from} > ${to}`,
-        start: date.toISOString(),
-        allDay: false
-      });
-    }
+    const parts = line.split(">");
+    if (parts.length !== 2) continue;
+
+    const beforeArrow = parts[0].trim();
+    const afterArrow = parts[1].trim();
+
+    // Enlève tout ce qui est après l'heure pour le nom
+    const namePart = beforeArrow.split(hour)[0].trim();
+    const addressFrom = beforeArrow.split(hour)[1]?.trim() || "";
+    const addressTo = afterArrow;
+
+    // Construction du titre
+    const title = `${namePart} – ${addressFrom} > ${addressTo} @ ${hour}`;
+
+    const startDate = new Date(date);
+    const [h, m] = hour.split(":");
+    startDate.setHours(+h);
+    startDate.setMinutes(+m);
+
+    events.push({
+      title,
+      start: startDate.toISOString(),
+    });
   }
 
   return events;
 }
+
 
 
 
