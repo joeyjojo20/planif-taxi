@@ -863,7 +863,7 @@ function parseTaxiPdfFromText(text, baseDate) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
   const events = [];
 
-  for (let line of lines) {
+  for (let line of lines) { console.log("LIGNE :", line);
     // Cherche une heure dans la ligne (ex : 7:40 ou 14:15)
     const timeMatch = line.match(/\b\d{1,2}:\d{2}\b/);
     if (!timeMatch) continue;
