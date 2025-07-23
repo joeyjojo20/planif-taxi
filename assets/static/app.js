@@ -171,7 +171,6 @@ function renderCalendar() {
   if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
-      timeZone: 'local',
     dateClick: function(info) { openDayEventsModal(info.dateStr); },
     initialView: 'dayGridMonth',
     locale: 'fr',
@@ -599,12 +598,12 @@ function savePdfConfig() {
 function openDayEventsModal(dateStr) {
   const list = document.getElementById("day-events-list");
   const displayDate = new Date(dateStr).toLocaleDateString("fr-CA");
+
   document.getElementById("day-events-date").textContent = displayDate;
   list.innerHTML = "";
 
-  const target = new Date(dateStr).toISOString().slice(0, 10);
   const dayEvents = events.filter(ev =>
-    new Date(ev.start).toISOString().slice(0, 10) === target
+    ev.start.startsWith(dateStr)
   );
 
   if (dayEvents.length === 0) {
@@ -612,9 +611,9 @@ function openDayEventsModal(dateStr) {
   } else {
     for (const ev of dayEvents) {
       const li = document.createElement("li");
-      const date = new Date(ev.start);
-      const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      li.textContent = `${ev.title} à ${heure}`;
+     const date = new Date(ev.start);
+const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+li.textContent = `${ev.title}   à ${heure}`;
       list.appendChild(li);
     }
   }
