@@ -920,10 +920,18 @@ const startDate = new Date(
 );
 
    const title = `${name} – ${from} > ${to} @ ${hour}`;
+const formatted = `${startDate.getFullYear()}-${(startDate.getMonth() + 1)
+  .toString()
+  .padStart(2, '0')}-${startDate.getDate().toString().padStart(2, '0')}T${startDate
+  .getHours()
+  .toString()
+  .padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}:00`;
+
 events.push({
   title,
- start: startDate,
+  start: formatted, // format explicite YYYY-MM-DDTHH:mm:ss
 });
+
 
   }
 
@@ -942,6 +950,7 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
+
 
 
 
