@@ -171,6 +171,7 @@ function renderCalendar() {
   if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(calendarEl, {
+    timeZone: 'local',
     dateClick: function(info) { openDayEventsModal(info.dateStr); },
     initialView: 'dayGridMonth',
     locale: 'fr',
@@ -929,7 +930,8 @@ const formatted = `${startDate.getFullYear()}-${(startDate.getMonth() + 1)
 
 events.push({
   title,
-  start: formatted, // format explicite YYYY-MM-DDTHH:mm:ss
+  start: formatted,
+  allDay: false
 });
 
 
@@ -950,6 +952,7 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
+
 
 
 
