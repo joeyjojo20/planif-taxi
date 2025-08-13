@@ -919,7 +919,7 @@ function parseTaxiPdfFromText(text, baseDate) {
    const title = `${name} – ${from} > ${to} @ ${hour}`;
 events.push({
   title,
-  start: formatLocalDateTime(startDate),
+ start: startDate,
 });
 
   }
