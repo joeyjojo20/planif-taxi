@@ -265,7 +265,7 @@ function saveEvent() {
   const eventList = [{
     id: baseId,
     title: fullTitle,
-    start: start.toISOString(),
+    start: start,
     allDay: false
   }];
 
@@ -298,7 +298,7 @@ function saveEvent() {
     eventList.push({
       id: `${baseId}-${count}`,
       title: fullTitle,
-      start: newDate.toISOString(),
+      start: newDate,
       allDay: false
     });
 
@@ -611,7 +611,8 @@ function openDayEventsModal(dateStr) {
 
   // Utilise directement le dateStr (ex: "2025-07-23")
   const dayEvents = events.filter(ev => {
-    const evDateStr = new Date(ev.start).toISOString().slice(0, 10);
+   const evDate = typeof ev.start === 'string' ? new Date(ev.start) : ev.start;
+const evDateStr = evDate.toLocaleDateString("fr-CA"); // format YYYY-MM-DD
     return evDateStr === dateStr;
   });
 
@@ -939,5 +940,6 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
+
 
 
