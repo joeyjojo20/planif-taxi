@@ -909,10 +909,15 @@ function parseTaxiPdfFromText(text, baseDate) {
     const from = cleanAddress(addressMatch[1] + " " + addressMatch[2]);
     const to = cleanAddress(addressMatch[3] + " " + addressMatch[4]);
 
-    const startDate = new Date(baseDate);
     const [h, m] = hour.split(":");
-    startDate.setHours(+h);
-    startDate.setMinutes(+m);
+const startDate = new Date(
+  baseDate.getFullYear(),
+  baseDate.getMonth(),
+  baseDate.getDate(),
+  parseInt(h),
+  parseInt(m),
+  0
+);
 
    const title = `${name} – ${from} > ${to} @ ${hour}`;
 events.push({
@@ -937,6 +942,7 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
+
 
 
 
