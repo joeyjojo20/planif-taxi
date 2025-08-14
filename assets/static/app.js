@@ -841,13 +841,14 @@ console.log("CONTENU DU PDF :", fullText);
   const year = new Date().getFullYear();
   const monthMap = { "MAI": 4, "JUIN": 5, "JUILLET": 6, "AOÛT": 7 };
   const month = monthMap[monthStr];
-  
-const baseDate = new Date();
+
+  const baseDate = new Date();
 baseDate.setFullYear(year);
 baseDate.setMonth(month); // PAS +1 ici
 baseDate.setDate(day);
 baseDate.setHours(0, 0, 0, 0);
-  
+  const parsedEvents = parseTaxiPdfFromText(fullText, baseDate);
+
   for (const evt of parsedEvents) {
     calendar.addEvent(evt);
     events.push(evt);
@@ -947,9 +948,6 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
-
-
-
 
 
 
