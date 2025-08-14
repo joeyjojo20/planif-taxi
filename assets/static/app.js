@@ -921,6 +921,7 @@ const startDate = new Date(
   parseInt(m),
   0
 );
+console.log("🧪 Injecté:", startDate.toString(), startDate.toISOString());
 
    const title = `${name} – ${from} > ${to} @ ${hour}`;
 events.push({
@@ -947,6 +948,7 @@ function cleanAddress(raw) {
             .replace(/\s+/g, " ")
             .trim();
 }
+
 
 
 
