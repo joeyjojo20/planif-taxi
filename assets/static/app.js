@@ -411,3 +411,55 @@ function openDeleteSeriesModal(editId) {
   if (!modal) return;
   modal.classList.remove("hidden");
  
+
+  // Store the editId on the modal for later confirmation
+  try {
+    if (editId) {
+      document.getElementById("delete-series-modal").dataset.editId = editId;
+    } else {
+      // if not passed, read from the form dataset
+      const eid = document.getElementById("event-form")?.dataset?.editId;
+      if (eid) document.getElementById("delete-series-modal").dataset.editId = eid;
+    }
+  } catch (e) { console.warn("openDeleteSeriesModal: no modal or editId", e); }
+}
+
+function closeDeleteSeriesModal() {
+  const modal = document.getElementById("delete-series-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+function confirmDeleteSeries() {
+  const modal = document.getElementById("delete-series-modal");
+  if (!modal) return;
+  const select = document.getElementById("delete-weeks");
+  const weeks = parseInt(select?.value || "9999", 10);
+  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId;
+  if (!editId) { closeDeleteSeriesModal(); return; }
+  const baseId = editId.split("-")[0];
+
+  if (!Array.isArray(events)) events = [];
+  // Find start date of the selected event
+  const ref = events.find(e => e.id === editId);
+  let startLimit = ref ? new Date(ref.start) : null;
+
+  if (weeks >= 9999 || !startLimit) {
+    // Delete whole series when weeks is "Tout supprimer" or ref missing
+    events = events.filter(e => !e.id.startsWith(baseId));
+  } else {
+    const limit = new Date(startLimit.getTime());
+    limit.setDate(limit.getDate() + (7 * weeks));
+    events = events.filter(e => {
+      if (!e.id.startsWith(baseId)) return true;
+      try {
+        const d = new Date(e.start);
+        return d > limit; // keep events after the limit
+      } catch { return false; }
+    });
+  }
+
+  localStorage.setItem("events", JSON.stringify(events));
+  closeDeleteSeriesModal();
+  hideEventForm();
+  renderCalendar();
+}
