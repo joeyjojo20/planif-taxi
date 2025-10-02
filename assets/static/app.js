@@ -1,24 +1,24 @@
-
 /***********************
- * RDV TAXI — app.js (version avec parseur PDF amélioré)
- * - Login/UI: inchangés par rapport à ton code “qui marche”
- * - Import PDF: date détectée dans le contenu (tous mois FR), heures 07:05 / 7h05
- * - Dates stockées en chaîne locale (YYYY-MM-DDTHH:mm) → pas d’UTC décalée
+ * RDV TAXI — app.js (retour base + fix PDF)
+ * - Login/UI: inchangés
+ * - Aucun accès DOM avant DOMContentLoaded (évite blocage du login)
+ * - Import PDF: lit "Date demandé", parse plusieurs RDV, pas de décalage
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
-// Auto-crée un compte admin si aucun utilisateur n'est présent
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
-  const defaultUser = {
-    email: "admin@taxi.com",
-    password: "admin123",
-    role: "admin"
-  };
-  localStorage.setItem("users", JSON.stringify([defaultUser]));
+  localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
 }
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
+
+/* ======== UTIL ======== */
+function pad2(n){ return n.toString().padStart(2,"0"); }
+function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm" (local)
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function cleanText(s){ return (s||"").replace(/\s+/g," ").trim(); }
 
 /* ======== AUTH ======== */
 function showLogin() {
@@ -26,73 +26,41 @@ function showLogin() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-
 function showRegister() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-
 function login() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
   const found = users.find(u => u.email === email && u.password === password);
-  if (found) {
-    currentUser = found;
-
-    // Compat : si compte admin ancien sans "approved", on l'approuve une fois
-    if (currentUser.role === "admin" && currentUser.approved === undefined) {
-      currentUser.approved = true;
-      const i = users.findIndex(u => u.email === currentUser.email);
-      if (i !== -1) {
-        users[i].approved = true;
-        localStorage.setItem("users", JSON.stringify(users));
-      }
-    }
-
-    showApp();
-    setTimeout(showNotesIfAny, 300);
-  } else {
-    alert("Identifiants incorrects");
+  if (!found) return alert("Identifiants incorrects");
+  currentUser = found;
+  if (currentUser.role === "admin" && currentUser.approved === undefined) {
+    currentUser.approved = true;
+    const i = users.findIndex(u => u.email === currentUser.email);
+    if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
   }
+  showApp();
+  setTimeout(showNotesIfAny, 300);
 }
-
 function register() {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const roleChoice = document.getElementById("register-role").value;
-
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  if (users.some(u => u.email === email)) {
-    alert("Email déjà utilisé");
-    return;
-  }
-
-  const newUser = {
-    email,
-    password,
-    role: "user",
-    approved: true,
-    wantsAdmin: roleChoice === "admin"
-  };
-
+  if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
+  const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
   users.push(newUser);
   localStorage.setItem("users", JSON.stringify(users));
-
-  if (newUser.wantsAdmin) {
-    alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
-  }
-
+  if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
   currentUser = newUser;
   showApp();
   setTimeout(showNotesIfAny, 300);
 }
-
-function logout() {
-  currentUser = null;
-  location.reload();
-}
+function logout() { currentUser = null; location.reload(); }
 
 /* ======== APP ======== */
 function showApp() {
@@ -102,101 +70,56 @@ function showApp() {
   document.getElementById("welcome").textContent = `Bonjour ${currentUser.email}`;
 
   const noteKey = "notes_" + currentUser.email;
-  const note = localStorage.getItem(noteKey) || "";
-  document.getElementById("notes-box").value = note;
+  document.getElementById("notes-box").value = localStorage.getItem(noteKey) || "";
 
   renderCalendar();
   updateAccountNotification();
 
   const configBtn = document.getElementById("config-btn");
   if (currentUser.role === "admin" && currentUser.approved) {
-    configBtn.disabled = false;
-    configBtn.classList.remove("disabled");
+    configBtn.disabled = false; configBtn.classList.remove("disabled");
   } else {
-    configBtn.disabled = true;
-    configBtn.classList.add("disabled");
+    configBtn.disabled = true;  configBtn.classList.add("disabled");
   }
 }
-
 function updateAccountNotification() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const hasPending = users.some(u => u.wantsAdmin);
   const btn = document.getElementById("btn-account");
-
-  if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) {
-    btn?.classList.remove("notification");  // Ne rien afficher pour les users
-    return;
-  }
-
-  if (btn) {
-    if (hasPending) {
-      btn.classList.add("notification");
-    } else {
-      btn.classList.remove("notification");
-    }
-  }
+  if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) { btn?.classList.remove("notification"); return; }
+  if (hasPending) btn?.classList.add("notification"); else btn?.classList.remove("notification");
 }
 
-// Afficher note interne une seule fois
+/* ======== NOTES POPUP ======== */
 function showNotesIfAny() {
   const noteKey = "notes_" + currentUser.email;
-  const alreadySeen = localStorage.getItem("popup_shown_" + currentUser.email);
-  if (!alreadySeen) {
-    const note = localStorage.getItem(noteKey);
-    if (note && note.trim() !== "") {
-      document.getElementById("popup-note-text").textContent = note;
-      document.getElementById("notes-popup").classList.remove("hidden");
-    }
-    localStorage.setItem("popup_shown_" + currentUser.email, "true");
+  const seenKey = "popup_shown_" + currentUser.email;
+  if (localStorage.getItem(seenKey)) return;
+  const note = localStorage.getItem(noteKey);
+  if (note && note.trim() !== "") {
+    document.getElementById("popup-note-text").textContent = note;
+    document.getElementById("notes-popup").classList.remove("hidden");
   }
+  localStorage.setItem(seenKey, "true");
 }
-function hideNotesPopup() {
-  document.getElementById("notes-popup").classList.add("hidden");
-}
-
-document.getElementById("notes-box").addEventListener("input", () => {
-  if (currentUser) {
-    const key = "notes_" + currentUser.email;
-    localStorage.setItem(key, document.getElementById("notes-box").value);
-  }
-});
-
-document.getElementById("recurrence").addEventListener("change", () => {
-  const repeat = document.getElementById("recurrence").value;
-  const durationField = document.getElementById("recurrence-duration-label");
-  if (repeat !== "none") {
-    durationField.classList.remove("hidden");
-  } else {
-    durationField.classList.add("hidden");
-  }
-});
+function hideNotesPopup() { document.getElementById("notes-popup").classList.add("hidden"); }
 
 /* ======== CALENDRIER ======== */
 function renderCalendar() {
-  const calendarEl = document.getElementById("calendar");
-  if (!calendarEl) return;
+  const el = document.getElementById("calendar");
+  if (!el) return;
   if (calendar) calendar.destroy();
-
-  calendar = new FullCalendar.Calendar(calendarEl, {
+  calendar = new FullCalendar.Calendar(el, {
     timeZone: 'local',
-    dateClick: function(info) { openDayEventsModal(info.dateStr); },
     initialView: 'dayGridMonth',
     locale: 'fr',
-    headerToolbar: {
-      left: 'prev,next today',
-      center: 'title',
-      right: 'dayGridMonth,timeGridWeek'
-    },
-    events: events.map(e => ({
-      ...e,
-      title: shortenEvent(e.title, e.start)
-    })),
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+    dateClick: info => openDayEventsModal(info.dateStr),
+    events: events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })),
     eventClick: onEventClick
   });
-
   calendar.render();
 }
-
 function shortenEvent(title, dateStr) {
   const parts = title.split(" – ");
   const name = parts[0];
@@ -206,7 +129,6 @@ function shortenEvent(title, dateStr) {
   const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
   return `${name} – ${heure} – ${pickup}`;
 }
-
 function showEventForm() {
   document.getElementById("client-name").value = "";
   document.getElementById("pickup-address").value = "";
@@ -217,44 +139,28 @@ function showEventForm() {
   document.getElementById("recurrence-duration-label").classList.add("hidden");
   document.getElementById("recurrence-duration").value = "1w";
   delete document.getElementById("event-form").dataset.editId;
-
   document.getElementById("btn-delete-one").disabled = true;
   document.getElementById("btn-delete-series").disabled = true;
-
   document.getElementById("event-form").classList.remove("hidden");
 }
-
-function hideEventForm() {
-  document.getElementById("event-form").classList.add("hidden");
-  delete document.getElementById("event-form").dataset.editId;
-}
-
+function hideEventForm() { document.getElementById("event-form").classList.add("hidden"); delete document.getElementById("event-form").dataset.editId; }
 function onEventClick(info) {
-  const event = info.event;
-  const [name, , pickup] = event.title.split(" – ");
-  const full = events.find(e => e.id === event.id);
+  const ev = info.event;
+  const [name, , pickup] = ev.title.split(" – ");
+  const full = events.find(e => e.id === ev.id);
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
-
   document.getElementById("client-name").value = name || "";
   document.getElementById("pickup-address").value = trajet[0] || pickup || "";
   document.getElementById("dropoff-address").value = trajet[1] || "";
-  document.getElementById("event-date").value = event.startStr.slice(0, 16);
+  document.getElementById("event-date").value = ev.startStr.slice(0,16);
   document.getElementById("recurrence").value = "none";
   document.getElementById("notification").value = "none";
   document.getElementById("recurrence-duration-label").classList.add("hidden");
-  document.getElementById("event-form").dataset.editId = event.id;
-
+  document.getElementById("event-form").dataset.editId = ev.id;
   document.getElementById("btn-delete-one").disabled = false;
   document.getElementById("btn-delete-series").disabled = false;
-
   document.getElementById("event-form").classList.remove("hidden");
-}
-
-/* ======== Helpers de date ======== */
-function pad2(n){ return n.toString().padStart(2,"0"); }
-function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm"
-  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 /* ======== CRUD RDV ======== */
@@ -266,25 +172,16 @@ function saveEvent() {
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
   const duration = document.getElementById("recurrence-duration").value;
-
   const editId = document.getElementById("event-form").dataset.editId;
 
-  if (!name || !date) {
-    alert("Nom et date requis");
-    return;
-  }
+  if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
 
-  const eventList = [{
-    id: baseId,
-    title: fullTitle,
-    start: startStr,
-    allDay: false
-  }];
+  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false }];
 
   let limitDate = new Date(startDate);
   switch (duration) {
@@ -299,80 +196,45 @@ function saveEvent() {
 
   let count = 1;
   while (repeat !== "none") {
-    let newDate = new Date(startDate.getTime());
-    switch (repeat) {
-      case "daily": newDate.setDate(newDate.getDate() + count); break;
-      case "weekly": newDate.setDate(newDate.getDate() + 7 * count); break;
-      case "monthly":
-        const day = newDate.getDate();
-        newDate.setMonth(newDate.getMonth() + count);
-        if (newDate.getDate() < day) newDate.setDate(0);
-        break;
-    }
-
-    if (newDate > limitDate) break;
-
-    eventList.push({
-      id: `${baseId}-${count}`,
-      title: fullTitle,
-      start: formatLocalDateTimeString(newDate),
-      allDay: false
-    });
-
+    let nd = new Date(startDate.getTime());
+    if (repeat === "daily") nd.setDate(nd.getDate() + count);
+    else if (repeat === "weekly") nd.setDate(nd.getDate() + 7*count);
+    else if (repeat === "monthly") { const d = nd.getDate(); nd.setMonth(nd.getMonth() + count); if (nd.getDate() < d) nd.setDate(0); }
+    if (nd > limitDate) break;
+    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false });
     count++;
   }
 
-  if (editId) {
-    events = events.filter(e => !e.id.startsWith(baseId));
-  }
-
-  events = [...events, ...eventList];
+  if (editId) events = events.filter(e => !e.id.startsWith(baseId));
+  events = [...events, ...list];
   localStorage.setItem("events", JSON.stringify(events));
 
   if (notify !== "none") {
-    const delay = new Date(date).getTime() - Date.now() - parseInt(notify) * 60000;
-    if (delay > 0) {
-      setTimeout(() => {
-        alert(`Rappel : RDV avec ${name} à ${pickup}`);
-      }, delay);
-    }
+    const delay = new Date(date).getTime() - Date.now() - parseInt(notify)*60000;
+    if (delay > 0) setTimeout(() => alert(`Rappel : RDV avec ${name} à ${pickup}`), delay);
   }
 
   hideEventForm();
   renderCalendar();
 }
-
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId;
   if (!editId) return;
   const baseId = editId.split("-")[0];
-  if (single) {
-    events = events.filter(e => e.id !== editId);
-  } else {
-    events = events.filter(e => !e.id.startsWith(baseId));
-  }
+  events = single ? events.filter(e => e.id !== editId) : events.filter(e => !e.id.startsWith(baseId));
   localStorage.setItem("events", JSON.stringify(events));
-  hideEventForm();
-  renderCalendar();
+  hideEventForm(); renderCalendar();
 }
 
 /* ======== SUPPRESSION — MODALES ======== */
-function openDeleteModal() {
-  document.getElementById("delete-modal").classList.remove("hidden");
-}
-function closeDeleteModal() {
-  document.getElementById("delete-modal").classList.add("hidden");
-}
+function openDeleteModal() { document.getElementById("delete-modal").classList.remove("hidden"); }
+function closeDeleteModal() { document.getElementById("delete-modal").classList.add("hidden"); }
 function confirmDelete(type) {
-  const editId = document.getElementById("event-form").dataset.editId;
-  if (!editId) return;
+  const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseId = editId.split("-")[0];
-  const original = events.find(e => e.id === editId);
-  if (!original) return;
-
+  const original = events.find(e => e.id === editId); if (!original) return;
   const startDate = new Date(original.start);
   let limitDate = new Date(startDate);
-
   switch (type) {
     case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
     case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
@@ -381,272 +243,142 @@ function confirmDelete(type) {
     case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
     case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
-    case "one":
-      events = events.filter(e => e.id !== editId);
-      break;
-    case "all":
-      events = events.filter(e => !e.id.startsWith(baseId));
-      break;
+    case "one": events = events.filter(e => e.id !== editId); break;
+    case "all": events = events.filter(e => !e.id.startsWith(baseId)); break;
   }
-
-  if (["1w", "2w", "1m", "2m", "3m", "6m", "12m"].includes(type)) {
+  if (["1w","2w","1m","2m","3m","6m","12m"].includes(type)) {
     events = events.filter(e => {
       if (!e.id.startsWith(baseId)) return true;
-      const d = new Date(e.start);
-      return d > limitDate;
+      return new Date(e.start) > limitDate;
     });
   }
-
   localStorage.setItem("events", JSON.stringify(events));
-  closeDeleteModal();
-  hideEventForm();
-  renderCalendar();
+  closeDeleteModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== SUPPR SÉRIE (jusqu'à N semaines) ======== */
+/* ======== SUPPR SÉRIE ======== */
 function openDeleteSeriesModal(editId) {
-  const modal = document.getElementById("delete-series-modal");
-  if (!modal) return;
+  const modal = document.getElementById("delete-series-modal"); if (!modal) return;
   modal.classList.remove("hidden");
   modal.dataset.editId = editId || document.getElementById("event-form")?.dataset?.editId || "";
 }
-function closeDeleteSeriesModal() {
-  const modal = document.getElementById("delete-series-modal");
-  if (modal) modal.classList.add("hidden");
-}
+function closeDeleteSeriesModal() { document.getElementById("delete-series-modal")?.classList.add("hidden"); }
 function confirmDeleteSeries() {
-  const modal = document.getElementById("delete-series-modal");
-  if (!modal) return;
-  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId;
-  if (!editId) { closeDeleteSeriesModal(); return; }
-
+  const modal = document.getElementById("delete-series-modal"); if (!modal) return;
+  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; if (!editId) return closeDeleteSeriesModal();
   const baseId = editId.split("-")[0];
-  const ref = events.find(e => e.id === editId);
-  const select = document.getElementById("delete-weeks");
-  const weeks = parseInt(select?.value || "9999", 10);
-  if (!ref || isNaN(weeks)) { closeDeleteSeriesModal(); return; }
-
-  const startLimit = new Date(ref.start);
-  const limit = new Date(startLimit.getTime());
-  limit.setDate(limit.getDate() + (7 * weeks));
-
-  events = events.filter(e => {
-    if (!e.id.startsWith(baseId)) return true;
-    const d = new Date(e.start);
-    return d > limit;
-  });
-
+  const ref = events.find(e => e.id === editId); const weeks = parseInt(document.getElementById("delete-weeks")?.value || "9999", 10);
+  if (!ref || isNaN(weeks)) return closeDeleteSeriesModal();
+  const limit = new Date(new Date(ref.start).getTime()); limit.setDate(limit.getDate() + 7*weeks);
+  events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limit);
   localStorage.setItem("events", JSON.stringify(events));
-  closeDeleteSeriesModal();
-  hideEventForm();
-  renderCalendar();
+  closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== PDF — PANNEAU ======== */
+/* ======== PDF — PANEL ======== */
 function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
   const list = document.getElementById("pdf-list");
-
   const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
-
-  const now = Date.now();
-  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const filtered = stored.filter(file => file.timestamp >= sevenDaysAgo);
-
+  const sevenDaysAgo = Date.now() - 7*24*60*60*1000;
+  const filtered = stored.filter(f => f.timestamp >= sevenDaysAgo);
   list.innerHTML = "";
-  if (filtered.length === 0) {
-    list.innerHTML = "<li>Aucun fichier PDF récent.</li>";
-  } else {
-    filtered.forEach(file => {
-      const li = document.createElement("li");
-      const link = document.createElement("a");
-      link.href = file.dataUrl;
-      link.textContent = file.name;
-      link.download = file.name;
-      link.target = "_blank";
-      li.appendChild(link);
-      list.appendChild(li);
-    });
-  }
-
+  if (filtered.length === 0) list.innerHTML = "<li>Aucun fichier PDF récent.</li>";
+  else filtered.forEach(f => { const li = document.createElement("li"); const a = document.createElement("a"); a.href=f.dataUrl; a.textContent=f.name; a.download=f.name; a.target="_blank"; li.appendChild(a); list.appendChild(li); });
   panel.classList.remove("hidden");
 }
-function closePdfPanel() {
-  document.getElementById("pdf-panel").classList.add("hidden");
-}
+function closePdfPanel() { document.getElementById("pdf-panel").classList.add("hidden"); }
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 
-/* ======== IMPORT PDF (contenu) — ***REMPLACÉ*** ======== */
-document.getElementById("pdf-import").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = "";
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map(item => item.str).join(" ");
-      fullText += "\n" + pageText;
-    }
-
-    // Date du type: LUNDI 14 JUILLET (année optionnelle)
-    const m = fullText
-      .toUpperCase()
-      .match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)(?:\s+(\d{4}))?/);
-
-    if (!m) {
-      alert("❌ Impossible de détecter la date dans le PDF.");
-      e.target.value = "";
-      return;
-    }
-
-    const day = parseInt(m[2], 10);
-    const monthKey = (m[3] || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const year = m[4] ? parseInt(m[4], 10) : (new Date()).getFullYear();
-
-    const MONTHS_FR = {
-      "JANVIER":0, "FEVRIER":1, "FÉVRIER":1, "MARS":2, "AVRIL":3, "MAI":4,
-      "JUIN":5, "JUILLET":6, "AOUT":7, "AOÛT":7, "SEPTEMBRE":8, "OCTOBRE":9,
-      "NOVEMBRE":10, "DECEMBRE":11, "DÉCEMBRE":11
-    };
-    const month = MONTHS_FR[monthKey];
-    if (month === undefined) {
-      alert("❌ Mois non reconnu: " + m[3]);
-      e.target.value = "";
-      return;
-    }
-
-    const baseDate = new Date(year, month, day, 0, 0, 0, 0);
-
-    // Parse & injecte
-    const parsedEvents = parseTaxiPdfFromText(fullText, baseDate);
-
-    for (const evt of parsedEvents) {
-      calendar.addEvent(evt);
-      events.push(evt);
-    }
-    localStorage.setItem("events", JSON.stringify(events));
-
-    alert(`✅ ${parsedEvents.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
-  } catch (err) {
-    console.error(err);
-    alert("❌ Erreur lors de la lecture du PDF (voir console).");
-  } finally {
-    e.target.value = "";
+/* ======== EXTRACTION DATE DU PDF ======== */
+function extractRequestedDate(text){
+  // ex: "02 octobre 2025 Date demandé :" (ordre rencontré sur tes PDFs)
+  let m = text.match(/(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+deman(?:d|dé)\s*:/i);
+  if (m) {
+    const day = parseInt(m[1],10);
+    const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = parseInt(m[3],10);
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
-});
+  // fallback "JEUDI 02 OCTOBRE 2025"
+  m = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/);
+  if (m){
+    const day = parseInt(m[2],10);
+    const monKey = m[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = parseInt(m[4],10);
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
+  }
+  const d = new Date(); d.setHours(0,0,0,0); return d;
+}
 
-/* ======== Parseur PDF — ***REMPLACÉ*** ======== */
-function cleanText(str){ return (str || "").replace(/\s+/g, " ").trim(); }
-
+/* ======== PARSEUR PDF (multi RDV) ======== */
 function parseTaxiPdfFromText(text, baseDate) {
-  const lines = text.split("\n");
+  // motif: "adresse1,QC  adresse2,QC  ... heure ... NOM, PRÉNOM"
+  const re = /([0-9A-Za-zÀ-ÿ' \-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' \-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
   const out = [];
-  let idx = 0;
-
-  for (let raw of lines) {
-    const line = cleanText(raw);
-    if (!line) continue;
-
-    // Heure (7:05, 07:05, 7h05)
-    const t = line.match(/\b(\d{1,2})[:hH](\d{2})\b/);
-    if (!t) continue;
-    const H = parseInt(t[1], 10);
-    const M = parseInt(t[2], 10);
-    if (H > 23 || M > 59) continue;
-
-    // Nom (simple)
-    const nameMatch = line.match(/[A-Z][A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ\- ]{3,},?\s+[A-Z][A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ\- ]{2,}/);
-    const name = nameMatch ? cleanText(nameMatch[0]) : "Client inconnu";
-
-    // Deux adresses :
-    // 1) Si " > " présent, on coupe là – c’est le plus fiable dans tes PDF.
-    // 2) Sinon, fallback sur motif (numéro + toponyme) x2.
-    let from = "", to = "";
-    if (line.includes(">")) {
-      const parts = line.split(">");
-      from = cleanText(parts[0]);
-      to = cleanText(parts.slice(1).join(">"));
-    } else {
-      const addr = line.match(/(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\s+(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\b/);
-      if (addr) {
-        from = cleanText(addr[1] + " " + addr[2]);
-        to   = cleanText(addr[3] + " " + addr[4]);
-      } else {
-        continue; // pas assez clair ⇒ on ignore
-      }
-    }
-
-    // Date locale (sans Z)
+  let idx = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    const from = cleanText(m[1]), to = cleanText(m[2]);
+    const time = m[3].toLowerCase().replace('h',':');
+    let name = cleanText(m[4]).replace(/\s+TA.*$/,'');
+    if (!from || !to) continue;
+    const [H,M] = time.split(":").map(x=>parseInt(x,10));
+    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const startStr = formatLocalDateTimeString(start);
-
-    // id stable utile pour édition/suppression
     const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
-
-    out.push({
-      id,
-      title: `${name} – ${from} > ${to}`,
-      start: startStr,
-      allDay: false
-    });
+    out.push({ id, title: `${name||"Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
   }
-
-  return out;
+  const seen = new Set();
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
-/* ======== JOUR — MODALE ======== */
-function openDayEventsModal(dateStr) {
-  const list = document.getElementById("day-events-list");
+/* ======== IMPORT PDF (handler) ======== */
+async function handlePdfImport(file){
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += "\n" + content.items.map(it => it.str).join(" ");
+  }
+  const baseDate = extractRequestedDate(fullText);
+  const parsed = parseTaxiPdfFromText(fullText, baseDate);
+  if (parsed.length) {
+    events = [...events, ...parsed];
+    localStorage.setItem("events", JSON.stringify(events));
+    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
+  }
+  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
+}
 
-  // Affiche proprement la date cliquée dans la modale
-  const displayDate = new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric"
-  });
-  document.getElementById("day-events-date").textContent = displayDate;
-
-  list.innerHTML = "";
-
-  // Compare en “YYYY-MM-DD”
-  const dayEvents = events.filter(ev => {
-    if (typeof ev.start === 'string') {
-      const m = ev.start.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) return m[1] === dateStr;
-    }
-    const evDate = new Date(ev.start);
-    const evDateStr = evDate.toLocaleDateString("fr-CA"); // format YYYY-MM-DD
-    return evDateStr === dateStr;
+/* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
+document.addEventListener("DOMContentLoaded", () => {
+  const notes = document.getElementById("notes-box");
+  if (notes) notes.addEventListener("input", () => {
+    if (currentUser) localStorage.setItem("notes_" + currentUser.email, notes.value);
   });
 
-  if (dayEvents.length === 0) {
-    list.innerHTML = "<li>Aucun rendez-vous.</li>";
-  } else {
-    for (const ev of dayEvents) {
-      const li = document.createElement("li");
-      const date = new Date(ev.start);
-      const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      li.textContent = `${ev.title} à ${heure}`;
-      list.appendChild(li);
-    }
-  }
+  const rec = document.getElementById("recurrence");
+  if (rec) rec.addEventListener("change", () => {
+    const lbl = document.getElementById("recurrence-duration-label");
+    if (rec.value !== "none") lbl?.classList.remove("hidden"); else lbl?.classList.add("hidden");
+  });
 
-  document.getElementById("day-events-modal").classList.remove("hidden");
-}
-
-function closeDayEventsModal() {
-  document.getElementById("day-events-modal").classList.add("hidden");
-}
+  const pdfInput = document.getElementById("pdf-import");
+  if (pdfInput) pdfInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try { await handlePdfImport(file); } 
+    catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
+    finally { e.target.value = ""; }
+  });
+});
 
 /* ======== COMPTE / ADMIN ======== */
 function openAccountPanel() {
@@ -657,60 +389,32 @@ function openAccountPanel() {
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
     if (currentUser && currentUser.role === "user") {
       content.innerHTML = "";
-      const p = document.createElement("p");
-      p.innerText = "Vous êtes un utilisateur standard.";
-      const btn = document.createElement("button");
-      btn.innerText = "Demander à devenir admin";
-      btn.onclick = requestAdmin;
-      content.appendChild(p);
-      content.appendChild(btn);
+      const p = document.createElement("p"); p.innerText = "Vous êtes un utilisateur standard.";
+      const btn = document.createElement("button"); btn.innerText = "Demander à devenir admin"; btn.onclick = requestAdmin;
+      content.appendChild(p); content.appendChild(btn);
     } else {
       content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
     }
-    panel.classList.remove("hidden");
-    return;
+    panel.classList.remove("hidden"); return;
   }
 
   content.innerHTML = "";
-  const title = document.createElement("h4");
-  title.innerText = "Utilisateurs enregistrés";
-  content.appendChild(title);
+  const title = document.createElement("h4"); title.innerText = "Utilisateurs enregistrés"; content.appendChild(title);
 
   users.forEach((u, index) => {
-    const line = document.createElement("div");
-    line.style.borderBottom = "1px solid #ccc";
-    line.style.padding = "5px 0";
-
-    const email = document.createElement("strong");
-    email.innerText = u.email;
-    line.appendChild(email);
-    line.appendChild(document.createElement("br"));
-
-    const role = document.createElement("span");
-    role.innerText = "Rôle : " + u.role;
-    line.appendChild(role);
-    line.appendChild(document.createElement("br"));
-
+    const line = document.createElement("div"); line.style.borderBottom = "1px solid #ccc"; line.style.padding = "5px 0";
+    const email = document.createElement("strong"); email.innerText = u.email; line.appendChild(email); line.appendChild(document.createElement("br"));
+    const role = document.createElement("span"); role.innerText = "Rôle : " + u.role; line.appendChild(role); line.appendChild(document.createElement("br"));
     const status = document.createElement("span");
-    status.innerText = "Statut : " + (
-      u.role === "admin"
-        ? (u.approved ? "Admin approuvé" : "Demande admin")
-        : "Utilisateur"
-    );
-    line.appendChild(status);
-    line.appendChild(document.createElement("br"));
+    status.innerText = "Statut : " + (u.role === "admin" ? (u.approved ? "Admin approuvé" : "Demande admin") : "Utilisateur");
+    line.appendChild(status); line.appendChild(document.createElement("br"));
 
     if (u.email !== currentUser.email) {
-      const delBtn = document.createElement("button");
-      delBtn.innerText = "Supprimer";
-      delBtn.style.marginTop = "5px";
+      const delBtn = document.createElement("button"); delBtn.innerText = "Supprimer"; delBtn.style.marginTop = "5px";
       delBtn.onclick = () => {
         if (confirm("Supprimer le compte " + u.email + " ?")) {
-          users.splice(index, 1);
-          localStorage.setItem("users", JSON.stringify(users));
-          alert("Compte supprimé.");
-          openAccountPanel();
-          updateAccountNotification();
+          users.splice(index, 1); localStorage.setItem("users", JSON.stringify(users));
+          alert("Compte supprimé."); openAccountPanel(); updateAccountNotification();
         }
       };
       line.appendChild(delBtn);
@@ -718,108 +422,47 @@ function openAccountPanel() {
 
     if (u.wantsAdmin && u.role === "user") {
       const select = document.createElement("select");
-      ["en attente", "approuvé", "refusé"].forEach(opt => {
-        const option = document.createElement("option");
-        option.value = opt;
-        option.textContent = opt;
-        select.appendChild(option);
-      });
-      line.appendChild(document.createElement("br"));
-      line.appendChild(select);
-
-      const valider = document.createElement("button");
-      valider.innerText = "Valider";
-      valider.style.marginLeft = "5px";
-      valider.onclick = () => {
-        const value = select.value;
-        if (value === "approuvé") {
-          approveUser(u.email);
-        } else if (value === "refusé") {
-          rejectUser(u.email);
-        }
-      };
+      ["en attente", "approuvé", "refusé"].forEach(opt => { const option = document.createElement("option"); option.value = opt; option.textContent = opt; select.appendChild(option); });
+      line.appendChild(document.createElement("br")); line.appendChild(select);
+      const valider = document.createElement("button"); valider.innerText = "Valider"; valider.style.marginLeft = "5px";
+      valider.onclick = () => { const v = select.value; if (v==="approuvé") approveUser(u.email); else if (v==="refusé") rejectUser(u.email); };
       line.appendChild(valider);
     }
-
     content.appendChild(line);
   });
-
   panel.classList.remove("hidden");
 }
-
-function closeAccountPanel() {
-  document.getElementById("account-panel").classList.add("hidden");
-}
-
+function closeAccountPanel() { document.getElementById("account-panel").classList.add("hidden"); }
 function approveUser(email) {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
-  if (user) {
-    user.role = "admin";
-    user.wantsAdmin = false;
-    user.approved = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`${email} est maintenant admin.`);
-    openAccountPanel(); // refresh panel
-    updateAccountNotification(); 
-  }
+  if (user) { user.role = "admin"; user.wantsAdmin = false; user.approved = true; localStorage.setItem("users", JSON.stringify(users)); alert(`${email} est maintenant admin.`); openAccountPanel(); updateAccountNotification(); }
 }
-
 function rejectUser(email) {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
-  if (user) {
-    user.wantsAdmin = false;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`Demande de ${email} refusée.`);
-    openAccountPanel();// refresh panel
-    updateAccountNotification(); 
-  }
+  if (user) { user.wantsAdmin = false; localStorage.setItem("users", JSON.stringify(users)); alert(`Demande de ${email} refusée.`); openAccountPanel(); updateAccountNotification(); }
 }
-
 function requestAdmin() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === currentUser.email);
-  if (user) {
-    user.wantsAdmin = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert("Demande envoyée.");
-    currentUser.wantsAdmin = true;
-    openAccountPanel(); // refresh
-    updateAccountNotification();
-  }
+  if (user) { user.wantsAdmin = true; localStorage.setItem("users", JSON.stringify(users)); alert("Demande envoyée."); currentUser.wantsAdmin = true; openAccountPanel(); updateAccountNotification(); }
 }
 
-/* ======== CONFIG / IMAP ======== */
-function openConfigModal() {
-  document.getElementById("config-modal").classList.remove("hidden");
-}
-function closeConfigModal() {
-  document.getElementById("config-modal").classList.add("hidden");
-}
-function openImapModal() {
-  document.getElementById("imap-modal").classList.remove("hidden");
-}
-function closeImapModal() {
-  document.getElementById("imap-modal").classList.add("hidden");
-}
+/* ======== CONFIG ======== */
+function openConfigModal() { document.getElementById("config-modal").classList.remove("hidden"); }
+function closeConfigModal() { document.getElementById("config-modal").classList.add("hidden"); }
+function openImapModal() { document.getElementById("imap-modal").classList.remove("hidden"); }
+function closeImapModal() { document.getElementById("imap-modal").classList.add("hidden"); }
 function savePdfConfig() {
   const email = document.getElementById("monitoredEmail").value;
   const folder = document.getElementById("monitoredFolder").value;
   const keyword = document.getElementById("pdfKeyword").value;
-
-  const config = {
-    monitoredEmail: email,
-    monitoredFolder: folder,
-    pdfKeyword: keyword
-  };
-
-  localStorage.setItem("pdfConfig", JSON.stringify(config));
-  alert("Configuration PDF enregistrée.");
-  closeConfigModal();
+  localStorage.setItem("pdfConfig", JSON.stringify({ monitoredEmail: email, monitoredFolder: folder, pdfKeyword: keyword }));
+  alert("Configuration PDF enregistrée."); closeConfigModal();
 }
 
-/* ======== EXPORT GLOBAL (si onclick="" dans le HTML) ======== */
+/* ======== EXPORT GLOBAL (pour onclick="...") ======== */
 Object.assign(window, {
   showLogin, showRegister, login, register, logout,
   showApp, showEventForm, hideEventForm, saveEvent, deleteEvent,
