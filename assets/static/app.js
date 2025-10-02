@@ -123,16 +123,13 @@ function updateAccountNotification() {
   const btn = document.getElementById("btn-account");
 
   if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) {
-    btn?.classList.remove("notification");  // Ne rien afficher pour les users
+    btn?.classList.remove("notification");
     return;
   }
 
   if (btn) {
-    if (hasPending) {
-      btn.classList.add("notification");
-    } else {
-      btn.classList.remove("notification");
-    }
+    if (hasPending) btn.classList.add("notification");
+    else btn.classList.remove("notification");
   }
 }
 
@@ -163,11 +160,8 @@ document.getElementById("notes-box").addEventListener("input", () => {
 document.getElementById("recurrence").addEventListener("change", () => {
   const repeat = document.getElementById("recurrence").value;
   const durationField = document.getElementById("recurrence-duration-label");
-  if (repeat !== "none") {
-    durationField.classList.remove("hidden");
-  } else {
-    durationField.classList.add("hidden");
-  }
+  if (repeat !== "none") durationField.classList.remove("hidden");
+  else durationField.classList.add("hidden");
 });
 
 /* ======== CALENDRIER ======== */
@@ -236,7 +230,7 @@ function onEventClick(info) {
   const trajet = original?.[1]?.split(" > ") || ["", ""];
 
   document.getElementById("client-name").value = name || "";
-  document.getElementById("pickup-address").value = trajet[0] || pickup || ""
+  document.getElementById("pickup-address").value = trajet[0] || pickup || "";
   document.getElementById("dropoff-address").value = trajet[1] || "";
   document.getElementById("event-date").value = event.startStr.slice(0, 16);
   document.getElementById("recurrence").value = "none";
@@ -479,369 +473,27 @@ function storePdfFile(name, dataUrl) {
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 
-/* ======== --- A J O U T ---  Helpers & Date du PDF ======== */
+/* ======== Nettoyage / utilitaires ======== */
 function cleanText(str){ return (str || "").replace(/\s+/g, " ").trim(); }
 
+/* === Date à partir du PDF (privilégie "02 octobre 2025 Date demandé :") === */
 function extractRequestedDate(text){
-  // 1) On privilégie: "Date demandé : 02 octobre 2025"
-  const m1 = text.match(/Date\s+deman(d|dé)\s*:\s*(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/i);
-  if (m1) {
-    const day = parseInt(m1[2],10);
-    const monthKey = m1[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
-    const year = parseInt(m1[4],10);
+  // 1) "02 octobre 2025 Date demandé :"  (ordre inversé)
+  let m = text.match(/(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+deman(?:d|dé)\s*:/i);
+  if (m) {
+    const day = parseInt(m[1],10);
+    const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = parseInt(m[3],10);
     const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
-    const month = MONTHS[monthKey];
+    const month = MONTHS[monKey];
     if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
-
-  // 2) fallback: ligne d’en-tête "JEUDI 02 OCTOBRE 2025"
-  const m2 = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)(?:\s+(\d{4}))?/);
-  if (m2) {
-    const day = parseInt(m2[2],10);
-    const monthKey = m2[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
-    const year = m2[4] ? parseInt(m2[4],10) : (new Date()).getFullYear();
+  // 2) fallback "JEUDI 02 OCTOBRE 2025"
+  m = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/);
+  if (m){
+    const day = parseInt(m[2],10);
+    const monKey = m[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = parseInt(m[4],10);
     const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
-    const month = MONTHS[monthKey];
-    if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
-  }
-
-  // 3) secours
-  const d = new Date(); d.setHours(0,0,0,0); return d;
-}
-
-/* ======== Parseur PDF — ***REMPLACÉ*** (robuste Taxi 500) ======== */
-function parseTaxiPdfFromText(text, baseDate) {
-  const lines = text.replace(/\r/g,"").split("\n").map(cleanText).filter(Boolean);
-  const out = [];
-  const isHeaderNoise = s => /Heure de fin|Heure de début|Kilométrage|Feuille de route|Total\s*:|Route\s*:|Chauffeur|Type de véhicule/i.test(s);
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Heure sur la ligne
-    const t = line.match(/\b(\d{1,2})[:hH](\d{2})\b/);
-    if (!t) continue;
-    if (isHeaderNoise(line)) continue;           // ignore 23:00 / 01:00 de l’en-tête
-
-    const H = parseInt(t[1],10), M = parseInt(t[2],10);
-    if (H > 23 || M > 59) continue;
-
-    // Nom (sur cette ligne ou les 2 suivantes)
-    let name = null;
-    for (let k=i; k<=Math.min(i+2, lines.length-1); k++){
-      const nm = lines[k].match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]+/);
-      if (nm){ name = cleanText(nm[0]); break; }
-    }
-    if (!name) name = "Client inconnu";
-
-    // Deux adresses (souvent sur la/les lignes précédentes)
-    let from=null, to=null;
-
-    // 1) Si un séparateur " > " existe dans la fenêtre ±2 lignes
-    for (let k=Math.max(0,i-2); k<=Math.min(i+2,lines.length-1); k++){
-      if (lines[k].includes(">")){
-        const parts = lines[k].split(">");
-        if (parts[0] && parts.slice(1).join(">").trim()){
-          from = cleanText(parts[0]);
-          to   = cleanText(parts.slice(1).join(">"));
-          break;
-        }
-      }
-    }
-
-    // 2) Sinon, motif "..., QC   ..., QC" (ou 2–3 lettres majuscules pour ville)
-    if (!from || !to){
-      for (let k=Math.max(0,i-2); k<=Math.min(i+2,lines.length-1); k++){
-        const s = lines[k];
-        const ap = s.match(/([0-9A-ZÀ-ÿ' \-]+?,\s*[A-Z]{2,3})\s+([0-9A-ZÀ-ÿ' \-]+?,\s*[A-Z]{2,3})/);
-        if (ap){ from = cleanText(ap[1]); to = cleanText(ap[2]); break; }
-      }
-    }
-    if (!from || !to) continue; // pas assez fiable ⇒ on saute
-
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`;
-
-    out.push({
-      id,
-      title: `${name} – ${from} > ${to}`,
-      start: formatLocalDateTimeString(start),
-      allDay: false
-    });
-  }
-
-  // dédoublonnage simple
-  const seen = new Set();
-  return out.filter(e => {
-    const key = `${e.start}|${e.title}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-/* ======== IMPORT PDF (contenu) — ***REMPLACÉ*** ======== */
-document.getElementById("pdf-import").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = "";
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map(item => item.str).join(" ");
-      fullText += "\n" + pageText;
-    }
-
-    // Utilise d'abord "Date demandé : …", sinon en-tête (JEUDI 02 OCTOBRE 2025)
-    const baseDate = extractRequestedDate(fullText);
-
-    // Parse & injecte
-    const parsedEvents = parseTaxiPdfFromText(fullText, baseDate);
-
-    for (const evt of parsedEvents) {
-      calendar.addEvent(evt);
-      events.push(evt);
-    }
-    localStorage.setItem("events", JSON.stringify(events));
-
-    alert(`✅ ${parsedEvents.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
-  } catch (err) {
-    console.error(err);
-    alert("❌ Erreur lors de la lecture du PDF (voir console).");
-  } finally {
-    e.target.value = "";
-  }
-});
-
-/* ======== JOUR — MODALE ======== */
-function openDayEventsModal(dateStr) {
-  const list = document.getElementById("day-events-list");
-
-  // Affiche proprement la date cliquée dans la modale
-  const displayDate = new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric"
-  });
-  document.getElementById("day-events-date").textContent = displayDate;
-
-  list.innerHTML = "";
-
-  // Compare en “YYYY-MM-DD”
-  const dayEvents = events.filter(ev => {
-    if (typeof ev.start === 'string') {
-      const m = ev.start.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) return m[1] === dateStr;
-    }
-    const evDate = new Date(ev.start);
-    const evDateStr = evDate.toLocaleDateString("fr-CA"); // format YYYY-MM-DD
-    return evDateStr === dateStr;
-  });
-
-  if (dayEvents.length === 0) {
-    list.innerHTML = "<li>Aucun rendez-vous.</li>";
-  } else {
-    for (const ev of dayEvents) {
-      const li = document.createElement("li");
-      const date = new Date(ev.start);
-      const heure = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      li.textContent = `${ev.title} à ${heure}`;
-      list.appendChild(li);
-    }
-  }
-
-  document.getElementById("day-events-modal").classList.remove("hidden");
-}
-
-function closeDayEventsModal() {
-  document.getElementById("day-events-modal").classList.add("hidden");
-}
-
-/* ======== COMPTE / ADMIN ======== */
-function openAccountPanel() {
-  const panel = document.getElementById("account-panel");
-  const content = document.getElementById("account-content");
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-
-  if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
-    if (currentUser && currentUser.role === "user") {
-      content.innerHTML = "";
-      const p = document.createElement("p");
-      p.innerText = "Vous êtes un utilisateur standard.";
-      const btn = document.createElement("button");
-      btn.innerText = "Demander à devenir admin";
-      btn.onclick = requestAdmin;
-      content.appendChild(p);
-      content.appendChild(btn);
-    } else {
-      content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
-    }
-    panel.classList.remove("hidden");
-    return;
-  }
-
-  content.innerHTML = "";
-  const title = document.createElement("h4");
-  title.innerText = "Utilisateurs enregistrés";
-  content.appendChild(title);
-
-  users.forEach((u, index) => {
-    const line = document.createElement("div");
-    line.style.borderBottom = "1px solid #ccc";
-    line.style.padding = "5px 0";
-
-    const email = document.createElement("strong");
-    email.innerText = u.email;
-    line.appendChild(email);
-    line.appendChild(document.createElement("br"));
-
-    const role = document.createElement("span");
-    role.innerText = "Rôle : " + u.role;
-    line.appendChild(role);
-    line.appendChild(document.createElement("br"));
-
-    const status = document.createElement("span");
-    status.innerText = "Statut : " + (
-      u.role === "admin"
-        ? (u.approved ? "Admin approuvé" : "Demande admin")
-        : "Utilisateur"
-    );
-    line.appendChild(status);
-    line.appendChild(document.createElement("br"));
-
-    if (u.email !== currentUser.email) {
-      const delBtn = document.createElement("button");
-      delBtn.innerText = "Supprimer";
-      delBtn.style.marginTop = "5px";
-      delBtn.onclick = () => {
-        if (confirm("Supprimer le compte " + u.email + " ?")) {
-          users.splice(index, 1);
-          localStorage.setItem("users", JSON.stringify(users));
-          alert("Compte supprimé.");
-          openAccountPanel();
-          updateAccountNotification();
-        }
-      };
-      line.appendChild(delBtn);
-    }
-
-    if (u.wantsAdmin && u.role === "user") {
-      const select = document.createElement("select");
-      ["en attente", "approuvé", "refusé"].forEach(opt => {
-        const option = document.createElement("option");
-        option.value = opt;
-        option.textContent = opt;
-        select.appendChild(option);
-      });
-      line.appendChild(document.createElement("br"));
-      line.appendChild(select);
-
-      const valider = document.createElement("button");
-      valider.innerText = "Valider";
-      valider.style.marginLeft = "5px";
-      valider.onclick = () => {
-        const value = select.value;
-        if (value === "approuvé") {
-          approveUser(u.email);
-        } else if (value === "refusé") {
-          rejectUser(u.email);
-        }
-      };
-      line.appendChild(valider);
-    }
-
-    content.appendChild(line);
-  });
-
-  panel.classList.remove("hidden");
-}
-
-function closeAccountPanel() {
-  document.getElementById("account-panel").classList.add("hidden");
-}
-
-function approveUser(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === email);
-  if (user) {
-    user.role = "admin";
-    user.wantsAdmin = false;
-    user.approved = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`${email} est maintenant admin.`);
-    openAccountPanel(); // refresh panel
-    updateAccountNotification(); 
-  }
-}
-
-function rejectUser(email) {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === email);
-  if (user) {
-    user.wantsAdmin = false;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert(`Demande de ${email} refusée.`);
-    openAccountPanel();// refresh panel
-    updateAccountNotification(); 
-  }
-}
-
-function requestAdmin() {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === currentUser.email);
-  if (user) {
-    user.wantsAdmin = true;
-    localStorage.setItem("users", JSON.stringify(users));
-    alert("Demande envoyée.");
-    currentUser.wantsAdmin = true;
-    openAccountPanel(); // refresh
-    updateAccountNotification();
-  }
-}
-
-/* ======== CONFIG / IMAP ======== */
-function openConfigModal() {
-  document.getElementById("config-modal").classList.remove("hidden");
-}
-function closeConfigModal() {
-  document.getElementById("config-modal").classList.add("hidden");
-}
-function openImapModal() {
-  document.getElementById("imap-modal").classList.remove("hidden");
-}
-function closeImapModal() {
-  document.getElementById("imap-modal").classList.add("hidden");
-}
-function savePdfConfig() {
-  const email = document.getElementById("monitoredEmail").value;
-  const folder = document.getElementById("monitoredFolder").value;
-  const keyword = document.getElementById("pdfKeyword").value;
-
-  const config = {
-    monitoredEmail: email,
-    monitoredFolder: folder,
-    pdfKeyword: keyword
-  };
-
-  localStorage.setItem("pdfConfig", JSON.stringify(config));
-  alert("Configuration PDF enregistrée.");
-  closeConfigModal();
-}
-
-/* ======== EXPORT GLOBAL (si onclick="" dans le HTML) ======== */
-Object.assign(window, {
-  showLogin, showRegister, login, register, logout,
-  showApp, showEventForm, hideEventForm, saveEvent, deleteEvent,
-  openDeleteModal, closeDeleteModal, confirmDelete,
-  openDeleteSeriesModal, closeDeleteSeriesModal, confirmDeleteSeries,
-  openPdfPanel, closePdfPanel, storePdfFile,
-  openDayEventsModal, closeDayEventsModal,
-  openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
-  openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
-});
+    const month = MONTHS[monKey];
+    if (mont
