@@ -236,7 +236,7 @@ function onEventClick(info) {
   const trajet = original?.[1]?.split(" > ") || ["", ""];
 
   document.getElementById("client-name").value = name || "";
-  document.getElementById("pickup-address").value = trajet[0] || pickup || "";
+  document.getElementById("pickup-address").value = trajet[0] || pickup || ""
   document.getElementById("dropoff-address").value = trajet[1] || "";
   document.getElementById("event-date").value = event.startStr.slice(0, 16);
   document.getElementById("recurrence").value = "none";
@@ -479,6 +479,107 @@ function storePdfFile(name, dataUrl) {
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 
+/* ======== --- A J O U T ---  Helpers & Date du PDF ======== */
+function cleanText(str){ return (str || "").replace(/\s+/g, " ").trim(); }
+
+function extractRequestedDate(text){
+  // 1) On privilégie: "Date demandé : 02 octobre 2025"
+  const m1 = text.match(/Date\s+deman(d|dé)\s*:\s*(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/i);
+  if (m1) {
+    const day = parseInt(m1[2],10);
+    const monthKey = m1[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = parseInt(m1[4],10);
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const month = MONTHS[monthKey];
+    if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
+  }
+
+  // 2) fallback: ligne d’en-tête "JEUDI 02 OCTOBRE 2025"
+  const m2 = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)(?:\s+(\d{4}))?/);
+  if (m2) {
+    const day = parseInt(m2[2],10);
+    const monthKey = m2[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const year = m2[4] ? parseInt(m2[4],10) : (new Date()).getFullYear();
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const month = MONTHS[monthKey];
+    if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
+  }
+
+  // 3) secours
+  const d = new Date(); d.setHours(0,0,0,0); return d;
+}
+
+/* ======== Parseur PDF — ***REMPLACÉ*** (robuste Taxi 500) ======== */
+function parseTaxiPdfFromText(text, baseDate) {
+  const lines = text.replace(/\r/g,"").split("\n").map(cleanText).filter(Boolean);
+  const out = [];
+  const isHeaderNoise = s => /Heure de fin|Heure de début|Kilométrage|Feuille de route|Total\s*:|Route\s*:|Chauffeur|Type de véhicule/i.test(s);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Heure sur la ligne
+    const t = line.match(/\b(\d{1,2})[:hH](\d{2})\b/);
+    if (!t) continue;
+    if (isHeaderNoise(line)) continue;           // ignore 23:00 / 01:00 de l’en-tête
+
+    const H = parseInt(t[1],10), M = parseInt(t[2],10);
+    if (H > 23 || M > 59) continue;
+
+    // Nom (sur cette ligne ou les 2 suivantes)
+    let name = null;
+    for (let k=i; k<=Math.min(i+2, lines.length-1); k++){
+      const nm = lines[k].match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]+/);
+      if (nm){ name = cleanText(nm[0]); break; }
+    }
+    if (!name) name = "Client inconnu";
+
+    // Deux adresses (souvent sur la/les lignes précédentes)
+    let from=null, to=null;
+
+    // 1) Si un séparateur " > " existe dans la fenêtre ±2 lignes
+    for (let k=Math.max(0,i-2); k<=Math.min(i+2,lines.length-1); k++){
+      if (lines[k].includes(">")){
+        const parts = lines[k].split(">");
+        if (parts[0] && parts.slice(1).join(">").trim()){
+          from = cleanText(parts[0]);
+          to   = cleanText(parts.slice(1).join(">"));
+          break;
+        }
+      }
+    }
+
+    // 2) Sinon, motif "..., QC   ..., QC" (ou 2–3 lettres majuscules pour ville)
+    if (!from || !to){
+      for (let k=Math.max(0,i-2); k<=Math.min(i+2,lines.length-1); k++){
+        const s = lines[k];
+        const ap = s.match(/([0-9A-ZÀ-ÿ' \-]+?,\s*[A-Z]{2,3})\s+([0-9A-ZÀ-ÿ' \-]+?,\s*[A-Z]{2,3})/);
+        if (ap){ from = cleanText(ap[1]); to = cleanText(ap[2]); break; }
+      }
+    }
+    if (!from || !to) continue; // pas assez fiable ⇒ on saute
+
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
+    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`;
+
+    out.push({
+      id,
+      title: `${name} – ${from} > ${to}`,
+      start: formatLocalDateTimeString(start),
+      allDay: false
+    });
+  }
+
+  // dédoublonnage simple
+  const seen = new Set();
+  return out.filter(e => {
+    const key = `${e.start}|${e.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /* ======== IMPORT PDF (contenu) — ***REMPLACÉ*** ======== */
 document.getElementById("pdf-import").addEventListener("change", async (e) => {
   const file = e.target.files[0];
@@ -496,34 +597,8 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
       fullText += "\n" + pageText;
     }
 
-    // Date du type: LUNDI 14 JUILLET (année optionnelle)
-    const m = fullText
-      .toUpperCase()
-      .match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)(?:\s+(\d{4}))?/);
-
-    if (!m) {
-      alert("❌ Impossible de détecter la date dans le PDF.");
-      e.target.value = "";
-      return;
-    }
-
-    const day = parseInt(m[2], 10);
-    const monthKey = (m[3] || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const year = m[4] ? parseInt(m[4], 10) : (new Date()).getFullYear();
-
-    const MONTHS_FR = {
-      "JANVIER":0, "FEVRIER":1, "FÉVRIER":1, "MARS":2, "AVRIL":3, "MAI":4,
-      "JUIN":5, "JUILLET":6, "AOUT":7, "AOÛT":7, "SEPTEMBRE":8, "OCTOBRE":9,
-      "NOVEMBRE":10, "DECEMBRE":11, "DÉCEMBRE":11
-    };
-    const month = MONTHS_FR[monthKey];
-    if (month === undefined) {
-      alert("❌ Mois non reconnu: " + m[3]);
-      e.target.value = "";
-      return;
-    }
-
-    const baseDate = new Date(year, month, day, 0, 0, 0, 0);
+    // Utilise d'abord "Date demandé : …", sinon en-tête (JEUDI 02 OCTOBRE 2025)
+    const baseDate = extractRequestedDate(fullText);
 
     // Parse & injecte
     const parsedEvents = parseTaxiPdfFromText(fullText, baseDate);
@@ -542,65 +617,6 @@ document.getElementById("pdf-import").addEventListener("change", async (e) => {
     e.target.value = "";
   }
 });
-
-/* ======== Parseur PDF — ***REMPLACÉ*** ======== */
-function cleanText(str){ return (str || "").replace(/\s+/g, " ").trim(); }
-
-function parseTaxiPdfFromText(text, baseDate) {
-  const lines = text.split("\n");
-  const out = [];
-  let idx = 0;
-
-  for (let raw of lines) {
-    const line = cleanText(raw);
-    if (!line) continue;
-
-    // Heure (7:05, 07:05, 7h05)
-    const t = line.match(/\b(\d{1,2})[:hH](\d{2})\b/);
-    if (!t) continue;
-    const H = parseInt(t[1], 10);
-    const M = parseInt(t[2], 10);
-    if (H > 23 || M > 59) continue;
-
-    // Nom (simple)
-    const nameMatch = line.match(/[A-Z][A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ\- ]{3,},?\s+[A-Z][A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ\- ]{2,}/);
-    const name = nameMatch ? cleanText(nameMatch[0]) : "Client inconnu";
-
-    // Deux adresses :
-    // 1) Si " > " présent, on coupe là – c’est le plus fiable dans tes PDF.
-    // 2) Sinon, fallback sur motif (numéro + toponyme) x2.
-    let from = "", to = "";
-    if (line.includes(">")) {
-      const parts = line.split(">");
-      from = cleanText(parts[0]);
-      to = cleanText(parts.slice(1).join(">"));
-    } else {
-      const addr = line.match(/(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\s+(\d{2,5}.*?)\s+([A-Z][A-ZÉÈÀÂ].*?)\b/);
-      if (addr) {
-        from = cleanText(addr[1] + " " + addr[2]);
-        to   = cleanText(addr[3] + " " + addr[4]);
-      } else {
-        continue; // pas assez clair ⇒ on ignore
-      }
-    }
-
-    // Date locale (sans Z)
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const startStr = formatLocalDateTimeString(start);
-
-    // id stable utile pour édition/suppression
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
-
-    out.push({
-      id,
-      title: `${name} – ${from} > ${to}`,
-      start: startStr,
-      allDay: false
-    });
-  }
-
-  return out;
-}
 
 /* ======== JOUR — MODALE ======== */
 function openDayEventsModal(dateStr) {
