@@ -1,5 +1,7 @@
-parseTaxiPdfFromText/***********************
- * RDV TAXI — app.js (stable + modale jour + parseur PDF autonome & robuste)
+
+
+/***********************
+ * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -350,154 +352,45 @@ function extractDateFromName(name){
 
   return null;
 }
-/* ======== PARSEUR PDF — segmentation par lignes/blocs ======== */
-function parseTaxiPdfFromText(rawText, baseDate) {
-  // 0) Pré-nettoyage simple (on garde les \n !)
-  const text = (rawText || "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+/g, " ")
-    .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
-    .trim();
 
-  const LINES = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+/* ======== PARSEUR PDF (multi RDV) ======== */
+function parseTaxiPdfFromText(text, baseDate) {
+  // Ex : "244 12 EM RUE,MON  23 avenue sainte-brigitte nord,MON  ... 7:15 ...  ALBERT, MAXIME ..."
+  const re = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
-  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/;
-  const IGNORE_LINE = /(FEUILLE DE ROUTE|^DATE|JOURN[ÉE]E|TRANSF|TRANSFERT|SUR APPEL)/i;
-
-  // Nettoyages / règles
-  const CITY_ABBR   = /\s*,\s*(MON|LAV|RDP|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const CODE_TA     = /\bTA ?\d{3,6}\b/gi;
-  const HASH_NUM    = /#\d{3,8}\b/g;
-  const LOOSE_NUM   = /\b\d{4,6}\b/g; // ex: 9404
-  const BADWORD     = /\b(FRE|INT|NIL|TRA|ETUA|Non)\b/gi;
-  const MONTH_RE    = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
-
-  const STREET_HINT = /\b(RUE|AV(?:ENUE)?|BD|BOU(?:LEVARD)?|BOUL|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|BOIS|TERRASSE|PARC|TACH[ÉE]|INDUSTRIES)\b/i;
-  const ADDRESS_BLOCK = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,}\b/g;
-
-  function scrubLoose(s) {
-    return (s || "")
-      .replace(CODE_TA, " ")
-      .replace(HASH_NUM, " ")
-      .replace(LOOSE_NUM, " ")
-      .replace(BADWORD, " ")
-      .replace(CITY_ABBR, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  }
-  function cleanAddr(s) {
-    return scrubLoose((s || "")
-      .replace(/,{2,}/g, ",")
-      .replace(/\s{2,}/g, " "))
-      .replace(/-+\s*$/g, "")
-      .trim();
-  }
-  function isLikelyAddress(s) {
-    const u = (s || "").toUpperCase().trim();
-    if (!u) return false;
-    if (MONTH_RE.test(u)) return false;               // évite "03 octobre"
-    if (!/\b\d{1,5}\b/.test(u)) return false;         // besoin d’un numéro
-    if (!STREET_HINT.test(u)) return false;           // besoin d’un mot de voie
-    if (u.length < 10) return false;                  // évite "0 FRE", "5"
-    return true;
-  }
-  function extractName(str) {
-    // NOM, PRÉNOM
-    let m = str.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
-    if (m) return scrubLoose(`${m[1]}, ${m[2]}`);
-    // Prénom Nom
-    m = str.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
-    if (m) return scrubLoose(m[1]);
-    return "Client inconnu";
-  }
-
-  // 1) Segmente en BLOCS : une ligne avec heure démarre un bloc jusqu’à la prochaine heure
-  const blocks = [];
-  let i = 0;
-  while (i < LINES.length) {
-    if (IGNORE_LINE.test(LINES[i]) || !HOUR_RE.test(LINES[i])) { i++; continue; }
-    const start = i;
-    let j = i + 1;
-    while (j < LINES.length && !HOUR_RE.test(LINES[j])) j++;
-    // bloc = concat des lignes [start .. j-1]
-    const rawBlock = LINES.slice(start, j).filter(s => !IGNORE_LINE.test(s)).join(" ");
-    blocks.push(rawBlock);
-    i = j;
-  }
-
-  // 2) Parse chaque bloc : nom + 2 adresses valides
   const out = [];
-  const seen = new Set();
-  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+  let idx = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    const from = cleanText(m[1]);
+    const to   = cleanText(m[2]);
+    const time = m[3].toLowerCase().replace('h',':');
+    let name   = cleanText(m[4]).replace(/\s+TA.*$/, "");
+    if (!from || !to) continue;
 
-  for (const block of blocks) {
-    // heure dans le bloc
-    const hm = block.match(HOUR_RE);
-    if (!hm) continue;
-    const H = parseInt(hm[1], 10), M = parseInt(hm[2], 10);
-    if (isNaN(H) || isNaN(M)) continue;
+    const [H, M] = time.split(":").map(n => parseInt(n,10));
+    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
 
-    const name = extractName(block);
-    const candidates = (block.match(ADDRESS_BLOCK) || [])
-      .map(cleanAddr)
-      .filter(isLikelyAddress);
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
+    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
 
-    if (candidates.length < 2) continue;
-
-    // Heuristique : on prend les 2 dernières adresses plausibles du bloc
-    const from = candidates[candidates.length - 2];
-    const to   = candidates[candidates.length - 1];
-
-    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
-    const key = `${start.getTime()}|${name.toUpperCase()}|${from.toUpperCase()}|${to.toUpperCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    out.push({
-      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
-      title: `${name} – ${from} > ${to}`,
-      start: formatLocalDateTimeString(start),
-      allDay: false
-    });
+    out.push({ id, title: `${name || "Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
   }
 
-  return out;
+  const seen = new Set();
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
-
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
   let fullText = "";
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-
-    // Regroupe le texte par ligne visuelle (coordonnée Y arrondie)
-    const linesByY = {};
-    for (const it of content.items) {
-      // it.transform[5] ~ position Y; on arrondit pour regrouper
-      const y = Math.round(it.transform?.[5] ?? 0);
-      linesByY[y] = (linesByY[y] || "") + " " + it.str;
-    }
-
-    // Conserve l'ordre visuel: Y décroissant (de haut en bas)
-    const pageLines = Object.keys(linesByY)
-      .map(n => Number(n))
-      .sort((a, b) => b - a)
-      .map(y => linesByY[y].replace(/\s+/g, " ").trim())
-      .filter(s => s.length > 0);
-
-    // Ajoute des sauts de ligne entre vraies lignes
-    fullText += "\n" + pageLines.join("\n") + "\n";
+    fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
-
-  // Date d’ancrage (nom de fichier > contenu), normalisée à 00:00 local
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
-  baseDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
-
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
   if (parsed.length) {
     events = [...events, ...parsed];
@@ -664,7 +557,3 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
-
-
-
-
