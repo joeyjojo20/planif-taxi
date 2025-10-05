@@ -350,22 +350,22 @@ function extractDateFromName(name){
 
   return null;
 }
-/* ======== PARSEUR PDF FINAL (corrigé selon fichier réel) ======== */
+/* ======== PARSEUR PDF FINAL (corrigé pour ignorer entêtes et bruits) ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || ""))
     .replace(/\s+/g, " ")
+    // on retire les zones inutiles
     .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
-    .replace(/\b(TEL|TÉL|CIV|CH|CHU|CLSC|CISSS|NILTRA|NIL|RM|RDV|CODE|COMMENTAIRE|SUR APPEL|FIN)\b[ :#\-]*[0-9A-Za-z\-\/]*/gi, " ")
+    .replace(/\b(TEL|TÉL|CIV|CH|CHU|CLSC|CISSS|NILTRA|NIL|RM|RDV|CODE|COMMENTAIRE|SUR APPEL|FIN|DATE|JOURNÉE|FEUILLE DE ROUTE|TRANSF|TRANSFERT)\b[ :#\-]*[0-9A-Za-z\-\/]*/gi, " ")
     .replace(/\([^)]+\)/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim() + " ";
 
   const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const NOISE_COUT = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
   const CODE_TA = /\bTA ?\d{3,6}\b/gi;
-  const BADWORD = /\b(FRE|INT|NIL|TRA|ETUA)\b/gi;
-  const STREET_KEYWORDS = /\b(RUE|AV|AVENUE|BOUL|BOULEVARD|BD|CH|CHEMIN|ROUTE|RTE|COUR|TACHÉ|INDUSTRIES)\b/i;
+  const BADWORD = /\b(FRE|INT|NIL|TRA|ETUA|Non)\b/gi;
+  const STREET_KEYWORDS = /\b(RUE|AV|AVENUE|BOUL|BOULEVARD|BD|CH|CHEMIN|ROUTE|RTE|COUR|TACHÉ|INDUSTRIES|AVENUE|RANG|PLACE|ALLÉE|PROMENADE)\b/i;
 
   function scrub(s) {
     return (s || "")
@@ -378,7 +378,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   function cleanAddr(s) {
     return scrub((s || "")
-      .replace(NOISE_COUT, "")
       .replace(/,{2,}/g, ",")
       .replace(/\s{2,}/g, " "))
       .trim();
@@ -386,18 +385,25 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   function isValidAddr(s) {
     const a = (s || "").trim().toUpperCase();
-    return /\b\d{1,5}\b/.test(a) && STREET_KEYWORDS.test(a) && a.length > 10;
+    if (!a) return false;
+    if (!/\b\d{1,5}\b/.test(a)) return false;
+    if (!STREET_KEYWORDS.test(a)) return false;
+    if (a.length < 10) return false;
+    if (/FEUILLE|ROUTE|JOURN|DATE|TRANSF/i.test(a)) return false;
+    return true;
   }
 
   function extractAddresses(chunk) {
-    const parts = (chunk.match(/\b\d{1,5}[^>]{3,50}\b/g) || []).map(cleanAddr).filter(isValidAddr);
-    if (parts.length >= 2) return [parts[0], parts[1]];
+    const raw = (chunk.match(/\b\d{1,5}[^>]{3,60}\b/g) || []).map(cleanAddr).filter(isValidAddr);
+    if (raw.length >= 2) return [raw[0], raw[1]];
     return [null, null];
   }
 
   function extractName(chunk) {
+    // Nom, prénom
     let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ'\-]+,\s*[A-ZÀ-ÖØ-Þ'\-]+)/);
     if (m) return scrub(m[1]);
+    // Prénom Nom
     m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+ [A-Z][A-Za-zÀ-ÿ'\-]+)/);
     if (m) return scrub(m[1]);
     return "Client inconnu";
@@ -411,11 +417,18 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   while ((m = HOUR_RE.exec(text)) !== null) {
     const H = parseInt(m[1]), M = parseInt(m[2]);
     if (isNaN(H) || isNaN(M)) continue;
-    const window = text.slice(Math.max(0, m.index - 250), Math.min(text.length, m.index + 250));
-    const [from, to] = extractAddresses(window);
+    const zone = text.slice(Math.max(0, m.index - 250), Math.min(text.length, m.index + 250));
+
+    // On ignore si ça ressemble à un entête administratif
+    if (/FEUILLE DE ROUTE|DATE|JOURNÉE|TRANSF/i.test(zone)) continue;
+
+    const [from, to] = extractAddresses(zone);
     if (!from || !to) continue;
 
-    const name = extractName(window);
+    const name = extractName(zone);
+    // On ignore les "clients inconnus" s'il n'y a aucun vrai nom
+    if (name === "Client inconnu" && !/[A-Z]{2,},/.test(zone)) continue;
+
     const start = new Date(baseDay.getFullYear(), baseDay.getMonth(), baseDay.getDate(), H, M);
     const key = `${start.getTime()}|${name}|${from}|${to}`;
     if (seen.has(key)) continue;
@@ -431,6 +444,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   return out;
 }
+
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
@@ -613,5 +627,6 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
