@@ -438,16 +438,55 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
 
 /* ======== IMPORT PDF ======== */
+/* ======== IMPORT PDF — segmentation en BLOCS par grands sauts Y ======== */
 async function handlePdfImport(file){
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  const BLOCK_SEP = "\n===PDF_BLOCK===\n";
   let fullText = "";
+
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    fullText += "\n" + content.items.map(it => it.str).join(" ");
+
+    // Regroupe par lignes visuelles (même Y arrondi), puis trie de haut en bas
+    const linesByY = new Map();
+    for (const it of content.items) {
+      const y = Math.round(it.transform?.[5] ?? 0);   // coordonnée Y
+      const x = Math.round(it.transform?.[4] ?? 0);   // coordonnée X (pour l’ordre gauche→droite)
+      if (!linesByY.has(y)) linesByY.set(y, []);
+      linesByY.get(y).push({ x, str: it.str });
+    }
+
+    const ys = Array.from(linesByY.keys()).sort((a,b)=> b-a); // haut→bas
+    const pageLines = ys.map(y => {
+      const parts = linesByY.get(y).sort((a,b)=> a.x - b.x).map(p => p.str);
+      return parts.join(" ").replace(/\s+/g, " ").trim();
+    }).filter(s => s.length>0);
+
+    // Insère un séparateur de BLOC quand l’écart Y est “grand” (≈ ligne noire)
+    // (on n’a plus Y ici, donc on simule : 1 ligne vide force une coupure)
+    // -> On reconstruit par Y pour mesurer les gaps
+    let lastY = null;
+    const linesWithGap = [];
+    for (const y of ys) {
+      const line = linesByY.get(y).sort((a,b)=> a.x-b.x).map(p=>p.str).join(" ").replace(/\s+/g," ").trim();
+      if (!line) continue;
+      if (lastY !== null && (lastY - y) > 28) { // seuil ~28 px = “grosse ligne noire”
+        linesWithGap.push(BLOCK_SEP);
+      }
+      linesWithGap.push(line);
+      lastY = y;
+    }
+
+    const pageText = linesWithGap.join("\n");
+    fullText += (fullText ? "\n" : "") + pageText;
   }
+
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
+  baseDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0,0,0,0);
+
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
   if (parsed.length) {
     events = [...events, ...parsed];
@@ -456,6 +495,7 @@ async function handlePdfImport(file){
   }
   alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
 }
+
 
 /* ======== MODALE JOUR (résumé propre) ======== */
 function openDayEventsModal(dateStr) {
@@ -614,4 +654,5 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
