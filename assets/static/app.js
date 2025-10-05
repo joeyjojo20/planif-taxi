@@ -1,4 +1,4 @@
-/***********************
+parseTaxiPdfFromText/***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF autonome & robuste)
  ***********************/
 
@@ -352,8 +352,9 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) — AUTONOME ======== */
+/* ======== PARSEUR PDF (multi RDV) — AUTONOME & STRICT ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // 0) Normalisation & retrait de bruit global
+  // --- Normalisation initiale + retrait de bruit global ---
   const text = (" " + (rawText || ""))
     .replace(/\s+/g, " ")
     .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
@@ -362,24 +363,31 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     .replace(/\s{2,}/g, " ")
     .trim() + " ";
 
-  // Heures possibles 07:15 / 7h15 / 23H05
+  // --- Heures: 07:15 / 7h15 / 23H05 ---
   const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
 
-  // Prendre un voisinage large autour de l'heure pour éviter tronquages
-  function sliceAround(i, r = 260) {
+  // --- Voisinage autour de l'heure (assez large pour éviter les coupures) ---
+  function around(i, r = 280) {
     const a = Math.max(0, i - r);
     const b = Math.min(text.length, i + r);
     return text.slice(a, b);
   }
 
-  // Nettoyages spécifiques
-  const CITY_ABBR = /\s*,\s*(MON|LAV|RDP|QC|QUEBEC|QUÉBEC|CANADA)\b/gi; // suffixes ville
-  const NOISE_PREFIX = /^\s*\d{1,3}\s*Co[uû]t\s*/i;                      // supprime "00 Coût" mais conserve le nombre suivant (ex: 244)
-  const CODE_TA = /\bTA ?\d{3,6}\b/gi;                                   // TA0654
-  const HASH_NUM = /#\d{3,8}\b/g;                                        // #12345
-  const LOOSE_NUM = /\b\d{4,6}\b/g;                                      // 9404 etc.
+  // --- Nettoyages spécifiques / règles d'adresse ---
+  const CITY_ABBR   = /\s*,\s*(MON|LAV|RDP|QC|QUEBEC|QUÉBEC|CANADA)\b/gi; // , MON / , LAV / ...
+  const NOISE_COUT  = /^\s*\d{1,3}\s*Co[uû]t\s*/i;                        // "00 Coût" (laisse le nombre qui suit, ex: 244)
+  const CODE_TA     = /\bTA ?\d{3,6}\b/gi;                                 // TA0654
+  const HASH_NUM    = /#\d{3,8}\b/g;                                       // #12345
+  const LOOSE_NUM   = /\b\d{4,6}\b/g;                                      // 9404, 12345...
+  const MONTH_RE    = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
 
-  function scrubText(s) {
+  // indices de voie courants
+  const STREET_HINT = /\b(RUE|AV(?:ENUE)?|BD|BOU(?:LEVARD)?|BOUL|CHEMIN|CH\b|ROUTE|RTE|ALL[ÉE]E|PL(?:ACE)?|IMPASSE|BOIS|CARR[ÉE]|TERRASSE|PROMENADE|PARC|BOUL\.)\b/i;
+
+  // “Bloc adresse” brut (numéro + texte)
+  const ADDRESS_BLOCK = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,}\b/g;
+
+  function scrubLoose(s) {
     return (s || "")
       .replace(CODE_TA, " ")
       .replace(HASH_NUM, " ")
@@ -389,10 +397,10 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   }
 
   function cleanAddr(s) {
-    return scrubText(
+    return scrubLoose(
       (s || "")
-        .replace(NOISE_PREFIX, "")   // enlève "00 Coût" (mais garde 244)
-        .replace(CITY_ABBR, "")      // enlève ", MON", ", LAV", etc.
+        .replace(NOISE_COUT, "")   // enlève "00 Coût" mais garde le nombre suivant (ex: 244)
+        .replace(CITY_ABBR, "")    // enlève ", MON" / ", LAV" / ...
         .replace(/,{2,}/g, ",")
         .replace(/\s{2,}/g, " ")
     )
@@ -400,38 +408,60 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     .trim();
   }
 
-  function normalizeName(s) {
-    return scrubText((s || "").replace(/\s+TA.*$/i, "")).trim();
+  function isLikelyAddress(s) {
+    const u = (s || "").toUpperCase().trim();
+    if (!u) return false;
+    if (MONTH_RE.test(u)) return false;              // rejette "03 octobre", etc.
+    if (!/\b\d{1,5}\b/.test(u)) return false;       // besoin d'un numéro
+    if (!/[A-ZÀ-ÖØ-Þ]{2,}/.test(u)) return false;   // besoin de lettres
+    if (u.length < 8) return false;                 // évite "0 FRE" / "5"
+    if (!STREET_HINT.test(u)) {
+      // fallback: exige au moins deux mots après le numéro (ex: "12 EM RUE")
+      if (!/\b\d{1,5}\s+[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' -]{2,}\s+[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' -]{1,}/.test(u)) return false;
+    }
+    return true;
   }
 
-  // Détection du nom
+  function normalizeName(s) {
+    return scrubLoose((s || "").replace(/\s+TA.*$/i, "")).trim();
+  }
+
+  // --- Extraction du nom (souple) ---
   function extractName(chunk) {
-    // NOM, PRÉNOM (majuscules)
-    let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
+    let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/); // NOM, PRÉNOM
     if (m) return normalizeName(`${m[1]}, ${m[2]}`);
-    // Prénom Nom (capitalisé)
-    m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
+    m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/); // Prénom Nom
     if (m) return normalizeName(m[1]);
     return "Client inconnu";
   }
 
-  // Détection robuste des adresses
-  const ADDRESS_BLOCK = /\b\d{1,5}[A-Za-zÀ-ÿ' .\-]{3,}\b/g;
+  // --- Choisit le meilleur sous-texte ressemblant à une adresse dans un segment ---
+  function bestAddress(sideText) {
+    const cleaned = cleanAddr(sideText || "");
+    const candidates = (cleaned.match(ADDRESS_BLOCK) || [])
+      .map(cleanAddr)
+      .filter(isLikelyAddress);
+    if (candidates.length === 0) return null;
+    // heuristique: la dernière est souvent la plus complète après du bruit
+    return candidates[candidates.length - 1];
+  }
+
+  // --- Extraction des 2 adresses (priorité aux séparateurs explicites) ---
   function extractAddresses(chunk) {
-    // séparateurs explicites : >, →, -, – , " à "
-    let m = chunk.match(/([0-9A-Za-zÀ-ÿ' .\-]{6,}?)\s*(?:>|→|-\s*|–\s*| à )\s*([0-9A-Za-zÀ-ÿ' .\-]{6,}?)(?=$|\s{2,}|\b([01]?\d|2[0-3])[:hH][0-5]\d\b)/);
+    // Séparateurs explicites
+    let m = chunk.match(/(.{8,}?)\s*(?:>|→|-\s*|–\s*| à )\s*(.{6,}?)(?=$|\s{2,}|\b([01]?\d|2[0-3])[:hH][0-5]\d\b)/);
     if (m) {
-      const a = cleanAddr(m[1]);
-      const b = cleanAddr(m[2]);
-      if (a && b) return [a, b];
+      const from = bestAddress(m[1]);
+      const to   = bestAddress(m[2]);
+      if (from && to) return [from, to];
     }
-    // fallback : collecte tous les “numéro + rue”, prend les 2 derniers (souvent le vrai trajet)
-    const all = (chunk.match(ADDRESS_BLOCK) || []).map(cleanAddr).filter(s => /\b\d/.test(s));
+    // Fallback: prendre les deux derniers blocs d'adresse plausibles du chunk
+    const all = (chunk.match(ADDRESS_BLOCK) || []).map(cleanAddr).filter(isLikelyAddress);
     if (all.length >= 2) return [all[all.length - 2], all[all.length - 1]];
     return [null, null];
   }
 
-  // Ancre du jour à minuit local (anti-décalage)
+  // --- Ancre du jour à minuit local (anti-décalage) ---
   const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
 
   const out = [];
@@ -443,19 +473,15 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     const M = parseInt(m[2], 10);
     if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
 
-    const chunk = sliceAround(m.index);
+    const chunk = around(m.index);
 
     const name = extractName(chunk);
-    const [fromRaw, toRaw] = extractAddresses(chunk);
-    if (!fromRaw || !toRaw) continue;
-
-    const from = cleanAddr(fromRaw);
-    const to   = cleanAddr(toRaw);
-    if (!from || !to) continue;
+    const [from, to] = extractAddresses(chunk);
+    if (!from || !to) continue;            // exige 2 vraies adresses
 
     const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
 
-    // clé de dédup : heure + nom + adresses normalisées
+    // Dédup (heure + nom + adresses normalisées)
     const key = `${start.getTime()}|${name.toUpperCase()}|${from.toUpperCase()}|${to.toUpperCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -470,6 +496,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   return out;
 }
+
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
@@ -652,3 +679,4 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
