@@ -352,61 +352,74 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-/* ======== PARSEUR PDF (multi RDV) — propre & autonome ======== */
+/* ======== PARSEUR PDF (multi RDV) — patch anti “TA” + adresses propres ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // 0) normalisation légère (on garde le texte tel quel sinon)
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // 1) regex “structure” (même logique que ta version) :
-  //    adresse A , VIL  + adresse B , VIL  + heure  + NOM, PRÉNOM
+  // même structure que ta meilleure version
   const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,160}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
-  // 2) nettoyeurs
-  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;  // “, MON”
-  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;                     // “00 Coût …”
-  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|TA ?\d{3,6}|#\d{3,8}|FRE|INT|ETUA)\b/gi;
+  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // (sans TA ici)
+  const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+  const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
 
-  const STREET_HINT = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
-  const MONTH_RE = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
-
-  function cleanAddr(s) {
-    return (s || "")
-      .replace(COST_HEAD, "")      // retire “00 Coût”
-      .replace(CITY_ABBR, "")      // retire “, MON” etc.
-      .replace(NOISE, " ")         // vire NILTRA, TA0654, #1234…
+  // extrait la dernière sous-adresse plausible du segment (ex: “... DEPOSER ... 173 rue des industries” → “173 rue des industries”)
+  function refineAddr(seg) {
+    const s = (seg || "")
+      .replace(COST_HEAD, "")
+      .replace(CITY_ABBR, "")
+      .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
-      .replace(/-+\s*$/g, "")
       .trim();
+
+    // Pattern d’une sous-adresse: numéro + texte jusqu’à un séparateur
+    const subAddrRe = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,60}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,]*/gi;
+    const matches = s.match(subAddrRe) || [];
+    const pick = (matches.length ? matches[matches.length - 1] : s).trim();
+
+    // supprime un nombre parasite d’heure au tout début (“00 ”, “01 ”, “15 ” devant le vrai numéro)
+    const cleaned = pick
+      .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "") // si un “heure” traîne avant le vrai numéro
+      .trim();
+
+    return cleaned;
   }
+
   function isValidAddr(s) {
     const u = (s || "").toUpperCase();
     if (!u) return false;
-    if (MONTH_RE.test(u)) return false;          // pas de “03 OCTOBRE”
-    if (!/\b\d{1,5}\b/.test(u)) return false;    // exige un numéro civique
-    if (!STREET_HINT.test(u)) return false;      // exige un mot de voie
-    if (u.length < 10) return false;             // évite “0 FRE”, “5”
+    if (MONTH_RE.test(u)) return false;
+    if (!/\b\d{1,5}\b/.test(u)) return false;
+    if (!STREET.test(u)) return false;
+    if (u.length < 8) return false;
     return true;
-    }
-  function cleanName(s) {
-    return (s || "").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // 3) extraction
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654 → suppr.
+      .replace(/\bTA\b/gi, " ")          // “TA” isolé après le nom → suppr.
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
   const out = [];
   let idx = 0, m;
 
   while ((m = RE.exec(text)) !== null) {
-    let from = cleanAddr(m[1]);
-    let to   = cleanAddr(m[2]);
+    let from = refineAddr(m[1]);
+    let to   = refineAddr(m[2]);
     const time = (m[3] || "").toLowerCase().replace('h', ':');
     let name   = cleanName(m[4]);
 
-    // validation stricte
     if (!isValidAddr(from) || !isValidAddr(to)) continue;
+
     const [H, M] = time.split(":").map(n => parseInt(n,10));
     if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
 
-    // 4) fabrique l'évènement propre
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
     const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
 
@@ -418,15 +431,11 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     });
   }
 
-  // 5) dédoublonnage heure+titre
+  // dédoublonnage
   const seen = new Set();
-  return out.filter(e => {
-    const k = `${e.start}|${e.title}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
+
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
@@ -605,4 +614,5 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
