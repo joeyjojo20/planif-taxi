@@ -353,36 +353,62 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-/* ======== PARSEUR PDF (multi RDV) — patch anti “TA” + adresses propres ======== */
+/* ======== PARSEUR PDF (multi RDV) — nom + 2 adresses numériques + heure ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // même structure que ta meilleure version
-  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,160}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+  // même structure que ta meilleure version (adresse1, adresse2 ... heure ... NOM, PRÉNOM)
+  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
+  // bruit et normalisations
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
-  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // (sans TA ici)
+  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // volontairement sans "TA"
   const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
-  const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
 
-  // extrait la dernière sous-adresse plausible du segment (ex: “... DEPOSER ... 173 rue des industries” → “173 rue des industries”)
+  // mots de voie (adresse)
+  const STREET = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
+
+  // Nom: soit "NOM, PRÉNOM", soit "Prénom Nom"
+  const NAME_RX = /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
+
+  // Nettoie et valide le nom (supprime TA et bruit; refuse un “nom” qui ressemble à une adresse/commentaire)
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654
+      .replace(/\bTA\b/gi, " ")          // TA isolé
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+  function isValidName(n) {
+    if (!n) return false;
+    if (/\d/.test(n)) return false;            // pas de chiffres dans le nom
+    if (STREET.test(n)) return false;          // ne doit pas contenir un mot de voie
+    return NAME_RX.test(n);                    // doit correspondre à un des formats de nom
+  }
+
+  // extrait la **dernière** sous-adresse avec numéro + mot de voie (ignore les commentaires)
   function refineAddr(seg) {
     const s = (seg || "")
       .replace(COST_HEAD, "")
-      .replace(CITY_ABBR, "")
+      .replace(CITY_ABBR, " ")
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
 
-    // Pattern d’une sous-adresse: numéro + texte jusqu’à un séparateur
-    const subAddrRe = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,60}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,]*/gi;
+    // sous-adresse: numéro + … + mot de voie
+    const subAddrRe = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
     const matches = s.match(subAddrRe) || [];
+
+    // si trouvé, on garde la **dernière** (ex: "… DÉPOSER … 173 rue des industries" → "173 rue des industries")
     const pick = (matches.length ? matches[matches.length - 1] : s).trim();
 
-    // supprime un nombre parasite d’heure au tout début (“00 ”, “01 ”, “15 ” devant le vrai numéro)
+    // corrige un “reste d’heure” collé devant l’adresse: "00 111 7E RUE" / "15 9 3E AV SUD"
     const cleaned = pick
-      .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "") // si un “heure” traîne avant le vrai numéro
+      .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "")
+      .replace(CITY_ABBR, " ")
+      .replace(/\s{2,}/g, " ")
       .trim();
 
     return cleaned;
@@ -391,20 +417,11 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   function isValidAddr(s) {
     const u = (s || "").toUpperCase();
     if (!u) return false;
-    if (MONTH_RE.test(u)) return false;
-    if (!/\b\d{1,5}\b/.test(u)) return false;
-    if (!STREET.test(u)) return false;
-    if (u.length < 8) return false;
+    if (MONTH_RE.test(u)) return false;        // empêche "03 octobre"
+    if (!/^\d{1,5}\b/.test(u)) return false;   // DOIT commencer par un numéro
+    if (!STREET.test(u)) return false;         // DOIT contenir un mot de voie
+    if (u.length < 8) return false;            // évite "5 RUE"
     return true;
-  }
-
-  function cleanName(s) {
-    return (s || "")
-      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654 → suppr.
-      .replace(/\bTA\b/gi, " ")          // “TA” isolé après le nom → suppr.
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
   }
 
   const out = [];
@@ -416,7 +433,9 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     const time = (m[3] || "").toLowerCase().replace('h', ':');
     let name   = cleanName(m[4]);
 
+    // filtre strict
     if (!isValidAddr(from) || !isValidAddr(to)) continue;
+    if (!isValidName(name)) continue;
 
     const [H, M] = time.split(":").map(n => parseInt(n,10));
     if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
@@ -426,15 +445,20 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     out.push({
       id,
-      title: `${name || "Client inconnu"} – ${from} > ${to}`,
+      title: `${name} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
       allDay: false
     });
   }
 
-  // dédoublonnage
+  // Dédoublonnage (heure + nom + adresses)
   const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return out.filter(e => {
+    const k = `${e.start}|${e.title}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 
@@ -615,3 +639,4 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
