@@ -464,25 +464,23 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     if (seen.has(key)) continue;
     seen.add(key);
 
-     out.push({
-    id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
-    title: `${name} – ${from} > ${to}`,
-    start: formatLocalDateTimeString(start),
-    allDay: false
-  });
+    out.push({
+      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
+      title: `${name} – ${from} > ${to}`,
+      start: formatLocalDateTimeString(start),
+      allDay: false
+    });
+  }
+
+  return out;
 }
 
-// ✅ Dédoublonnage (heure + nom + adresses)
-const seen = new Set();
-const unique = out.filter(e => {
-  const k = `${e.start}|${e.title}`;
-  if (seen.has(k)) return false;
-  seen.add(k);
-  return true;
-});
 
-return unique; // ✅ retourne la version sans doublons
+  // dédoublonnage
+  const seen = new Set();
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
+
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
@@ -661,6 +659,5 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
-
 
 
