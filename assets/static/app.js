@@ -397,26 +397,14 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return true;
   }
 
- function cleanName(s) {
-  return (s || "")
-    // Normalise les espaces et tirets spéciaux
-    .replace(/\u00A0/g, " ")                 // remplace les espaces insécables
-    .replace(/[–—]/g, "-")                   // remplace les tirets typographiques par un tiret normal
-
-    // Supprime les codes TA (TA0654, TA 0654, etc.)
-    .replace(/\bTA\s*\d{3,6}\b/gi, " ")
-
-    // Supprime le mot TA seul (même avant un tiret ou en fin de nom)
-    .replace(/\bTA\b(?=\s|$|[-,;])/gi, " ")
-
-    // Supprime le reste du bruit (NIL, COMMENTAIRE, FRE, etc.)
-    .replace(/\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi, " ")
-
-    // Nettoie les espaces multiples
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654 → suppr.
+      .replace(/\bTA\b/gi, " ")          // “TA” isolé après le nom → suppr.
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
 
   const out = [];
   let idx = 0, m;
@@ -626,7 +614,4 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
-
-
-
 
