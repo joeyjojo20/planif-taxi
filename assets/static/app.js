@@ -417,7 +417,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     .trim();
 }
 
-  }
 
   const out = [];
   let idx = 0, m;
@@ -627,6 +626,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
