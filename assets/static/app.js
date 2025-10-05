@@ -353,30 +353,101 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-function parseTaxiPdfFromText(text, baseDate) {
-  // Ex : "244 12 EM RUE,MON  23 avenue sainte-brigitte nord,MON  ... 7:15 ...  ALBERT, MAXIME ..."
-  const re = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+function parseTaxiPdfFromText(rawText, baseDate) {
+  // --- Sécurité & normalisation ---
+  const text = " " + (rawText || "")
+    .replace(/\s+/g, " ")
+    .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ") // en-têtes parasites
+    .replace(/\b(TEL|TÉL|TEL\.?|#|CIV|CH|CHU|CLSC|CISSS|NIL|NILTRA|RM|RDV|Dossier|Code)\b[ :]*[0-9A-Za-z\-\/]*/gi, " ")
+    .replace(/\([^)]+\)/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim() + " ";
 
-  const out = [];
-  let idx = 0, m;
-  while ((m = re.exec(text)) !== null) {
-    const from = cleanText(m[1]);
-    const to   = cleanText(m[2]);
-    const time = m[3].toLowerCase().replace('h',':');
-    let name   = cleanText(m[4]).replace(/\s+TA.*$/, "");
-    if (!from || !to) continue;
+  // Heure type 7:15 / 07h15 / 23H05
+  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
 
-    const [H, M] = time.split(":").map(n => parseInt(n,10));
-    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
-
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
-
-    out.push({ id, title: `${name || "Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
+  // Pour détecter un "bloc" autour de chaque heure
+  function sliceAround(idx, radius = 170) {
+    const start = Math.max(0, idx - radius);
+    const end   = Math.min(text.length, idx + radius);
+    return text.slice(start, end);
   }
 
-  const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  // Extraction du nom : "NOM, PRÉNOM" (MAJ) ou "Prénom Nom"
+  function extractName(chunk) {
+    // 1) NOM, PRÉNOM
+    let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
+    if (m) {
+      const n1 = m[1].replace(/\s+/g, " ").trim();
+      const n2 = m[2].replace(/\s+/g, " ").trim();
+      return `${n1}, ${n2}`;
+    }
+    // 2) Prénom Nom
+    m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
+    if (m) return m[1].trim();
+    return "Client inconnu";
+  }
+
+  // Extraction des adresses avec séparateurs variés
+  function extractAddresses(chunk) {
+    // priorité aux séparateurs explicites
+    let m = chunk.match(/([0-9A-Za-zÀ-ÿ' .\-]+?)\s*(?:>|→|-\s*|–\s*| à )\s*([0-9A-Za-zÀ-ÿ' .\-]+?)(?=$|\s{2,}|\b([01]?\d|2[0-3])[:hH][0-5]\d\b)/);
+    if (m) {
+      const a = m[1].replace(/\s+/g, " ").trim();
+      const b = m[2].replace(/\s+/g, " ").trim();
+      if (a && b) return [a, b];
+    }
+    // fallback souple : deux “blocs d’adresse” consécutifs
+    const blocks = (chunk.match(/[0-9]{1,5}[A-Za-zÀ-ÿ' .\-]{3,}/g) || []).map(s => s.replace(/\s+/g, " ").trim());
+    if (blocks.length >= 2) return [blocks[0], blocks[1]];
+    return [null, null];
+  }
+
+  // Nettoyage post-extraction (supprime micro-bruits résiduels)
+  function cleanAddr(s) {
+    return (s || "")
+      .replace(/\b(QC|QUÉBEC|QUEBEC|CANADA)\b/gi, "")
+      .replace(/,{2,}/g, ",")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  // Normalise la baseDate au jour local 00:00 (évite tout décalage)
+  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+
+  const out = [];
+  let seen = new Set();
+  let m;
+
+  while ((m = HOUR_RE.exec(text)) !== null) {
+    const h = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    if (isNaN(h) || isNaN(mm) || h > 23 || mm > 59) continue;
+
+    const chunk = sliceAround(m.index);
+
+    const name = extractName(chunk);
+    let [fromRaw, toRaw] = extractAddresses(chunk);
+    if (!fromRaw || !toRaw) continue; // on exige 2 adresses
+
+    const from = cleanAddr(fromRaw);
+    const to   = cleanAddr(toRaw);
+    if (!from || !to) continue;
+
+    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), h, mm, 0, 0);
+    const key = `${start.getTime()}|${name}|${from}|${to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(h)}${pad2(mm)}-${out.length}`,
+      title: `${name} – ${from} > ${to}`,
+      start: formatLocalDateTimeString(start),
+      allDay: false
+    });
+  }
+
+  return out;
 }
 
 /* ======== IMPORT PDF ======== */
@@ -556,3 +627,4 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
