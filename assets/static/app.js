@@ -353,127 +353,84 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-/* ======== PARSEUR PDF — nom + adresses (intelligent) ======== */
+/* ======== PARSEUR PDF (multi RDV) — patch anti “TA” + adresses propres ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // Texte aplati (on garde les espaces, ton import actuel suffit)
-  const text = (" " + (rawText || ""))
-    .replace(/\s+/g, " ")
-    .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
-    .trim();
+  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // Heures: 07:15 / 7h15 / 23H05
-  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
+  // même structure que ta meilleure version
+  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,160}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
-  // Mots à ignorer et normalisations
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
-  const TA_ANY = /\bTA\s*\d{3,6}\b|\bTA\b/gi;
-  const MONTH_RE = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // (sans TA ici)
+  const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+  const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
 
-  // Mots de voie
-  const STREET = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
-
-  // Extraction du nom (obligatoire)
-  function extractName(seg) {
-    const s = seg.replace(/\u00A0/g," ").replace(/[–—]/g,"-");
-    // NOM, PRÉNOM
-    let m = s.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
-    if (m) return cleanName(`${m[1]}, ${m[2]}`);
-    // Prénom Nom (2 à 4 mots)
-    m = s.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
-    if (m) return cleanName(m[1]);
-    return null;
-  }
-  function cleanName(s) {
-    return (s || "")
-      .replace(/\u00A0/g, " ")
-      .replace(/[–—]/g, "-")
-      .replace(TA_ANY, " ")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  }
-
-  // Extraction de sous-adresses dans un segment (on ne garde que celles qui commencent par un numéro ET contiennent un mot de voie)
-  function listAddresses(seg) {
+  // extrait la dernière sous-adresse plausible du segment (ex: “... DEPOSER ... 173 rue des industries” → “173 rue des industries”)
+  function refineAddr(seg) {
     const s = (seg || "")
-      .replace(CITY_ABBR, " ")
+      .replace(COST_HEAD, "")
+      .replace(CITY_ABBR, "")
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
 
-    // Cherche toutes les séquences "numéro ... mot de voie ..."
-    // On autorise 3–80 caractères entre le numéro et le mot de voie.
-    const SUB = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .,\-]{3,80}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,;)]*/gi;
-    const found = s.match(SUB) || [];
+    // Pattern d’une sous-adresse: numéro + texte jusqu’à un séparateur
+    const subAddrRe = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,60}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,]*/gi;
+    const matches = s.match(subAddrRe) || [];
+    const pick = (matches.length ? matches[matches.length - 1] : s).trim();
 
-    // Nettoyage fin sur chaque adresse trouvée
-    return found
-      .map(a => a
-        .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "") // enlève "00 " / "15 " au début si suivi d'un numéro
-        .replace(CITY_ABBR, " ")
-        .replace(/\s{2,}/g, " ")
-        .trim()
-      )
-      .filter(isValidAddr);
+    // supprime un nombre parasite d’heure au tout début (“00 ”, “01 ”, “15 ” devant le vrai numéro)
+    const cleaned = pick
+      .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "") // si un “heure” traîne avant le vrai numéro
+      .trim();
+
+    return cleaned;
   }
 
-  function isValidAddr(a) {
-    const u = (a || "").toUpperCase().trim();
+  function isValidAddr(s) {
+    const u = (s || "").toUpperCase();
     if (!u) return false;
-    if (MONTH_RE.test(u)) return false;           // pas de mois
-    if (!/^\d{1,5}\b/.test(u)) return false;      // DOIT commencer par un numéro
-    if (!STREET.test(u)) return false;            // DOIT contenir un mot de voie
-    if (u.length < 8) return false;               // évite "5 RUE" trop court
+    if (MONTH_RE.test(u)) return false;
+    if (!/\b\d{1,5}\b/.test(u)) return false;
+    if (!STREET.test(u)) return false;
+    if (u.length < 8) return false;
     return true;
   }
 
-  // Segmentation : une heure démarre un bloc jusqu’à la prochaine heure
-  const hits = [];
-  let m;
-  while ((m = HOUR_RE.exec(text)) !== null) hits.push({idx: m.index, h: m[1], mn: m[2]});
-  if (hits.length === 0) return [];
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654 → suppr.
+      .replace(/\bTA\b/gi, " ")          // “TA” isolé après le nom → suppr.
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
 
   const out = [];
-  const seen = new Set();
-  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0,0,0,0);
+  let idx = 0, m;
 
-  for (let i = 0; i < hits.length; i++) {
-    const startIdx = hits[i].idx;
-    const endIdx = (i+1 < hits.length) ? hits[i+1].idx : text.length;
-    const seg = text.slice(startIdx, endIdx);
+  while ((m = RE.exec(text)) !== null) {
+    let from = refineAddr(m[1]);
+    let to   = refineAddr(m[2]);
+    const time = (m[3] || "").toLowerCase().replace('h', ':');
+    let name   = cleanName(m[4]);
 
-    // Heure
-    const H = parseInt(hits[i].h, 10);
-    const M = parseInt(hits[i].mn, 10);
-    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
+    if (!isValidAddr(from) || !isValidAddr(to)) continue;
 
-    // Nom (obligatoire)
-    const name = extractName(seg);
-    if (!name) continue; // si pas de vrai nom, on ignore le bloc (évite les entêtes/Commentaires)
+    const [H, M] = time.split(":").map(n => parseInt(n,10));
+    if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
 
-    // Adresses candidates : on prend les 2 dernières du bloc
-    const cands = listAddresses(seg);
-    if (cands.length < 2) continue;
-    const from = cands[cands.length - 2];
-    const to   = cands[cands.length - 1];
-
-    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
-    const key = `${start.getTime()}|${name}|${from}|${to}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
+    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
 
     out.push({
-      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
-      title: `${name} – ${from} > ${to}`,
+      id,
+      title: `${name || "Client inconnu"} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
       allDay: false
     });
   }
-
-  return out;
-}
-
 
   // dédoublonnage
   const seen = new Set();
@@ -658,4 +615,3 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
-
