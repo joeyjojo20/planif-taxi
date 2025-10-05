@@ -1,5 +1,6 @@
+
 /***********************
- * RDV TAXI — app.js (parseur segmenté + nettoyages + fix suppression de série)
+ * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -16,34 +17,6 @@ function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm" (local)
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 function cleanText(s){ return (s||"").replace(/\s+/g," ").trim(); }
-function ymdFromStart(start){
-  if (typeof start === 'string') {
-    const m = start.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
-  }
-  return new Date(start).toLocaleDateString("fr-CA"); // YYYY-MM-DD
-}
-
-/* Adresse courte & propre pour affichage */
-function tidyAddressForDisplay(addrRaw){
-  if (!addrRaw) return "";
-  let a = addrRaw.replace(/\s+/g," ").trim();
-
-  // un peu d’anti-bruit résiduel
-  a = a.replace(/\b(?:NIL|TRA|COÛT|COUT|COMMENTAIRE)\b/gi, " ").replace(/\s{2,}/g," ").trim();
-
-  // si ça ne commence pas par un numéro, tente d’extraire "N …, VILLE"
-  if (!/^\d/.test(a)) {
-    const m2 = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
-    if (m2) a = m2[1];
-  }
-
-  // si on a "…, MON/LEVIS/etc." on garde ce morceau
-  const city = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
-  if (city) a = city[1];
-
-  return a.replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g," ").trim();
-}
 
 /* ======== AUTH ======== */
 function showLogin() {
@@ -140,10 +113,9 @@ function renderCalendar() {
 }
 function shortenEvent(title, dateStr) {
   const parts = title.split(" – ");
-  const name = parts[0] || "";
-  const trajet = (parts[1] || "").split(" > ");
-  const pickupRaw = trajet[0] || "";
-  const pickup = tidyAddressForDisplay(pickupRaw);
+  const name = parts[0];
+  const trajet = parts[1]?.split(" > ") || ["", ""];
+  const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
   const date = new Date(dateStr);
   const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
   return `${name} – ${heure} – ${pickup}`;
@@ -165,8 +137,8 @@ function showEventForm() {
 function hideEventForm(){ document.getElementById("event-form").classList.add("hidden"); delete document.getElementById("event-form").dataset.editId; }
 function onEventClick(info) {
   const ev = info.event;
-  const [name, , pickup] = (ev.title || "").split(" – ");
-  const full = events.find(e => e && e.id === ev.id);
+  const [name, , pickup] = ev.title.split(" – ");
+  const full = events.find(e => e.id === ev.id);
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
   document.getElementById("client-name").value = name || "";
@@ -195,7 +167,7 @@ function saveEvent() {
 
   if (!name || !date) return alert("Nom et date requis");
 
-  const fullTitle = `${name} – ${cleanText(pickup)} > ${cleanText(dropoff)}`;
+  const fullTitle = `${name} – ${pickup} > ${dropoff}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
@@ -224,7 +196,7 @@ function saveEvent() {
     count++;
   }
 
-  if (editId) events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
+  if (editId) events = events.filter(e => !e.id.startsWith(baseId));
   events = [...events, ...list];
   localStorage.setItem("events", JSON.stringify(events));
 
@@ -238,10 +210,7 @@ function saveEvent() {
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseId = editId.split("-")[0];
-  events = events.filter(e => {
-    if (!e || !e.id) return false; // nettoie les vieux “undefined”
-    return single ? e.id !== editId : !e.id.startsWith(baseId);
-  });
+  events = single ? events.filter(e => e.id !== editId) : events.filter(e => !e.id.startsWith(baseId));
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm(); renderCalendar();
 }
@@ -252,7 +221,7 @@ function closeDeleteModal(){ document.getElementById("delete-modal").classList.a
 function confirmDelete(type) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseId = editId.split("-")[0];
-  const original = events.find(e => e && e.id === editId); if (!original) return;
+  const original = events.find(e => e.id === editId); if (!original) return;
   const startDate = new Date(original.start);
   let limitDate = new Date(startDate);
   switch (type) {
@@ -263,25 +232,17 @@ function confirmDelete(type) {
     case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
     case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
-    case "one":
-      events = events.filter(e => e && e.id && e.id !== editId);
-      break;
-    case "all":
-      events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
-      break;
+    case "one": events = events.filter(e => e.id !== editId); break;
+    case "all": events = events.filter(e => !e.id.startsWith(baseId)); break;
   }
   if (["1w","2w","1m","2m","3m","6m","12m"].includes(type)) {
-    events = events.filter(e => {
-      if (!e || !e.id) return false;
-      if (!e.id.startsWith(baseId)) return true;
-      return new Date(e.start) > limitDate;
-    });
+    events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limitDate);
   }
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== SUPPR SÉRIE (modale “Durée”) ======== */
+/* ======== SUPPR SÉRIE ======== */
 function openDeleteSeriesModal(editId) {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
   modal.classList.remove("hidden");
@@ -290,40 +251,16 @@ function openDeleteSeriesModal(editId) {
 function closeDeleteSeriesModal(){ document.getElementById("delete-series-modal")?.classList.add("hidden"); }
 function confirmDeleteSeries() {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
-  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; 
-  if (!editId) { closeDeleteSeriesModal(); return; }
-
+  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; if (!editId) return closeDeleteSeriesModal();
   const baseId = editId.split("-")[0];
-  const ref = events.find(e => e && e.id === editId);
-  const weeks = parseInt(document.getElementById("delete-weeks")?.value || "0", 10);
-
-  if (!ref || isNaN(weeks) || weeks <= 0) {
-    // pas de durée → supprime toute la série
-    events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
-  } else {
-    const limit = new Date(new Date(ref.start).getTime());
-    limit.setDate(limit.getDate() + 7*weeks);
-    events = events.filter(e => {
-      if (!e || !e.id) return false;
-      if (!e.id.startsWith(baseId)) return true;
-      return new Date(e.start) > limit;
-    });
-  }
-
+  const ref = events.find(e => e.id === editId);
+  const weeks = parseInt(document.getElementById("delete-weeks")?.value || "9999", 10);
+  if (!ref || isNaN(weeks)) return closeDeleteSeriesModal();
+  const limit = new Date(new Date(ref.start).getTime()); limit.setDate(limit.getDate() + 7*weeks);
+  events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limit);
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
-
-/* ======== LIAISON BOUTON “Supprimer la série” (→ ouvre la modale, sans confirm) ======== */
-document.addEventListener("DOMContentLoaded", () => {
-  const btnSeries = document.getElementById("btn-delete-series");
-  if (btnSeries) {
-    btnSeries.addEventListener("click", () => {
-      const editId = document.getElementById("event-form")?.dataset?.editId || "";
-      openDeleteSeriesModal(editId); // plus de confirm() ici
-    });
-  }
-});
 
 /* ======== PDF — PANEL ======== */
 function openPdfPanel() {
@@ -344,8 +281,9 @@ function storePdfFile(name, dataUrl) {
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 
-/* ======== EXTRACTION DATE (contenu + nom) ======== */
+/* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
 function extractRequestedDate(text){
+  // "02 octobre 2025 Date demandé :"
   let m = text.match(/(\d{1,2})\s+([A-Za-zÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+demand(?:e|é)\s*:/i);
   if (m) {
     const day = parseInt(m[1],10);
@@ -354,6 +292,7 @@ function extractRequestedDate(text){
     const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
     const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
+  // fallback "JEUDI 02 OCTOBRE 2025"
   m = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/);
   if (m){
     const day = parseInt(m[2],10);
@@ -368,16 +307,17 @@ function extractDateFromName(name){
   if (!name) return null;
   const s = name.replace(/[_\.]/g,' ').replace(/\s+/g,' ').trim();
 
+  // 1) dd <mois texte> [yyyy]  ex: "02 OCT", "2 octobre 2025"
   let m = s.match(/\b(\d{1,2})\s*(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avril|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\.?\s*(\d{4})?\b/i);
   if (m) {
     const day = parseInt(m[1], 10);
     const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
     const CANON = {
       "JANV":"JANVIER","JANVIER":"JANVIER",
-      "FEVR":"FEVRIER","FEVRIER":"FEVRIER","FEV":"FEVRIER","FÉVRIER":"FEVRIER","FÉVR":"FEVRIER",
+      "FEVR":"FEVRIER","FEVRIER":"FEVRIER","FEV":"FEVRIER","FEVRIE":"FEVRIER","FÉVRIER":"FEVRIER","FÉVR":"FEVRIER",
       "MARS":"MARS","AVRIL":"AVRIL","MAI":"MAI","JUIN":"JUIN",
       "JUIL":"JUILLET","JUILLET":"JUILLET",
-      "AOUT":"AOUT","AOÛT":"AOUT",
+      "AOUT":"AOUT","AOU":"AOUT","AOÛT":"AOUT",
       "SEPT":"SEPTEMBRE","SEPTEMBRE":"SEPTEMBRE",
       "OCT":"OCTOBRE","OCTOBRE":"OCTOBRE",
       "NOV":"NOVEMBRE","NOVEMBRE":"NOVEMBRE",
@@ -391,6 +331,7 @@ function extractDateFromName(name){
     }
   }
 
+  // 2) dd[-/_ ]mm[-/_ ]yyyy  ex: 02-10-2025, 02_10_25
   m = s.match(/\b(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})\b/);
   if (m) {
     const day = parseInt(m[1],10);
@@ -399,6 +340,7 @@ function extractDateFromName(name){
     return new Date(year, month, day, 0,0,0,0);
   }
 
+  // 3) yyyy[-/_ ]mm[-/_ ]dd  ex: 2025-10-02
   m = s.match(/\b(20\d{2})[-/ ](\d{1,2})[-/ ](\d{1,2})\b/);
   if (m) {
     const year = parseInt(m[1],10);
@@ -406,97 +348,35 @@ function extractDateFromName(name){
     const day = parseInt(m[3],10);
     return new Date(year, month, day, 0,0,0,0);
   }
+
   return null;
 }
 
-/* ======== PARSEUR PDF (par segments, filtrage + 2 dernières adresses) ======== */
+/* ======== PARSEUR PDF (multi RDV) ======== */
 function parseTaxiPdfFromText(text, baseDate) {
-  // normalisation
-  let norm = text.replace(/\s+/g, " ").replace(/[–—]/g, "-");
-
-  // gros bruit à enlever
-  norm = norm
-    .replace(/feuille\s+de\s+route/gi, " ")
-    .replace(/\bcommentaire\b/gi, " ")
-    .replace(/\bNIL\b/gi, " ")
-    .replace(/\bTRA\b/gi, " ");
-
-  // HEURES (en ignorant “Heure de début/fin”, “Kilométrage”, etc.)
-  const times = [];
-  const timeRe = /\b(\d{1,2})[:hH](\d{2})\b/g;
-  let tm;
-  while ((tm = timeRe.exec(norm)) !== null) {
-    const H = parseInt(tm[1],10), M = parseInt(tm[2],10);
-    if (H>23 || M>59) continue;
-    const ctx = norm.slice(Math.max(0, tm.index-50), Math.min(norm.length, tm.index+50));
-    if (/(Heure\s+de\s+(?:fin|d[ée]but)|Kilom[ée]trage|Total)/i.test(ctx)) continue; // administrative
-    times.push({ H, M, idx: tm.index });
-  }
-  if (times.length === 0) return [];
-
-  // segments
-  const segments = times.map((t, i) => {
-    const start = t.idx;
-    const end = (i < times.length-1) ? times[i+1].idx : norm.length;
-    const seg = norm.slice(start, end)
-      .replace(/\b(?:COÛT|COUT|Journ[ée]e|Matricule|Motif|Type\s+de\s+v[ée]hicule|App\.?)\b/gi, " ")
-      .replace(/\s{2,}/g," ");
-    return { ...t, seg };
-  });
-
-  // adresse (doit commencer par un NUMÉRO)
-  const addrRe = new RegExp(
-    String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,5}` +
-    String.raw`(?:r(?:ue|\.)|av(?:enue)?|av|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc)` +
-    String.raw`\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s*){1,6})(?:,\s*([A-Z]{2,5}))?`, "gi"
-  );
-
-  function findNameIn(seg){
-    const nm = seg.match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,},\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,}/);
-    return nm ? cleanText(nm[0]) : "Client inconnu";
-  }
+  // Ex : "244 12 EM RUE,MON  23 avenue sainte-brigitte nord,MON  ... 7:15 ...  ALBERT, MAXIME ..."
+  const re = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
   const out = [];
-  let counter = 0;
+  let idx = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    const from = cleanText(m[1]);
+    const to   = cleanText(m[2]);
+    const time = m[3].toLowerCase().replace('h',':');
+    let name   = cleanText(m[4]).replace(/\s+TA.*$/, "");
+    if (!from || !to) continue;
 
-  for (const s of segments) {
-    const rawAddrs = [];
-    let am;
-    while ((am = addrRe.exec(s.seg)) !== null) {
-      const street = cleanText(am[1]);
-      if (!/^\d/.test(street)) continue;                  // doit commencer par nombre
-      if (/route\s+date/i.test(street)) continue;         // évite “route Date”
-      const city = am[2] ? ", " + am[2].toUpperCase() : "";
-      rawAddrs.push(street + city);
-      if (rawAddrs.length >= 6) break;                    // borne de sûreté
-    }
-    // dédoublonne en conservant l’ordre
-    const addrs = [];
-    const seen = new Set();
-    for (const a of rawAddrs) {
-      const k = a.toUpperCase();
-      if (!seen.has(k)) { seen.add(k); addrs.push(a); }
-    }
-    if (addrs.length < 2) continue;
+    const [H, M] = time.split(":").map(n => parseInt(n,10));
+    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
 
-    // on prend les 2 DERNIÈRES (souvent “... > départ > arrivée” à la fin)
-    const pair = addrs.slice(-2);
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
+    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
 
-    const name = findNameIn(s.seg);
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), s.H, s.M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(s.H)}${pad2(s.M)}-${counter++}`;
-
-    out.push({
-      id,
-      title: `${name} – ${tidyAddressForDisplay(pair[0])} > ${tidyAddressForDisplay(pair[1])}`,
-      start: formatLocalDateTimeString(start),
-      allDay: false
-    });
+    out.push({ id, title: `${name || "Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
   }
 
-  // anti-doublon exact minimal
-  const uniq = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (uniq.has(k)) return false; uniq.add(k); return true; });
+  const seen = new Set();
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 /* ======== IMPORT PDF ======== */
@@ -509,18 +389,17 @@ async function handlePdfImport(file){
     const content = await page.getTextContent();
     fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
-
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
-
-  events = [...events, ...parsed];
-  localStorage.setItem("events", JSON.stringify(events));
-  if (calendar) renderCalendar();
-
-  alert(`✅ Import terminé : ${parsed.length} RDV ajoutés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
+  if (parsed.length) {
+    events = [...events, ...parsed];
+    localStorage.setItem("events", JSON.stringify(events));
+    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
+  }
+  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
 }
 
-/* ======== MODALE JOUR ======== */
+/* ======== MODALE JOUR (résumé propre) ======== */
 function openDayEventsModal(dateStr) {
   const list = document.getElementById("day-events-list");
   const title = document.getElementById("day-events-date");
@@ -531,7 +410,16 @@ function openDayEventsModal(dateStr) {
   if (title) title.textContent = displayDate;
 
   list.innerHTML = "";
-  const dayEvents = events.filter(ev => ymdFromStart(ev.start) === dateStr);
+
+  const dayEvents = events.filter(ev => {
+    if (typeof ev.start === 'string') {
+      const m = ev.start.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1] === dateStr;
+    }
+    const evDate = new Date(ev.start);
+    const evDateStr = evDate.toLocaleDateString("fr-CA");
+    return evDateStr === dateStr;
+  });
 
   if (dayEvents.length === 0) {
     list.innerHTML = "<li>Aucun rendez-vous.</li>";
@@ -540,19 +428,17 @@ function openDayEventsModal(dateStr) {
       const li = document.createElement("li");
       const d = new Date(ev.start);
       const h = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const [nom, trajet] = (ev.title || "").split(" – ");
-      const [fromRaw, toRaw] = (trajet || "").split(" > ");
-      const from = tidyAddressForDisplay(fromRaw || "");
-      const to   = tidyAddressForDisplay(toRaw || "");
-      li.textContent = `${h} – ${nom || ""} – ${from} → ${to}`;
+      const [nom, trajet] = ev.title.split(" – ");
+      li.textContent = `${h} – ${nom} – ${trajet.replace(" > ", " → ")}`;
       list.appendChild(li);
     }
   }
+
   document.getElementById("day-events-modal").classList.remove("hidden");
 }
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
-/* ======== DOMContentLoaded (liaisons) ======== */
+/* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
   if (notes) notes.addEventListener("input", () => {
@@ -572,15 +458,6 @@ document.addEventListener("DOMContentLoaded", () => {
     catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
     finally { e.target.value = ""; }
   });
-
-  // IMPORTANT : bouton Supprimer la série → on ouvre directement la modale (pas de confirm)
-  const btnSeries = document.getElementById("btn-delete-series");
-  if (btnSeries) {
-    btnSeries.addEventListener("click", () => {
-      const editId = document.getElementById("event-form")?.dataset?.editId || "";
-      openDeleteSeriesModal(editId);
-    });
-  }
 });
 
 /* ======== COMPTE / ADMIN ======== */
@@ -608,6 +485,7 @@ function openAccountPanel() {
     const line = document.createElement("div"); line.style.borderBottom = "1px solid #ccc"; line.style.padding = "5px 0";
 
     const email = document.createElement("strong"); email.innerText = u.email; line.appendChild(email); line.appendChild(document.createElement("br"));
+
     const role = document.createElement("span"); role.innerText = "Rôle : " + u.role; line.appendChild(role); line.appendChild(document.createElement("br"));
 
     const status = document.createElement("span");
