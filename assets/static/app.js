@@ -352,30 +352,80 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-function parseTaxiPdfFromText(text, baseDate) {
-  // Ex : "244 12 EM RUE,MON  23 avenue sainte-brigitte nord,MON  ... 7:15 ...  ALBERT, MAXIME ..."
-  const re = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+/* ======== PARSEUR PDF (multi RDV) — propre & autonome ======== */
+function parseTaxiPdfFromText(rawText, baseDate) {
+  // 0) normalisation légère (on garde le texte tel quel sinon)
+  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
+  // 1) regex “structure” (même logique que ta version) :
+  //    adresse A , VIL  + adresse B , VIL  + heure  + NOM, PRÉNOM
+  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,160}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+
+  // 2) nettoyeurs
+  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;  // “, MON”
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;                     // “00 Coût …”
+  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|TA ?\d{3,6}|#\d{3,8}|FRE|INT|ETUA)\b/gi;
+
+  const STREET_HINT = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
+  const MONTH_RE = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+
+  function cleanAddr(s) {
+    return (s || "")
+      .replace(COST_HEAD, "")      // retire “00 Coût”
+      .replace(CITY_ABBR, "")      // retire “, MON” etc.
+      .replace(NOISE, " ")         // vire NILTRA, TA0654, #1234…
+      .replace(/\s{2,}/g, " ")
+      .replace(/-+\s*$/g, "")
+      .trim();
+  }
+  function isValidAddr(s) {
+    const u = (s || "").toUpperCase();
+    if (!u) return false;
+    if (MONTH_RE.test(u)) return false;          // pas de “03 OCTOBRE”
+    if (!/\b\d{1,5}\b/.test(u)) return false;    // exige un numéro civique
+    if (!STREET_HINT.test(u)) return false;      // exige un mot de voie
+    if (u.length < 10) return false;             // évite “0 FRE”, “5”
+    return true;
+    }
+  function cleanName(s) {
+    return (s || "").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
+  }
+
+  // 3) extraction
   const out = [];
   let idx = 0, m;
-  while ((m = re.exec(text)) !== null) {
-    const from = cleanText(m[1]);
-    const to   = cleanText(m[2]);
-    const time = m[3].toLowerCase().replace('h',':');
-    let name   = cleanText(m[4]).replace(/\s+TA.*$/, "");
-    if (!from || !to) continue;
 
+  while ((m = RE.exec(text)) !== null) {
+    let from = cleanAddr(m[1]);
+    let to   = cleanAddr(m[2]);
+    const time = (m[3] || "").toLowerCase().replace('h', ':');
+    let name   = cleanName(m[4]);
+
+    // validation stricte
+    if (!isValidAddr(from) || !isValidAddr(to)) continue;
     const [H, M] = time.split(":").map(n => parseInt(n,10));
-    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
+    if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
 
+    // 4) fabrique l'évènement propre
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
     const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
 
-    out.push({ id, title: `${name || "Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
+    out.push({
+      id,
+      title: `${name || "Client inconnu"} – ${from} > ${to}`,
+      start: formatLocalDateTimeString(start),
+      allDay: false
+    });
   }
 
+  // 5) dédoublonnage heure+titre
   const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return out.filter(e => {
+    const k = `${e.start}|${e.title}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /* ======== IMPORT PDF ======== */
@@ -555,3 +605,4 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
