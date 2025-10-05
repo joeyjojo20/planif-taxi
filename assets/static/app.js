@@ -352,88 +352,107 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-/* ======== PARSEUR PDF (multi RDV) — patch anti “TA” + adresses propres ======== */
+/* ======== PARSEUR PDF — 1 bloc = 1 RDV (heure + nom + 2 adresses) ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
+  const BLOCK_SEP = "===PDF_BLOCK===";
 
-  // même structure que ta meilleure version
-  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,160}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+  // On conserve les retours et les séparateurs de blocs
+  const txt = (rawText || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ");
 
-  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
-  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // (sans TA ici)
-  const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
-  const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
+  const blocks = txt.split(new RegExp(`\\n${BLOCK_SEP}\\n`, "g"))
+    .map(b => b.replace(/\n+/g, " ").trim())
+    .filter(Boolean);
 
-  // extrait la dernière sous-adresse plausible du segment (ex: “... DEPOSER ... 173 rue des industries” → “173 rue des industries”)
-  function refineAddr(seg) {
-    const s = (seg || "")
-      .replace(COST_HEAD, "")
-      .replace(CITY_ABBR, "")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
+  // Regex & nettoyages
+  const HOUR = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/;
+  const NAME_RX = /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})/;
 
-    // Pattern d’une sous-adresse: numéro + texte jusqu’à un séparateur
-    const subAddrRe = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,60}?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,]*/gi;
-    const matches = s.match(subAddrRe) || [];
-    const pick = (matches.length ? matches[matches.length - 1] : s).trim();
+  const CITY_ABBR  = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const COST_HEAD  = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE      = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|FRE|INT|ETUA|#\d{3,8})\b/gi;
+  const TA_ANY     = /\bTA\s*\d{3,6}\b|\bTA\b/gi;
 
-    // supprime un nombre parasite d’heure au tout début (“00 ”, “01 ”, “15 ” devant le vrai numéro)
-    const cleaned = pick
-      .replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "") // si un “heure” traîne avant le vrai numéro
-      .trim();
-
-    return cleaned;
-  }
-
-  function isValidAddr(s) {
-    const u = (s || "").toUpperCase();
-    if (!u) return false;
-    if (MONTH_RE.test(u)) return false;
-    if (!/\b\d{1,5}\b/.test(u)) return false;
-    if (!STREET.test(u)) return false;
-    if (u.length < 8) return false;
-    return true;
-  }
+  const MONTH      = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+  const STREET_HI  = /\b(RUE|AV(?:ENUE)?|BD|BOUL(?:EVARD)?|BOUL|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b/i;
 
   function cleanName(s) {
-    return (s || "")
-      .replace(/\bTA ?\d{3,6}\b/gi, " ") // TA0654 → suppr.
-      .replace(/\bTA\b/gi, " ")          // “TA” isolé après le nom → suppr.
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
+    return (s||"")
+      .replace(/\u00A0/g," ")
+      .replace(/[–—]/g,"-")
+      .replace(TA_ANY," ")
+      .replace(NOISE," ")
+      .replace(/\s{2,}/g," ")
       .trim();
+  }
+  function refineAddr(seg) {
+    const s = (seg||"")
+      .replace(COST_HEAD,"")
+      .replace(CITY_ABBR,"")
+      .replace(NOISE," ")
+      .replace(/\s{2,}/g," ")
+      .trim();
+
+    // Dernière sous-adresse plausible du bloc
+    const sub = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,60}?(?:RUE|AV(?:ENUE)?|BD|BOUL(?:EVARD)?|BOUL|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES)\b[^\-,]*/gi;
+    const matches = s.match(sub) || [];
+    const pick = (matches.length ? matches[matches.length-1] : s).trim();
+
+    // Enlève une “heure” qui traîne devant le vrai numéro: "00 111 7E RUE" → "111 7E RUE"
+    return pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "").trim();
+  }
+  function isAddr(s){
+    const u = (s||"").toUpperCase().trim();
+    if (!u) return false;
+    if (MONTH.test(u)) return false;
+    if (!/\b\d{1,5}\b/.test(u)) return false;
+    if (!STREET_HI.test(u)) return false;
+    return u.length >= 8;
   }
 
   const out = [];
-  let idx = 0, m;
+  const seen = new Set();
+  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0,0,0,0);
 
-  while ((m = RE.exec(text)) !== null) {
-    let from = refineAddr(m[1]);
-    let to   = refineAddr(m[2]);
-    const time = (m[3] || "").toLowerCase().replace('h', ':');
-    let name   = cleanName(m[4]);
+  for (const blockRaw of blocks) {
+    const block = blockRaw.replace(/\s{2,}/g," ").trim();
 
-    if (!isValidAddr(from) || !isValidAddr(to)) continue;
+    // 1) Heure du bloc
+    const hm = block.match(HOUR);
+    if (!hm) continue;
+    const H = parseInt(hm[1],10), M = parseInt(hm[2],10);
+    if (isNaN(H) || isNaN(M)) continue;
 
-    const [H, M] = time.split(":").map(n => parseInt(n,10));
-    if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
+    // 2) Nom (obligatoire)
+    const nm = block.match(NAME_RX);
+    if (!nm) continue;
+    const name = cleanName(nm[0]);
 
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
+    // 3) Adresses candidates (on prend les 2 dernières du bloc)
+    const ADDR_CAND_RX = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .,\-]{3,80}\b/g;
+    const candidates = (block.match(ADDR_CAND_RX) || [])
+      .map(refineAddr)
+      .filter(isAddr);
+
+    if (candidates.length < 2) continue;
+    const from = candidates[candidates.length-2];
+    const to   = candidates[candidates.length-1];
+
+    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
+    const key = `${start.getTime()}|${name}|${from}|${to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
 
     out.push({
-      id,
-      title: `${name || "Client inconnu"} – ${from} > ${to}`,
+      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
+      title: `${name} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
       allDay: false
     });
   }
 
-  // dédoublonnage
-  const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return out;
 }
 
 
@@ -654,5 +673,6 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
