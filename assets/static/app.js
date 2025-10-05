@@ -1,5 +1,5 @@
 /***********************
- * RDV TAXI — app.js (stable + parseur PDF universel)
+ * RDV TAXI — app.js (stable + parseur PDF par segment d'heure)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -28,7 +28,7 @@ function ymdFromStart(start){
 function tidyAddressForDisplay(addrRaw){
   let a = (addrRaw || "").replace(/\s+/g, " ").trim();
 
-  // garder “n° + …, VILLE” si présent
+  // si une ville abrégée est présente : "..., MON" → on garde ça
   const bestCity = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
   if (bestCity) a = bestCity[1];
 
@@ -187,7 +187,7 @@ function saveEvent() {
 
   if (!name || !date) return alert("Nom et date requis");
 
-  const fullTitle = `${name} – ${pickup} > ${dropoff}`;
+  const fullTitle = `${name} – ${cleanText(pickup)} > ${cleanText(dropoff)}`;
   const baseId = editId ? editId.split("-")[0] : Date.now().toString();
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
@@ -282,6 +282,23 @@ function confirmDeleteSeries() {
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
+/* ======== BIND “SUPPRIMER LA SÉRIE” DIRECT (si bouton dans le formulaire) ======== */
+document.addEventListener("DOMContentLoaded", () => {
+  const btnSeries = document.getElementById("btn-delete-series");
+  if (btnSeries) {
+    btnSeries.addEventListener("click", () => {
+      const editId = document.getElementById("event-form")?.dataset?.editId;
+      if (!editId) return;
+      const baseId = editId.split("-")[0];
+      if (confirm("Supprimer toute la série de ce rendez-vous ?")) {
+        events = events.filter(e => !e.id.startsWith(baseId));
+        localStorage.setItem("events", JSON.stringify(events));
+        hideEventForm(); renderCalendar();
+      }
+    });
+  }
+});
+
 /* ======== PDF — PANEL ======== */
 function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
@@ -334,10 +351,10 @@ function extractDateFromName(name){
     const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
     const CANON = {
       "JANV":"JANVIER","JANVIER":"JANVIER",
-      "FEVR":"FEVRIER","FEVRIER":"FEVRIER","FEV":"FEVRIER","FEVRIE":"FEVRIER","FÉVRIER":"FEVRIER","FÉVR":"FEVRIER",
+      "FEVR":"FEVRIER","FEVRIER":"FEVRIER","FEV":"FEVRIER","FÉVRIER":"FEVRIER","FÉVR":"FEVRIER",
       "MARS":"MARS","AVRIL":"AVRIL","MAI":"MAI","JUIN":"JUIN",
       "JUIL":"JUILLET","JUILLET":"JUILLET",
-      "AOUT":"AOUT","AOU":"AOUT","AOÛT":"AOUT",
+      "AOUT":"AOUT","AOÛT":"AOUT",
       "SEPT":"SEPTEMBRE","SEPTEMBRE":"SEPTEMBRE",
       "OCT":"OCTOBRE","OCTOBRE":"OCTOBRE",
       "NOV":"NOVEMBRE","NOVEMBRE":"NOVEMBRE",
@@ -371,19 +388,11 @@ function extractDateFromName(name){
   return null;
 }
 
-/* ======== PARSEUR PDF (UNIVERSEL) ======== */
-/*
- * Algorithme :
- * 1) normalise le texte
- * 2) repère toutes les HEURES (index)
- * 3) repère toutes les ADRESSES : n° + type de voie (rue/av/boul/ch/route/rte/…)
- * 4) pour chaque heure, prend l’adresse AVANT comme départ, APRÈS comme arrivée
- * 5) cherche un NOM "DUPONT, JEAN" à proximité ; sinon "Client inconnu"
- */
+/* ======== PARSEUR PDF (par segment d'heure) ======== */
 function parseTaxiPdfFromText(text, baseDate) {
   const norm = text.replace(/\s+/g, " ").replace(/[–—]/g, "-");
 
-  // 1) HEURES
+  // 1) HEURES + positions
   const times = [];
   const timeRe = /\b(\d{1,2})[:hH](\d{2})\b/g;
   let tm;
@@ -391,67 +400,58 @@ function parseTaxiPdfFromText(text, baseDate) {
     const H = parseInt(tm[1],10), M = parseInt(tm[2],10);
     if (H<=23 && M<=59) times.push({ H, M, idx: tm.index });
   }
+  if (times.length === 0) return [];
 
-  // 2) ADRESSES (n° + type de voie)
-  // Types de voie couverts (FR/CA) : rue, r., av/avenue, boul/boulevard/bd, ch/chemin,
-  // route/rte, rang, côte/cote, montée/montee, place/pl, impasse, allée/allee,
-  // promenade/prom, voie, autoroute/aut, terrasse, quai, boulevard, square, parc
-  const addr = [];
+  // 2) découpe le texte en segments (une heure → jusqu'à l'heure suivante)
+  const segments = times.map((t, i) => {
+    const start = t.idx;
+    const end = (i < times.length-1) ? times[i+1].idx : norm.length;
+    return { ...t, seg: norm.slice(start, end) };
+  });
+
+  // 3) regex adresse (polyvalent)
   const addrRe = new RegExp(
-    String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,3}` +
-    String.raw`(?:r(?:ue|\.)|av(?:enue)?|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc|boulevard|avenue)` +
+    String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,6}` +
+    String.raw`(?:r(?:ue|\.)|av(?:enue)?|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc|boulevard|avenue|av|bd)` +
     String.raw`\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s*){0,6})(?:,\s*([A-Z]{2,5}))?`, "gi"
   );
 
-  let am;
-  while ((am = addrRe.exec(norm)) !== null) {
-    const street = cleanText(am[1]);
-    const city = am[2] ? am[2].toUpperCase() : "";
-    const full = city ? `${street},${city}` : street;
-    addr.push({ text: full, idx: am.index });
-  }
-
-  // 3) Noms possibles en MAJUSCULES "NOM, PRENOM" proches d'une heure
-  function findNameNear(pos){
-    const span = 140; // fenêtre ± 140 caractères
-    const start = Math.max(0, pos - span);
-    const end = Math.min(norm.length, pos + span);
-    const zone = norm.slice(start, end);
-    const nm = zone.match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,},\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,}/);
+  // 4) nom proche (dans le segment seulement)
+  function findNameIn(seg){
+    const nm = seg.match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,},\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,}/);
     return nm ? cleanText(nm[0]) : "Client inconnu";
-  }
-
-  function nearestBefore(list, pos){
-    let best = null;
-    for (const x of list) if (x.idx <= pos && (!best || x.idx > best.idx)) best = x;
-    return best;
-  }
-  function nearestAfter(list, pos){
-    let best = null;
-    for (const x of list) if (x.idx > pos && (!best || x.idx < best.idx)) best = x;
-    return best;
   }
 
   const out = [];
   let counter = 0;
-  for (const t of times) {
-    const fromA = nearestBefore(addr, t.idx);
-    const toA   = nearestAfter(addr, t.idx);
-    if (!fromA || !toA) continue; // il faut au moins 2 adresses autour de l'heure
 
-    const name = findNameNear(t.idx);
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), t.H, t.M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(t.H)}${pad2(t.M)}-${counter++}`;
+  for (const s of segments) {
+    // adresses trouvées dans CE segment
+    const addrs = [];
+    let am;
+    while ((am = addrRe.exec(s.seg)) !== null) {
+      const street = cleanText(am[1]);
+      const city = am[2] ? am[2].toUpperCase() : "";
+      const full = city ? `${street}, ${city}` : street;
+      addrs.push(full);
+      if (addrs.length >= 3) break; // on ne garde pas 15 adresses, les 2 premières suffisent
+    }
+    if (addrs.length < 2) continue;
+
+    const name = findNameIn(s.seg);
+
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), s.H, s.M, 0, 0);
+    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(s.H)}${pad2(s.M)}-${counter++}`;
 
     out.push({
       id,
-      title: `${name} – ${tidyAddressForDisplay(fromA.text)} > ${tidyAddressForDisplay(toA.text)}`,
+      title: `${name} – ${tidyAddressForDisplay(addrs[0])} > ${tidyAddressForDisplay(addrs[1])}`,
       start: formatLocalDateTimeString(start),
       allDay: false
     });
   }
 
-  // supprime exacts doublons éventuels (même titre + même date)
+  // anti-doublon exact minimal (même start+titre) pour éviter répétitions si PDF a des motifs copiés
   const seen = new Set();
   return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
