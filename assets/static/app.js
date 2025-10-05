@@ -1,5 +1,3 @@
-
-
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
