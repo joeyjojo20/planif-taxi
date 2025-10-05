@@ -1,5 +1,5 @@
 /***********************
- * RDV TAXI — app.js (stable + parseur PDF par segment d'heure)
+ * RDV TAXI — app.js (fix série + parseur nettoyé)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -24,16 +24,21 @@ function ymdFromStart(start){
   return new Date(start).toLocaleDateString("fr-CA"); // YYYY-MM-DD
 }
 
-/* Adresse “propre” pour affichage court */
+/* Adresse courte & propre */
 function tidyAddressForDisplay(addrRaw){
-  let a = (addrRaw || "").replace(/\s+/g, " ").trim();
+  if (!addrRaw) return "";
+  let a = addrRaw.replace(/\s+/g," ").trim();
 
-  // si une ville abrégée est présente : "..., MON" → on garde ça
-  const bestCity = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
-  if (bestCity) a = bestCity[1];
+  // retire quelques mots parasites s’il en reste
+  a = a.replace(/\b(?:NIL|TRA|COÛT|COUT|COMMENTAIRE)\b/gi, " ")
+       .replace(/\s{2,}/g," ").trim();
 
-  // normaliser virgules/espaces
-  a = a.replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g, " ").trim();
+  // si "... , MON" on garde ça
+  const city = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
+  if (city) a = city[1];
+
+  // normaliser virgules
+  a = a.replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g," ").trim();
   return a;
 }
 
@@ -158,7 +163,7 @@ function hideEventForm(){ document.getElementById("event-form").classList.add("h
 function onEventClick(info) {
   const ev = info.event;
   const [name, , pickup] = (ev.title || "").split(" – ");
-  const full = events.find(e => e.id === ev.id);
+  const full = events.find(e => e && e.id === ev.id);
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
   document.getElementById("client-name").value = name || "";
@@ -216,7 +221,7 @@ function saveEvent() {
     count++;
   }
 
-  if (editId) events = events.filter(e => !e.id.startsWith(baseId));
+  if (editId) events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
   events = [...events, ...list];
   localStorage.setItem("events", JSON.stringify(events));
 
@@ -230,7 +235,10 @@ function saveEvent() {
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseId = editId.split("-")[0];
-  events = single ? events.filter(e => e.id !== editId) : events.filter(e => !e.id.startsWith(baseId));
+  events = events.filter(e => {
+    if (!e || !e.id) return false; // nettoie les vieux “undefined”
+    return single ? e.id !== editId : !e.id.startsWith(baseId);
+  });
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm(); renderCalendar();
 }
@@ -241,7 +249,7 @@ function closeDeleteModal(){ document.getElementById("delete-modal").classList.a
 function confirmDelete(type) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseId = editId.split("-")[0];
-  const original = events.find(e => e.id === editId); if (!original) return;
+  const original = events.find(e => e && e.id === editId); if (!original) return;
   const startDate = new Date(original.start);
   let limitDate = new Date(startDate);
   switch (type) {
@@ -252,17 +260,25 @@ function confirmDelete(type) {
     case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
     case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
-    case "one": events = events.filter(e => e.id !== editId); break;
-    case "all": events = events.filter(e => !e.id.startsWith(baseId)); break;
+    case "one":
+      events = events.filter(e => e && e.id && e.id !== editId);
+      break;
+    case "all":
+      events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
+      break;
   }
   if (["1w","2w","1m","2m","3m","6m","12m"].includes(type)) {
-    events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limitDate);
+    events = events.filter(e => {
+      if (!e || !e.id) return false;
+      if (!e.id.startsWith(baseId)) return true;
+      return new Date(e.start) > limitDate;
+    });
   }
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== SUPPR SÉRIE ======== */
+/* ======== SUPPR SÉRIE (modale “Durée”) ======== */
 function openDeleteSeriesModal(editId) {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
   modal.classList.remove("hidden");
@@ -271,18 +287,31 @@ function openDeleteSeriesModal(editId) {
 function closeDeleteSeriesModal(){ document.getElementById("delete-series-modal")?.classList.add("hidden"); }
 function confirmDeleteSeries() {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
-  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; if (!editId) return closeDeleteSeriesModal();
+  const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; 
+  if (!editId) { closeDeleteSeriesModal(); return; }
+
   const baseId = editId.split("-")[0];
-  const ref = events.find(e => e.id === editId);
-  const weeks = parseInt(document.getElementById("delete-weeks")?.value || "9999", 10);
-  if (!ref || isNaN(weeks)) return closeDeleteSeriesModal();
-  const limit = new Date(new Date(ref.start).getTime()); limit.setDate(limit.getDate() + 7*weeks);
-  events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limit);
+  const ref = events.find(e => e && e.id === editId);
+  const weeks = parseInt(document.getElementById("delete-weeks")?.value || "0", 10);
+
+  if (!ref || isNaN(weeks) || weeks <= 0) {
+    // si pas de durée valide → supprime toute la série
+    events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
+  } else {
+    const limit = new Date(new Date(ref.start).getTime());
+    limit.setDate(limit.getDate() + 7*weeks);
+    events = events.filter(e => {
+      if (!e || !e.id) return false;
+      if (!e.id.startsWith(baseId)) return true;
+      return new Date(e.start) > limit;
+    });
+  }
+
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== BIND “SUPPRIMER LA SÉRIE” DIRECT (si bouton dans le formulaire) ======== */
+/* ======== LIAISON BOUTON “Supprimer la série” (direct) ======== */
 document.addEventListener("DOMContentLoaded", () => {
   const btnSeries = document.getElementById("btn-delete-series");
   if (btnSeries) {
@@ -291,7 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!editId) return;
       const baseId = editId.split("-")[0];
       if (confirm("Supprimer toute la série de ce rendez-vous ?")) {
-        events = events.filter(e => !e.id.startsWith(baseId));
+        events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
         localStorage.setItem("events", JSON.stringify(events));
         hideEventForm(); renderCalendar();
       }
@@ -320,7 +349,6 @@ function storePdfFile(name, dataUrl) {
 
 /* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
 function extractRequestedDate(text){
-  // "02 octobre 2025 Date demandé :"
   let m = text.match(/(\d{1,2})\s+([A-Za-zÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+demand(?:e|é)\s*:/i);
   if (m) {
     const day = parseInt(m[1],10);
@@ -329,7 +357,6 @@ function extractRequestedDate(text){
     const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
     const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
-  // fallback "JEUDI 02 OCTOBRE 2025"
   m = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/);
   if (m){
     const day = parseInt(m[2],10);
@@ -344,7 +371,6 @@ function extractDateFromName(name){
   if (!name) return null;
   const s = name.replace(/[_\.]/g,' ').replace(/\s+/g,' ').trim();
 
-  // 1) dd <mois texte> [yyyy]
   let m = s.match(/\b(\d{1,2})\s*(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avril|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\.?\s*(\d{4})?\b/i);
   if (m) {
     const day = parseInt(m[1], 10);
@@ -368,7 +394,6 @@ function extractDateFromName(name){
     }
   }
 
-  // 2) dd[-/_ ]mm[-/_ ]yyyy
   m = s.match(/\b(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})\b/);
   if (m) {
     const day = parseInt(m[1],10);
@@ -377,7 +402,6 @@ function extractDateFromName(name){
     return new Date(year, month, day, 0,0,0,0);
   }
 
-  // 3) yyyy[-/_ ]mm[-/_ ]dd
   m = s.match(/\b(20\d{2})[-/ ](\d{1,2})[-/ ](\d{1,2})\b/);
   if (m) {
     const year = parseInt(m[1],10);
@@ -388,35 +412,49 @@ function extractDateFromName(name){
   return null;
 }
 
-/* ======== PARSEUR PDF (par segment d'heure) ======== */
+/* ======== PARSEUR PDF (par segments, avec anti-bruit) ======== */
 function parseTaxiPdfFromText(text, baseDate) {
-  const norm = text.replace(/\s+/g, " ").replace(/[–—]/g, "-");
+  // normalisation basique
+  let norm = text.replace(/\s+/g, " ").replace(/[–—]/g, "-");
 
-  // 1) HEURES + positions
+  // on élimine quelques expressions bruyantes AVANT recherche des adresses
+  norm = norm
+    .replace(/feuille\s+de\s+route/gi, " ")   // retire la locution complète
+    .replace(/\bcommentaire\b/gi, " ")
+    .replace(/\bNIL\b/gi, " ")
+    .replace(/\bTRA\b/gi, " ");
+
+  // 1) HEURES (en ignorant “Heure de début/fin”, “Kilométrage”, etc.)
   const times = [];
   const timeRe = /\b(\d{1,2})[:hH](\d{2})\b/g;
   let tm;
   while ((tm = timeRe.exec(norm)) !== null) {
     const H = parseInt(tm[1],10), M = parseInt(tm[2],10);
-    if (H<=23 && M<=59) times.push({ H, M, idx: tm.index });
+    if (H>23 || M>59) continue;
+    const ctx = norm.slice(Math.max(0, tm.index-50), Math.min(norm.length, tm.index+50));
+    if (/(Heure\s+de\s+(?:fin|d[ée]but)|Kilom[ée]trage|Total)/i.test(ctx)) continue; // ignorer l’administratif
+    times.push({ H, M, idx: tm.index });
   }
   if (times.length === 0) return [];
 
-  // 2) découpe le texte en segments (une heure → jusqu'à l'heure suivante)
+  // 2) découpe par heure
   const segments = times.map((t, i) => {
     const start = t.idx;
     const end = (i < times.length-1) ? times[i+1].idx : norm.length;
-    return { ...t, seg: norm.slice(start, end) };
+    // nettoyage léger de segment
+    const seg = norm.slice(start, end)
+      .replace(/\b(?:COÛT|COUT|Journ[ée]e|Matricule|Motif|Type\s+de\s+v[ée]hicule|App\.?)\b/gi, " ")
+      .replace(/\s{2,}/g," ");
+    return { ...t, seg };
   });
 
-  // 3) regex adresse (polyvalent)
+  // 3) regex adresse dans chaque segment
   const addrRe = new RegExp(
-    String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,6}` +
-    String.raw`(?:r(?:ue|\.)|av(?:enue)?|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc|boulevard|avenue|av|bd)` +
-    String.raw`\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s*){0,6})(?:,\s*([A-Z]{2,5}))?`, "gi"
+    String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,5}` +
+    String.raw`(?:r(?:ue|\.)|av(?:enue)?|av|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc)` +
+    String.raw`\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s*){1,6})(?:,\s*([A-Z]{2,5}))?`, "gi"
   );
 
-  // 4) nom proche (dans le segment seulement)
   function findNameIn(seg){
     const nm = seg.match(/[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,},\s*[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ' \-]{2,}/);
     return nm ? cleanText(nm[0]) : "Client inconnu";
@@ -426,20 +464,20 @@ function parseTaxiPdfFromText(text, baseDate) {
   let counter = 0;
 
   for (const s of segments) {
-    // adresses trouvées dans CE segment
+    // on prend jusqu’à 3 adresses valides du segment
     const addrs = [];
     let am;
     while ((am = addrRe.exec(s.seg)) !== null) {
       const street = cleanText(am[1]);
-      const city = am[2] ? am[2].toUpperCase() : "";
-      const full = city ? `${street}, ${city}` : street;
-      addrs.push(full);
-      if (addrs.length >= 3) break; // on ne garde pas 15 adresses, les 2 premières suffisent
+      // filtre anti-faux positifs (ex: "... route Date")
+      if (/route\s+date/i.test(street)) continue;
+      const city = am[2] ? ", " + am[2].toUpperCase() : "";
+      addrs.push(street + city);
+      if (addrs.length >= 3) break;
     }
     if (addrs.length < 2) continue;
 
     const name = findNameIn(s.seg);
-
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), s.H, s.M, 0, 0);
     const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(s.H)}${pad2(s.M)}-${counter++}`;
 
@@ -451,7 +489,7 @@ function parseTaxiPdfFromText(text, baseDate) {
     });
   }
 
-  // anti-doublon exact minimal (même start+titre) pour éviter répétitions si PDF a des motifs copiés
+  // anti-doublon exact minimal
   const seen = new Set();
   return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
@@ -477,7 +515,7 @@ async function handlePdfImport(file){
   alert(`✅ Import terminé : ${parsed.length} RDV ajoutés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
 }
 
-/* ======== MODALE JOUR (résumé) ======== */
+/* ======== MODALE JOUR ======== */
 function openDayEventsModal(dateStr) {
   const list = document.getElementById("day-events-list");
   const title = document.getElementById("day-events-date");
@@ -509,7 +547,7 @@ function openDayEventsModal(dateStr) {
 }
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
-/* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
+/* ======== DOMContentLoaded (liaisons) ======== */
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
   if (notes) notes.addEventListener("input", () => {
