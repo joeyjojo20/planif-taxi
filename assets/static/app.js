@@ -350,92 +350,111 @@ function extractDateFromName(name){
 
   return null;
 }
-/* ======== PARSEUR PDF FINAL (corrigé pour ignorer entêtes et bruits) ======== */
+/* ======== PARSEUR PDF — segmentation par lignes/blocs ======== */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  const text = (" " + (rawText || ""))
-    .replace(/\s+/g, " ")
-    // on retire les zones inutiles
+  // 0) Pré-nettoyage simple (on garde les \n !)
+  const text = (rawText || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
     .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
-    .replace(/\b(TEL|TÉL|CIV|CH|CHU|CLSC|CISSS|NILTRA|NIL|RM|RDV|CODE|COMMENTAIRE|SUR APPEL|FIN|DATE|JOURNÉE|FEUILLE DE ROUTE|TRANSF|TRANSFERT)\b[ :#\-]*[0-9A-Za-z\-\/]*/gi, " ")
-    .replace(/\([^)]+\)/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim() + " ";
+    .trim();
 
-  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
-  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const CODE_TA = /\bTA ?\d{3,6}\b/gi;
-  const BADWORD = /\b(FRE|INT|NIL|TRA|ETUA|Non)\b/gi;
-  const STREET_KEYWORDS = /\b(RUE|AV|AVENUE|BOUL|BOULEVARD|BD|CH|CHEMIN|ROUTE|RTE|COUR|TACHÉ|INDUSTRIES|AVENUE|RANG|PLACE|ALLÉE|PROMENADE)\b/i;
+  const LINES = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
 
-  function scrub(s) {
+  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/;
+  const IGNORE_LINE = /(FEUILLE DE ROUTE|^DATE|JOURN[ÉE]E|TRANSF|TRANSFERT|SUR APPEL)/i;
+
+  // Nettoyages / règles
+  const CITY_ABBR   = /\s*,\s*(MON|LAV|RDP|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const CODE_TA     = /\bTA ?\d{3,6}\b/gi;
+  const HASH_NUM    = /#\d{3,8}\b/g;
+  const LOOSE_NUM   = /\b\d{4,6}\b/g; // ex: 9404
+  const BADWORD     = /\b(FRE|INT|NIL|TRA|ETUA|Non)\b/gi;
+  const MONTH_RE    = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
+
+  const STREET_HINT = /\b(RUE|AV(?:ENUE)?|BD|BOU(?:LEVARD)?|BOUL|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|BOIS|TERRASSE|PARC|TACH[ÉE]|INDUSTRIES)\b/i;
+  const ADDRESS_BLOCK = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,}\b/g;
+
+  function scrubLoose(s) {
     return (s || "")
-      .replace(CODE_TA, "")
-      .replace(CITY_ABBR, "")
-      .replace(BADWORD, "")
+      .replace(CODE_TA, " ")
+      .replace(HASH_NUM, " ")
+      .replace(LOOSE_NUM, " ")
+      .replace(BADWORD, " ")
+      .replace(CITY_ABBR, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
-
   function cleanAddr(s) {
-    return scrub((s || "")
+    return scrubLoose((s || "")
       .replace(/,{2,}/g, ",")
       .replace(/\s{2,}/g, " "))
+      .replace(/-+\s*$/g, "")
       .trim();
   }
-
-  function isValidAddr(s) {
-    const a = (s || "").trim().toUpperCase();
-    if (!a) return false;
-    if (!/\b\d{1,5}\b/.test(a)) return false;
-    if (!STREET_KEYWORDS.test(a)) return false;
-    if (a.length < 10) return false;
-    if (/FEUILLE|ROUTE|JOURN|DATE|TRANSF/i.test(a)) return false;
+  function isLikelyAddress(s) {
+    const u = (s || "").toUpperCase().trim();
+    if (!u) return false;
+    if (MONTH_RE.test(u)) return false;               // évite "03 octobre"
+    if (!/\b\d{1,5}\b/.test(u)) return false;         // besoin d’un numéro
+    if (!STREET_HINT.test(u)) return false;           // besoin d’un mot de voie
+    if (u.length < 10) return false;                  // évite "0 FRE", "5"
     return true;
   }
-
-  function extractAddresses(chunk) {
-    const raw = (chunk.match(/\b\d{1,5}[^>]{3,60}\b/g) || []).map(cleanAddr).filter(isValidAddr);
-    if (raw.length >= 2) return [raw[0], raw[1]];
-    return [null, null];
-  }
-
-  function extractName(chunk) {
-    // Nom, prénom
-    let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ'\-]+,\s*[A-ZÀ-ÖØ-Þ'\-]+)/);
-    if (m) return scrub(m[1]);
+  function extractName(str) {
+    // NOM, PRÉNOM
+    let m = str.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
+    if (m) return scrubLoose(`${m[1]}, ${m[2]}`);
     // Prénom Nom
-    m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+ [A-Z][A-Za-zÀ-ÿ'\-]+)/);
-    if (m) return scrub(m[1]);
+    m = str.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
+    if (m) return scrubLoose(m[1]);
     return "Client inconnu";
   }
 
+  // 1) Segmente en BLOCS : une ligne avec heure démarre un bloc jusqu’à la prochaine heure
+  const blocks = [];
+  let i = 0;
+  while (i < LINES.length) {
+    if (IGNORE_LINE.test(LINES[i]) || !HOUR_RE.test(LINES[i])) { i++; continue; }
+    const start = i;
+    let j = i + 1;
+    while (j < LINES.length && !HOUR_RE.test(LINES[j])) j++;
+    // bloc = concat des lignes [start .. j-1]
+    const rawBlock = LINES.slice(start, j).filter(s => !IGNORE_LINE.test(s)).join(" ");
+    blocks.push(rawBlock);
+    i = j;
+  }
+
+  // 2) Parse chaque bloc : nom + 2 adresses valides
   const out = [];
   const seen = new Set();
-  const baseDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0);
+  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
 
-  let m;
-  while ((m = HOUR_RE.exec(text)) !== null) {
-    const H = parseInt(m[1]), M = parseInt(m[2]);
+  for (const block of blocks) {
+    // heure dans le bloc
+    const hm = block.match(HOUR_RE);
+    if (!hm) continue;
+    const H = parseInt(hm[1], 10), M = parseInt(hm[2], 10);
     if (isNaN(H) || isNaN(M)) continue;
-    const zone = text.slice(Math.max(0, m.index - 250), Math.min(text.length, m.index + 250));
 
-    // On ignore si ça ressemble à un entête administratif
-    if (/FEUILLE DE ROUTE|DATE|JOURNÉE|TRANSF/i.test(zone)) continue;
+    const name = extractName(block);
+    const candidates = (block.match(ADDRESS_BLOCK) || [])
+      .map(cleanAddr)
+      .filter(isLikelyAddress);
 
-    const [from, to] = extractAddresses(zone);
-    if (!from || !to) continue;
+    if (candidates.length < 2) continue;
 
-    const name = extractName(zone);
-    // On ignore les "clients inconnus" s'il n'y a aucun vrai nom
-    if (name === "Client inconnu" && !/[A-Z]{2,},/.test(zone)) continue;
+    // Heuristique : on prend les 2 dernières adresses plausibles du bloc
+    const from = candidates[candidates.length - 2];
+    const to   = candidates[candidates.length - 1];
 
-    const start = new Date(baseDay.getFullYear(), baseDay.getMonth(), baseDay.getDate(), H, M);
-    const key = `${start.getTime()}|${name}|${from}|${to}`;
+    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
+    const key = `${start.getTime()}|${name.toUpperCase()}|${from.toUpperCase()}|${to.toUpperCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     out.push({
-      id: `${baseDay.getFullYear()}${pad2(baseDay.getMonth() + 1)}${pad2(baseDay.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
+      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
       title: `${name} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
       allDay: false
@@ -450,14 +469,32 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 async function handlePdfImport(file){
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
   let fullText = "";
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    // séparateur léger de page pour aider le parseur
-    fullText += "\n" + content.items.map(it => it.str).join(" ") + " \n";
+
+    // Regroupe le texte par ligne visuelle (coordonnée Y arrondie)
+    const linesByY = {};
+    for (const it of content.items) {
+      // it.transform[5] ~ position Y; on arrondit pour regrouper
+      const y = Math.round(it.transform?.[5] ?? 0);
+      linesByY[y] = (linesByY[y] || "") + " " + it.str;
+    }
+
+    // Conserve l'ordre visuel: Y décroissant (de haut en bas)
+    const pageLines = Object.keys(linesByY)
+      .map(n => Number(n))
+      .sort((a, b) => b - a)
+      .map(y => linesByY[y].replace(/\s+/g, " ").trim())
+      .filter(s => s.length > 0);
+
+    // Ajoute des sauts de ligne entre vraies lignes
+    fullText += "\n" + pageLines.join("\n") + "\n";
   }
-  // baseDate fiable : nom de fichier OU contenu, normalisée à 00:00 local (anti-décalage)
+
+  // Date d’ancrage (nom de fichier > contenu), normalisée à 00:00 local
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   baseDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
 
@@ -627,6 +664,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
