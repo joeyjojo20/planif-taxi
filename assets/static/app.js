@@ -1,5 +1,5 @@
 /***********************
- * RDV TAXI — app.js (fix série + parseur nettoyé)
+ * RDV TAXI — app.js (parseur segmenté + nettoyages + fix suppression de série)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -24,22 +24,25 @@ function ymdFromStart(start){
   return new Date(start).toLocaleDateString("fr-CA"); // YYYY-MM-DD
 }
 
-/* Adresse courte & propre */
+/* Adresse courte & propre pour affichage */
 function tidyAddressForDisplay(addrRaw){
   if (!addrRaw) return "";
   let a = addrRaw.replace(/\s+/g," ").trim();
 
-  // retire quelques mots parasites s’il en reste
-  a = a.replace(/\b(?:NIL|TRA|COÛT|COUT|COMMENTAIRE)\b/gi, " ")
-       .replace(/\s{2,}/g," ").trim();
+  // un peu d’anti-bruit résiduel
+  a = a.replace(/\b(?:NIL|TRA|COÛT|COUT|COMMENTAIRE)\b/gi, " ").replace(/\s{2,}/g," ").trim();
 
-  // si "... , MON" on garde ça
+  // si ça ne commence pas par un numéro, tente d’extraire "N …, VILLE"
+  if (!/^\d/.test(a)) {
+    const m2 = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
+    if (m2) a = m2[1];
+  }
+
+  // si on a "…, MON/LEVIS/etc." on garde ce morceau
   const city = a.match(/(\d{1,5}[^,>]*,\s*[A-Z]{2,5})/i);
   if (city) a = city[1];
 
-  // normaliser virgules
-  a = a.replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g," ").trim();
-  return a;
+  return a.replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g," ").trim();
 }
 
 /* ======== AUTH ======== */
@@ -295,7 +298,7 @@ function confirmDeleteSeries() {
   const weeks = parseInt(document.getElementById("delete-weeks")?.value || "0", 10);
 
   if (!ref || isNaN(weeks) || weeks <= 0) {
-    // si pas de durée valide → supprime toute la série
+    // pas de durée → supprime toute la série
     events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
   } else {
     const limit = new Date(new Date(ref.start).getTime());
@@ -311,19 +314,13 @@ function confirmDeleteSeries() {
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== LIAISON BOUTON “Supprimer la série” (direct) ======== */
+/* ======== LIAISON BOUTON “Supprimer la série” (→ ouvre la modale, sans confirm) ======== */
 document.addEventListener("DOMContentLoaded", () => {
   const btnSeries = document.getElementById("btn-delete-series");
   if (btnSeries) {
     btnSeries.addEventListener("click", () => {
-      const editId = document.getElementById("event-form")?.dataset?.editId;
-      if (!editId) return;
-      const baseId = editId.split("-")[0];
-      if (confirm("Supprimer toute la série de ce rendez-vous ?")) {
-        events = events.filter(e => e && e.id && !e.id.startsWith(baseId));
-        localStorage.setItem("events", JSON.stringify(events));
-        hideEventForm(); renderCalendar();
-      }
+      const editId = document.getElementById("event-form")?.dataset?.editId || "";
+      openDeleteSeriesModal(editId); // plus de confirm() ici
     });
   }
 });
@@ -347,7 +344,7 @@ function storePdfFile(name, dataUrl) {
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
 }
 
-/* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
+/* ======== EXTRACTION DATE (contenu + nom) ======== */
 function extractRequestedDate(text){
   let m = text.match(/(\d{1,2})\s+([A-Za-zÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+demand(?:e|é)\s*:/i);
   if (m) {
@@ -412,19 +409,19 @@ function extractDateFromName(name){
   return null;
 }
 
-/* ======== PARSEUR PDF (par segments, avec anti-bruit) ======== */
+/* ======== PARSEUR PDF (par segments, filtrage + 2 dernières adresses) ======== */
 function parseTaxiPdfFromText(text, baseDate) {
-  // normalisation basique
+  // normalisation
   let norm = text.replace(/\s+/g, " ").replace(/[–—]/g, "-");
 
-  // on élimine quelques expressions bruyantes AVANT recherche des adresses
+  // gros bruit à enlever
   norm = norm
-    .replace(/feuille\s+de\s+route/gi, " ")   // retire la locution complète
+    .replace(/feuille\s+de\s+route/gi, " ")
     .replace(/\bcommentaire\b/gi, " ")
     .replace(/\bNIL\b/gi, " ")
     .replace(/\bTRA\b/gi, " ");
 
-  // 1) HEURES (en ignorant “Heure de début/fin”, “Kilométrage”, etc.)
+  // HEURES (en ignorant “Heure de début/fin”, “Kilométrage”, etc.)
   const times = [];
   const timeRe = /\b(\d{1,2})[:hH](\d{2})\b/g;
   let tm;
@@ -432,23 +429,22 @@ function parseTaxiPdfFromText(text, baseDate) {
     const H = parseInt(tm[1],10), M = parseInt(tm[2],10);
     if (H>23 || M>59) continue;
     const ctx = norm.slice(Math.max(0, tm.index-50), Math.min(norm.length, tm.index+50));
-    if (/(Heure\s+de\s+(?:fin|d[ée]but)|Kilom[ée]trage|Total)/i.test(ctx)) continue; // ignorer l’administratif
+    if (/(Heure\s+de\s+(?:fin|d[ée]but)|Kilom[ée]trage|Total)/i.test(ctx)) continue; // administrative
     times.push({ H, M, idx: tm.index });
   }
   if (times.length === 0) return [];
 
-  // 2) découpe par heure
+  // segments
   const segments = times.map((t, i) => {
     const start = t.idx;
     const end = (i < times.length-1) ? times[i+1].idx : norm.length;
-    // nettoyage léger de segment
     const seg = norm.slice(start, end)
       .replace(/\b(?:COÛT|COUT|Journ[ée]e|Matricule|Motif|Type\s+de\s+v[ée]hicule|App\.?)\b/gi, " ")
       .replace(/\s{2,}/g," ");
     return { ...t, seg };
   });
 
-  // 3) regex adresse dans chaque segment
+  // adresse (doit commencer par un NUMÉRO)
   const addrRe = new RegExp(
     String.raw`\b(\d{1,5}\s+(?:[A-Za-zÀ-ÿ0-9'’\-\.]+\s+){0,5}` +
     String.raw`(?:r(?:ue|\.)|av(?:enue)?|av|boul(?:evard)?|bd|ch(?:emin)?|route|rte|rang|c[oô]te|mont[ée]e|place|pl|impasse|all[ée]e|prom(?:enade)?|voie|aut(?:oroute)?|terrasse|quai|square|parc)` +
@@ -464,18 +460,27 @@ function parseTaxiPdfFromText(text, baseDate) {
   let counter = 0;
 
   for (const s of segments) {
-    // on prend jusqu’à 3 adresses valides du segment
-    const addrs = [];
+    const rawAddrs = [];
     let am;
     while ((am = addrRe.exec(s.seg)) !== null) {
       const street = cleanText(am[1]);
-      // filtre anti-faux positifs (ex: "... route Date")
-      if (/route\s+date/i.test(street)) continue;
+      if (!/^\d/.test(street)) continue;                  // doit commencer par nombre
+      if (/route\s+date/i.test(street)) continue;         // évite “route Date”
       const city = am[2] ? ", " + am[2].toUpperCase() : "";
-      addrs.push(street + city);
-      if (addrs.length >= 3) break;
+      rawAddrs.push(street + city);
+      if (rawAddrs.length >= 6) break;                    // borne de sûreté
+    }
+    // dédoublonne en conservant l’ordre
+    const addrs = [];
+    const seen = new Set();
+    for (const a of rawAddrs) {
+      const k = a.toUpperCase();
+      if (!seen.has(k)) { seen.add(k); addrs.push(a); }
     }
     if (addrs.length < 2) continue;
+
+    // on prend les 2 DERNIÈRES (souvent “... > départ > arrivée” à la fin)
+    const pair = addrs.slice(-2);
 
     const name = findNameIn(s.seg);
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), s.H, s.M, 0, 0);
@@ -483,15 +488,15 @@ function parseTaxiPdfFromText(text, baseDate) {
 
     out.push({
       id,
-      title: `${name} – ${tidyAddressForDisplay(addrs[0])} > ${tidyAddressForDisplay(addrs[1])}`,
+      title: `${name} – ${tidyAddressForDisplay(pair[0])} > ${tidyAddressForDisplay(pair[1])}`,
       start: formatLocalDateTimeString(start),
       allDay: false
     });
   }
 
   // anti-doublon exact minimal
-  const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const uniq = new Set();
+  return out.filter(e => { const k = `${e.start}|${e.title}`; if (uniq.has(k)) return false; uniq.add(k); return true; });
 }
 
 /* ======== IMPORT PDF ======== */
@@ -567,6 +572,15 @@ document.addEventListener("DOMContentLoaded", () => {
     catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
     finally { e.target.value = ""; }
   });
+
+  // IMPORTANT : bouton Supprimer la série → on ouvre directement la modale (pas de confirm)
+  const btnSeries = document.getElementById("btn-delete-series");
+  if (btnSeries) {
+    btnSeries.addEventListener("click", () => {
+      const editId = document.getElementById("event-form")?.dataset?.editId || "";
+      openDeleteSeriesModal(editId);
+    });
+  }
 });
 
 /* ======== COMPTE / ADMIN ======== */
