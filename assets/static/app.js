@@ -354,6 +354,14 @@ function extractDateFromName(name){
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
 /* ======== PARSEUR PDF (multi RDV) — patch anti-commentaires avant l'adresse ======== */
+const PROX = 40; // caractères max entre le numéro et le mot de voie
+
+// Motif d'adresse "proche" (utilise PROX)
+const SUBADDR_PROX = new RegExp(
+  `\\b\\d{1,5}[A-Za-zÀ-ÿ0-9' .\\-]{0,${PROX}}?\\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\\b)\\b[^\\-,;)]*`,
+  "gi"
+);
+
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
@@ -366,10 +374,26 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
   const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
 
-  // 🔧 nouvelle version "proche" : mot de voie rapidement après le numéro (évite d’englober les commentaires)
-  const SUBADDR_PROX = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{0,40}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
   // fallback plus large (au cas où)
   const SUBADDR_WIDE = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
+
+  // Nom: "NOM, PRÉNOM" ou "Prénom Nom"
+  const NAME_RX = /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
+
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ")
+      .replace(/\bTA\b/gi, " ")
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+  function isValidName(n) {
+    if (!n) return false;
+    if (/\d/.test(n)) return false;    // pas de chiffres
+    if (STREET.test(n)) return false;  // ne ressemble pas à une adresse
+    return NAME_RX.test(n);
+  }
 
   function refineAddr(seg) {
     const s = (seg || "")
@@ -381,16 +405,15 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     let matches = s.match(SUBADDR_PROX);
     if (!matches || matches.length === 0) matches = s.match(SUBADDR_WIDE);
+    if (!matches || matches.length === 0) return s; // rien trouvé : filtré plus bas
 
-    if (!matches || matches.length === 0) return s; // rien trouvé : on renvoie brut (sera filtré plus bas)
-
-    // on garde la DERNIÈRE adresse détectée
+    // DERNIÈRE adresse détectée
     let pick = matches[matches.length - 1].trim();
 
-    // corrige “reste d’heure” collé au début : "00 111 7E RUE" / "15 9 3E AV SUD"
+    // corrige “reste d’heure” devant l’adresse
     pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
 
-    // si jamais le fallback large a “avalé” trop tôt, recale au dernier "numéro + mot de voie"
+    // si le fallback a trop englouti, recale sur le dernier motif serré
     const lastTight = pick.match(/\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}?)\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i);
     if (lastTight) {
       const idx = pick.lastIndexOf(lastTight[0]);
@@ -410,15 +433,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return true;
   }
 
-  function cleanName(s) {
-    return (s || "")
-      .replace(/\bTA ?\d{3,6}\b/gi, " ")
-      .replace(/\bTA\b/gi, " ")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  }
-
   const out = [];
   let idx = 0, m;
 
@@ -429,6 +443,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     let name   = cleanName(m[4]);
 
     if (!isValidAddr(from) || !isValidAddr(to)) continue;
+    if (!isValidName(name)) continue;
 
     const [H, M] = time.split(":").map(n => parseInt(n,10));
     if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
@@ -453,7 +468,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return true;
   });
 }
-
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
@@ -632,5 +646,6 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
