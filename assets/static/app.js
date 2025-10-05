@@ -1,6 +1,5 @@
-
 /***********************
- * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
+ * RDV TAXI — app.js (stable + modale jour + parseur PDF autonome & robuste)
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -352,31 +351,124 @@ function extractDateFromName(name){
   return null;
 }
 
-/* ======== PARSEUR PDF (multi RDV) ======== */
-function parseTaxiPdfFromText(text, baseDate) {
-  // Ex : "244 12 EM RUE,MON  23 avenue sainte-brigitte nord,MON  ... 7:15 ...  ALBERT, MAXIME ..."
-  const re = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,120}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+/* ======== PARSEUR PDF (multi RDV) — AUTONOME ======== */
+function parseTaxiPdfFromText(rawText, baseDate) {
+  // 0) Normalisation & retrait de bruit global
+  const text = (" " + (rawText || ""))
+    .replace(/\s+/g, " ")
+    .replace(/Heure\s+de\s+d[ée]but.*?|Heure\s+de\s+fin.*?/gi, " ")
+    .replace(/\b(TEL|TÉL|CIV|CH|CHU|CLSC|CISSS|NIL\s*TRA|NILTRA|NIL|RM|RDV|DOSSIER|CODE|COMMENTAIRE)\b[ :#\-]*[0-9A-Za-z\-\/]*/gi, " ")
+    .replace(/\([^)]+\)/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim() + " ";
 
-  const out = [];
-  let idx = 0, m;
-  while ((m = re.exec(text)) !== null) {
-    const from = cleanText(m[1]);
-    const to   = cleanText(m[2]);
-    const time = m[3].toLowerCase().replace('h',':');
-    let name   = cleanText(m[4]).replace(/\s+TA.*$/, "");
-    if (!from || !to) continue;
+  // Heures possibles 07:15 / 7h15 / 23H05
+  const HOUR_RE = /\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g;
 
-    const [H, M] = time.split(":").map(n => parseInt(n,10));
-    if (isNaN(H) || isNaN(M) || H>23 || M>59) continue;
-
-    const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), H, M, 0, 0);
-    const id = `${baseDate.getFullYear()}${pad2(baseDate.getMonth()+1)}${pad2(baseDate.getDate())}-${pad2(H)}${pad2(M)}-${idx++}`;
-
-    out.push({ id, title: `${name || "Client inconnu"} – ${from} > ${to}`, start: formatLocalDateTimeString(start), allDay: false });
+  // Prendre un voisinage large autour de l'heure pour éviter tronquages
+  function sliceAround(i, r = 260) {
+    const a = Math.max(0, i - r);
+    const b = Math.min(text.length, i + r);
+    return text.slice(a, b);
   }
 
+  // Nettoyages spécifiques
+  const CITY_ABBR = /\s*,\s*(MON|LAV|RDP|QC|QUEBEC|QUÉBEC|CANADA)\b/gi; // suffixes ville
+  const NOISE_PREFIX = /^\s*\d{1,3}\s*Co[uû]t\s*/i;                      // supprime "00 Coût" mais conserve le nombre suivant (ex: 244)
+  const CODE_TA = /\bTA ?\d{3,6}\b/gi;                                   // TA0654
+  const HASH_NUM = /#\d{3,8}\b/g;                                        // #12345
+  const LOOSE_NUM = /\b\d{4,6}\b/g;                                      // 9404 etc.
+
+  function scrubText(s) {
+    return (s || "")
+      .replace(CODE_TA, " ")
+      .replace(HASH_NUM, " ")
+      .replace(LOOSE_NUM, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  function cleanAddr(s) {
+    return scrubText(
+      (s || "")
+        .replace(NOISE_PREFIX, "")   // enlève "00 Coût" (mais garde 244)
+        .replace(CITY_ABBR, "")      // enlève ", MON", ", LAV", etc.
+        .replace(/,{2,}/g, ",")
+        .replace(/\s{2,}/g, " ")
+    )
+    .replace(/-+\s*$/g, "")
+    .trim();
+  }
+
+  function normalizeName(s) {
+    return scrubText((s || "").replace(/\s+TA.*$/i, "")).trim();
+  }
+
+  // Détection du nom
+  function extractName(chunk) {
+    // NOM, PRÉNOM (majuscules)
+    let m = chunk.match(/\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b/);
+    if (m) return normalizeName(`${m[1]}, ${m[2]}`);
+    // Prénom Nom (capitalisé)
+    m = chunk.match(/\b([A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3})\b/);
+    if (m) return normalizeName(m[1]);
+    return "Client inconnu";
+  }
+
+  // Détection robuste des adresses
+  const ADDRESS_BLOCK = /\b\d{1,5}[A-Za-zÀ-ÿ' .\-]{3,}\b/g;
+  function extractAddresses(chunk) {
+    // séparateurs explicites : >, →, -, – , " à "
+    let m = chunk.match(/([0-9A-Za-zÀ-ÿ' .\-]{6,}?)\s*(?:>|→|-\s*|–\s*| à )\s*([0-9A-Za-zÀ-ÿ' .\-]{6,}?)(?=$|\s{2,}|\b([01]?\d|2[0-3])[:hH][0-5]\d\b)/);
+    if (m) {
+      const a = cleanAddr(m[1]);
+      const b = cleanAddr(m[2]);
+      if (a && b) return [a, b];
+    }
+    // fallback : collecte tous les “numéro + rue”, prend les 2 derniers (souvent le vrai trajet)
+    const all = (chunk.match(ADDRESS_BLOCK) || []).map(cleanAddr).filter(s => /\b\d/.test(s));
+    if (all.length >= 2) return [all[all.length - 2], all[all.length - 1]];
+    return [null, null];
+  }
+
+  // Ancre du jour à minuit local (anti-décalage)
+  const day0 = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+
+  const out = [];
   const seen = new Set();
-  return out.filter(e => { const k = `${e.start}|${e.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  let m;
+
+  while ((m = HOUR_RE.exec(text)) !== null) {
+    const H = parseInt(m[1], 10);
+    const M = parseInt(m[2], 10);
+    if (isNaN(H) || isNaN(M) || H > 23 || M > 59) continue;
+
+    const chunk = sliceAround(m.index);
+
+    const name = extractName(chunk);
+    const [fromRaw, toRaw] = extractAddresses(chunk);
+    if (!fromRaw || !toRaw) continue;
+
+    const from = cleanAddr(fromRaw);
+    const to   = cleanAddr(toRaw);
+    if (!from || !to) continue;
+
+    const start = new Date(day0.getFullYear(), day0.getMonth(), day0.getDate(), H, M, 0, 0);
+
+    // clé de dédup : heure + nom + adresses normalisées
+    const key = `${start.getTime()}|${name.toUpperCase()}|${from.toUpperCase()}|${to.toUpperCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      id: `${day0.getFullYear()}${pad2(day0.getMonth()+1)}${pad2(day0.getDate())}-${pad2(H)}${pad2(M)}-${out.length}`,
+      title: `${name} – ${from} > ${to}`,
+      start: formatLocalDateTimeString(start),
+      allDay: false
+    });
+  }
+
+  return out;
 }
 
 /* ======== IMPORT PDF ======== */
@@ -387,9 +479,13 @@ async function handlePdfImport(file){
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    fullText += "\n" + content.items.map(it => it.str).join(" ");
+    // séparateur léger de page pour aider le parseur
+    fullText += "\n" + content.items.map(it => it.str).join(" ") + " \n";
   }
+  // baseDate fiable : nom de fichier OU contenu, normalisée à 00:00 local (anti-décalage)
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
+  baseDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
+
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
   if (parsed.length) {
     events = [...events, ...parsed];
