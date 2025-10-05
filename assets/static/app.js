@@ -452,23 +452,57 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
+  // 1) Lire le PDF
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  // 2) Extraire le texte (avec un petit séparateur entre les pages)
   let fullText = "";
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    fullText += "\n" + content.items.map(it => it.str).join(" ");
+    fullText += "\n" + content.items.map(it => it.str).join(" ") + " \n";
   }
+
+  // 3) Déterminer la date de travail (baseDate), puis la normaliser à 00:00 local
+  //    -> évite le décalage d’un jour
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
+  baseDate = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    0, 0, 0, 0
+  );
+
+  // 4) (Recommandé) Sauvegarder le PDF pour le panneau “📁 Fichiers PDF”
+  try {
+    const blob = new Blob([arrayBuffer], { type: file.type || "application/pdf" });
+    const dataUrl = await new Promise(res => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.readAsDataURL(blob);
+    });
+    storePdfFile(file.name, dataUrl);
+  } catch (e) {
+    // silencieux si l’API FileReader n’est pas dispo
+  }
+
+  // 5) Parser les RDV puis injecter dans l’app
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
+
   if (parsed.length) {
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
-    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
+    if (calendar) {
+      calendar.addEventSource(parsed);
+      renderCalendar();
+    }
   }
+
+  // 6) Confirmation
   alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
 }
+
 
 /* ======== MODALE JOUR (résumé propre) ======== */
 function openDayEventsModal(dateStr) {
@@ -627,4 +661,5 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
