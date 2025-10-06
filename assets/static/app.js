@@ -262,24 +262,69 @@ function confirmDeleteSeries() {
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
-/* ======== PDF — PANEL ======== */
 function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
-  const list = document.getElementById("pdf-list");
-  const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
-  const sevenDaysAgo = Date.now() - 7*24*60*60*1000;
-  const filtered = stored.filter(f => f.timestamp >= sevenDaysAgo);
+  const list  = document.getElementById("pdf-list");
+
+  // Purge avant affichage (garde seulement <= 5 jours)
+  const kept = prunePdfHistory();
+
   list.innerHTML = "";
-  if (filtered.length === 0) list.innerHTML = "<li>Aucun fichier PDF récent.</li>";
-  else filtered.forEach(f => { const li = document.createElement("li"); const a = document.createElement("a"); a.href=f.dataUrl; a.textContent=f.name; a.download=f.name; a.target="_blank"; li.appendChild(a); list.appendChild(li); });
+  if (kept.length === 0) {
+    list.innerHTML = "<li>Aucun fichier PDF des 5 derniers jours.</li>";
+  } else {
+    // Du plus récent au plus ancien
+    kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
+      const li = document.createElement("li");
+      const a  = document.createElement("a");
+      a.href = f.dataUrl;
+      a.textContent = f.name;
+      a.download = f.name;
+      a.target = "_blank";
+      li.appendChild(a);
+
+      const small = document.createElement("small");
+      small.style.marginLeft = "6px";
+      small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
+      li.appendChild(small);
+
+      list.appendChild(li);
+    });
+  }
   panel.classList.remove("hidden");
 }
+
+
+/* ======== PDF — HISTORIQUE (5 jours) ======== */
+const PDF_HISTORY_DAYS = 5;
+
+function prunePdfHistory() {
+  const cutoff = Date.now() - PDF_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+  const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
+  const pruned = stored.filter(f => f.timestamp >= cutoff);
+  if (pruned.length !== stored.length) {
+    localStorage.setItem("pdfFiles", JSON.stringify(pruned));
+  }
+  return pruned;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
 function closePdfPanel(){ document.getElementById("pdf-panel").classList.add("hidden"); }
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
+  prunePdfHistory(); // garde l'historique à 5 jours en permanence
 }
+
 
 /* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
 function extractRequestedDate(text){
@@ -471,6 +516,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
+  // 1) Lire le PDF pour parser le texte
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let fullText = "";
@@ -479,15 +525,28 @@ async function handlePdfImport(file){
     const content = await page.getTextContent();
     fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
+
+  // 2) Date de référence + parsing RDV (on réutilise tes fonctions existantes)
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
+
   if (parsed.length) {
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
     if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
   }
-  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}`);
+
+  // 3) AJOUT : sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    storePdfFile(file.name, dataUrl);   // ta version appelle déjà prunePdfHistory()
+  } catch (e) {
+    console.warn("Impossible de convertir le PDF en DataURL:", e);
+  }
+
+  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}.\nLe PDF a été ajouté dans « Fichiers PDF » (5 jours).`);
 }
+
 
 /* ======== MODALE JOUR (résumé propre) ======== */
 function openDayEventsModal(dateStr) {
@@ -529,6 +588,7 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
 /* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
+  prunePdfHistory();
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
   if (notes) notes.addEventListener("input", () => {
@@ -646,6 +706,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
