@@ -277,7 +277,7 @@ function openPdfPanel() {
     kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
       const li = document.createElement("li");
       const a  = document.createElement("a");
-      a.href = f.dataUrl;
+      a.href = `data:application/pdf;base64,${f.dataUrl.split(',')[1]}`;
       a.textContent = f.name;
       a.target = "_blank";
       li.appendChild(a);
@@ -705,6 +705,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
