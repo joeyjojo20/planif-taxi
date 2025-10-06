@@ -388,6 +388,34 @@ function fileToDataUrl(file) {
 }
 
 function closePdfPanel(){ document.getElementById("pdf-panel").classList.add("hidden"); }
+
+function openPdfViewerTab(url, name) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+
+  const esc = s => String(s || "PDF").replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'}[c]));
+  const html = `
+    <!doctype html>
+    <html lang="fr">
+    <head>
+      <meta charset="utf-8" />
+      <title>${esc(name)}</title>
+      <style>
+        html,body,iframe { height:100%; margin:0; }
+        body { background:#111; }
+        iframe { width:100%; border:0; background:#222; }
+      </style>
+    </head>
+    <body>
+      <iframe src="${url}" allow="autoplay"></iframe>
+    </body>
+    </html>`;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
   existing.push({ name, dataUrl, timestamp: Date.now() });
@@ -776,6 +804,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
