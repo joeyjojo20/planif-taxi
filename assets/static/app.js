@@ -279,7 +279,6 @@ function openPdfPanel() {
       const a  = document.createElement("a");
       a.href = f.dataUrl;
       a.textContent = f.name;
-      a.download = f.name;
       a.target = "_blank";
       li.appendChild(a);
 
@@ -706,6 +705,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
