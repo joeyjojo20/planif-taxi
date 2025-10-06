@@ -274,21 +274,65 @@ function openPdfPanel() {
     list.innerHTML = "<li>Aucun fichier PDF des 5 derniers jours.</li>";
   } else {
     // Du plus récent au plus ancien
-    kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
-      const li = document.createElement("li");
-      const a  = document.createElement("a");
-      a.href = `data:application/pdf;base64,${f.dataUrl.split(',')[1]}`;
-      a.textContent = f.name;
-      a.target = "_blank";
-      li.appendChild(a);
+kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
+  const li = document.createElement("li");
+  const a  = document.createElement("a");
+  a.href = "#";
+  a.textContent = f.name;
+  a.onclick = async (e) => {
+  e.preventDefault();
 
-      const small = document.createElement("small");
-      small.style.marginLeft = "6px";
-      small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
-      li.appendChild(small);
+  // 1) Si c’est déjà un blob URL, on ouvre direct
+  if (f.dataUrl.startsWith("blob:")) {
+    window.open(f.dataUrl, "_blank");
+    return;
+  }
 
-      list.appendChild(li);
-    });
+  // 2) Si c’est un data: URL (base64 ou URI-encoded), on convertit en Blob
+  if (f.dataUrl.startsWith("data:")) {
+    const comma = f.dataUrl.indexOf(",");
+    const meta = f.dataUrl.slice(0, comma);
+    const payload = f.dataUrl.slice(comma + 1);
+    const isBase64 = /;base64/i.test(meta);
+    const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
+
+    let byteArray;
+    if (isBase64) {
+      const byteChars = atob(payload);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      byteArray = new Uint8Array(byteNumbers);
+    } else {
+      // data:…;charset=utf-8,URIENCODED
+      const decoded = decodeURIComponent(payload);
+      const byteNumbers = new Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) byteNumbers[i] = decoded.charCodeAt(i);
+      byteArray = new Uint8Array(byteNumbers);
+    }
+
+    const blob = new Blob([byteArray], { type: mime || "application/pdf" });
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, "_blank");
+    // Revoke un peu plus tard pour laisser le temps au viewer de charger
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    return;
+  }
+
+  // 3) Sinon, on tente l’ouverture directe
+  window.open(f.dataUrl, "_blank");
+};
+
+  };
+  li.appendChild(a);
+
+  const small = document.createElement("small");
+  small.style.marginLeft = "6px";
+  small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
+  li.appendChild(small);
+
+  list.appendChild(li);
+});
+
   }
   panel.classList.remove("hidden");
 }
@@ -705,6 +749,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
