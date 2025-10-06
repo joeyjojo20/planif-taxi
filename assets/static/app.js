@@ -266,7 +266,7 @@ function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
   const list  = document.getElementById("pdf-list");
 
-  // Purge avant affichage (garde seulement <= 5 jours)
+  // Purge > 5 jours, puis récupère la liste à afficher
   const kept = prunePdfHistory();
 
   list.innerHTML = "";
@@ -274,69 +274,96 @@ function openPdfPanel() {
     list.innerHTML = "<li>Aucun fichier PDF des 5 derniers jours.</li>";
   } else {
     // Du plus récent au plus ancien
-kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
-  const li = document.createElement("li");
-  const a  = document.createElement("a");
-  a.href = "#";
-  a.textContent = f.name;
-  a.onclick = async (e) => {
-  e.preventDefault();
+    kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
+      const li = document.createElement("li");
+      const a  = document.createElement("a");
 
-  // 1) Si c’est déjà un blob URL, on ouvre direct
-  if (f.dataUrl.startsWith("blob:")) {
-    window.open(f.dataUrl, "_blank");
-    return;
+      a.href = "#";
+      a.textContent = f.name;
+
+      // IMPORTANT: ne pas mettre a.download ni a.href = f.dataUrl
+      a.onclick = (e) => {
+        e.preventDefault();
+        try {
+          const u = String(f.dataUrl || "");
+          if (!u) { alert("PDF manquant."); return; }
+
+          // 1) blob: URL directe
+          if (u.startsWith("blob:")) {
+            const w = window.open("", "_blank");
+            if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+            w.location.href = u;
+            return;
+          }
+
+          let blob = null;
+
+          // 2) data:… → convertir en Blob (base64 ou URI-encodé)
+          if (u.startsWith("data:")) {
+            const comma = u.indexOf(",");
+            if (comma === -1) throw new Error("DataURL invalide (pas de virgule).");
+            const meta = u.slice(0, comma);
+            const payload = u.slice(comma + 1);
+            const isBase64 = /;base64/i.test(meta);
+            const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
+
+            if (isBase64) {
+              const bin = atob(payload);
+              const arr = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+              blob = new Blob([arr], { type: mime || "application/pdf" });
+            } else {
+              const txt = decodeURIComponent(payload);
+              const arr = new Uint8Array(txt.length);
+              for (let i = 0; i < txt.length; i++) arr[i] = txt.charCodeAt(i);
+              blob = new Blob([arr], { type: mime || "application/pdf" });
+            }
+          } else if (/^https?:\/\//i.test(u)) {
+            // 3) URL http(s)
+            const w = window.open("", "_blank");
+            if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+            w.location.href = u;
+            return;
+          } else {
+            // 4) Base64 brute en dernier recours
+            if (/^[A-Za-z0-9+/=]+$/.test(u.slice(0, 64))) {
+              const bin = atob(u);
+              const arr = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+              blob = new Blob([arr], { type: "application/pdf" });
+            } else {
+              const w = window.open("", "_blank");
+              if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+              w.location.href = u;
+              return;
+            }
+          }
+
+          // Ouvrir via URL temporaire (meilleure compat Chrome)
+          const blobUrl = URL.createObjectURL(blob);
+          const w = window.open("", "_blank");
+          if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+          w.location.href = blobUrl;
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        } catch (err) {
+          console.error("Erreur ouverture PDF:", err);
+          alert("Impossible d’afficher ce PDF (voir console).");
+        }
+      };
+
+      li.appendChild(a);
+
+      const small = document.createElement("small");
+      small.style.marginLeft = "6px";
+      small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
+      li.appendChild(small);
+
+      list.appendChild(li);
+    });
   }
 
-  // 2) Si c’est un data: URL (base64 ou URI-encoded), on convertit en Blob
-  if (f.dataUrl.startsWith("data:")) {
-    const comma = f.dataUrl.indexOf(",");
-    const meta = f.dataUrl.slice(0, comma);
-    const payload = f.dataUrl.slice(comma + 1);
-    const isBase64 = /;base64/i.test(meta);
-    const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
-
-    let byteArray;
-    if (isBase64) {
-      const byteChars = atob(payload);
-      const byteNumbers = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-      byteArray = new Uint8Array(byteNumbers);
-    } else {
-      // data:…;charset=utf-8,URIENCODED
-      const decoded = decodeURIComponent(payload);
-      const byteNumbers = new Array(decoded.length);
-      for (let i = 0; i < decoded.length; i++) byteNumbers[i] = decoded.charCodeAt(i);
-      byteArray = new Uint8Array(byteNumbers);
-    }
-
-    const blob = new Blob([byteArray], { type: mime || "application/pdf" });
-    const blobUrl = URL.createObjectURL(blob);
-    window.open(blobUrl, "_blank");
-    // Revoke un peu plus tard pour laisser le temps au viewer de charger
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-    return;
-  }
-
-  // 3) Sinon, on tente l’ouverture directe
-  window.open(f.dataUrl, "_blank");
-};
-
-  };
-  li.appendChild(a);
-
-  const small = document.createElement("small");
-  small.style.marginLeft = "6px";
-  small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
-  li.appendChild(small);
-
-  list.appendChild(li);
-});
-
-  }
   panel.classList.remove("hidden");
 }
-
 
 /* ======== PDF — HISTORIQUE (5 jours) ======== */
 const PDF_HISTORY_DAYS = 5;
@@ -749,6 +776,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
