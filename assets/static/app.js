@@ -415,6 +415,49 @@ function openPdfViewerTab(url, name) {
   w.document.close();
 }
 
+function viewPdfFromStored(f) {
+  const u = String(f.dataUrl || "");
+  if (!u) { alert("PDF manquant."); return; }
+
+  // 1) Déjà une URL blob → ouvrir direct
+  if (u.startsWith("blob:")) {
+    openPdfViewerTab(u, f.name);
+    return;
+  }
+
+  // 2) DataURL → convertir en Blob → créer une blob URL → ouvrir
+  if (u.startsWith("data:")) {
+    const comma = u.indexOf(",");
+    if (comma === -1) { window.open(u, "_blank"); return; }
+
+    const meta = u.slice(0, comma);
+    const payload = u.slice(comma + 1);
+    const isBase64 = /;base64/i.test(meta);
+    const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
+
+    let bytes;
+    if (isBase64) {
+      const bin = atob(payload);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } else {
+      const txt = decodeURIComponent(payload);
+      bytes = new Uint8Array(txt.length);
+      for (let i = 0; i < txt.length; i++) bytes[i] = txt.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: mime || "application/pdf" });
+    const blobUrl = URL.createObjectURL(blob);
+    openPdfViewerTab(blobUrl, f.name);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000); // nettoyage
+    return;
+  }
+
+  // 3) http(s) → ouvrir tel quel (certains serveurs bloquent l’iframe)
+  window.open(u, "_blank");
+}
+
+
 
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
@@ -804,6 +847,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
