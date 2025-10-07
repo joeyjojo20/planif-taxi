@@ -5,6 +5,59 @@
 
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
+// === PUSH NOTIFS (ajout) ===
+const BACKEND_URL = "https://rdv-taxi-backend.onrender.com"; // ⬅️ remplace par ton URL Render
+const VAPID_PUBLIC_KEY = "hplooo-000-iIiuYHh-h8U6Trf56rFR5pibI78Uuuvirqbqt6tqqh7u7709-ju76tgvHGFVCggv20o0oPoplqbjhHDjhdb988yNjfdJDmfjFHWUDjhuh8HbuD7G8diU9DG87Haug9";      // ⬅️ la clé publique VAPID (même que sur Render)
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64), arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function enablePush() {
+  if (!("serviceWorker" in navigator) || !("Notification" in window)) return;
+  const reg = await navigator.serviceWorker.register("/service-worker.js");
+  await navigator.serviceWorker.ready;
+
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") { alert("Autorise les notifications pour RDV Taxi"); return; }
+
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+  });
+
+  await fetch(`${BACKEND_URL}/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub)
+  });
+
+  console.log("✅ Abonnement push enregistré côté serveur");
+}
+
+// Lancer l'abonnement une seule fois au chargement de l'app
+window.addEventListener("load", () => { enablePush().catch(console.error); });
+
+// Bouton de test (automatique, pas besoin de toucher au HTML)
+window.addEventListener("DOMContentLoaded", () => {
+  const btn = document.createElement("button");
+  btn.id = "test-push-btn";
+  btn.textContent = "🔔 Test notif";
+  btn.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer";
+  btn.onclick = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/test-push`, { method: "POST" });
+      const j = await r.json();
+      alert(j.ok ? "Notif envoyée ✅" : `Échec: ${j.error || "?"}`);
+    } catch(e) { alert("Erreur réseau"); }
+  };
+  document.body.appendChild(btn);
+});
+
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
   localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
 }
@@ -847,6 +900,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
