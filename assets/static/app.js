@@ -7,7 +7,7 @@
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
 const BACKEND_URL = "https://rdv-taxi-backend.onrender.com"; // ⬅️ remplace par ton URL Render
-const VAPID_PUBLIC_KEY = "hplooo-000-iIiuYHh-h8U6Trf56rFR5pibI78Uuuvirqbqt6tqqh7u7709-ju76tgvHGFVCggv20o0oPoplqbjhHDjhdb988yNjfdJDmfjFHWUDjhuh8HbuD7G8diU9DG87Haug9";      // ⬅️ la clé publique VAPID (même que sur Render)
+const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg";      // ⬅️ la clé publique VAPID (même que sur Render)
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -900,6 +900,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
