@@ -46,7 +46,22 @@ async function enablePush() {
 }
 
 // Lancer l'abonnement une seule fois au chargement de l'app
-window.addEventListener("load", () => { enablePush().catch(console.error); });
+// Auto-activation seulement si ce n'est pas iOS
+const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+if (!isiOS) {
+  window.addEventListener("load", () => { enablePush().catch(console.error); });
+}
+
+// Bouton pour ACTIVER (nécessaire sur iPhone)
+window.addEventListener("DOMContentLoaded", () => {
+  const enableBtn = document.createElement("button");
+  enableBtn.id = "enable-push-btn";
+  enableBtn.textContent = "📲 Activer les notifications";
+  enableBtn.style.cssText =
+    "position:fixed;left:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer";
+  enableBtn.onclick = () => enablePush().catch(e => alert("Erreur: " + e.message));
+  document.body.appendChild(enableBtn);
+});
 
 // Bouton de test (automatique, pas besoin de toucher au HTML)
 window.addEventListener("DOMContentLoaded", () => {
@@ -906,6 +921,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
