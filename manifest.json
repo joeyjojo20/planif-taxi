@@ -2,8 +2,13 @@
   "name": "RDV Taxi",
   "short_name": "RDV Taxi",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
+  "theme_color": "#000000",
   "description": "Application de notification pour vos rendez-vous taxi.",
-  "icons": []
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }
