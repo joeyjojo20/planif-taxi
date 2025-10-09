@@ -18,12 +18,18 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function enablePush() {
-  if (!("serviceWorker" in navigator) || !("Notification" in window)) return;
-  const reg = await navigator.serviceWorker.register("/service-worker.js");
+  if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+    alert("Notifications non supportées sur cet appareil.");
+    return;
+  }
+  // iOS : demander la permission en premier (dans le clic)
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    alert("Autorise les notifications pour RDV Taxi.");
+    return;
+  }
+  const reg = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
   await navigator.serviceWorker.ready;
-
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted") { alert("Autorise les notifications pour RDV Taxi"); return; }
 
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
@@ -36,7 +42,7 @@ async function enablePush() {
     body: JSON.stringify(sub)
   });
 
-  console.log("✅ Abonnement push enregistré côté serveur");
+  alert("Notifications activées ✅");
 }
 
 // Lancer l'abonnement une seule fois au chargement de l'app
@@ -900,6 +906,7 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
 
 
 
