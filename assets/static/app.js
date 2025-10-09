@@ -245,8 +245,9 @@ async function saveEvent() {
   if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
-  // série = id sans le suffixe -<nombre> (évite d'effacer toute la journée)
-  const baseId = editId ? editId.replace(/-\d+$/, "") : Date.now().toString();
+
+  // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
+  const baseId = editId || Date.now().toString();
 
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
@@ -276,13 +277,12 @@ async function saveEvent() {
     }
     if (nd > limitDate) break;
     list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
-    count++; // ✅ important (sinon boucle infinie)
+    count++; // important
   }
 
   if (editId) {
-    // n’efface que la série exacte (id ou id-<n>), pas toute la journée
-    const baseRoot = editId.replace(/-\d+$/, "");
-    events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
+    // ✅ En édition : ne supprime QUE l'événement ciblé
+    events = events.filter(e => e.id !== editId);
   }
   events = [...events, ...list];
 
