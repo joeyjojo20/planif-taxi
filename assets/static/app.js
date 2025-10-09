@@ -1,4 +1,3 @@
-
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -7,7 +6,7 @@
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
 const BACKEND_URL = "https://rdv-taxi-backend.onrender.com"; // ⬅️ remplace par ton URL Render
-const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg";      // ⬅️ la clé publique VAPID (même que sur Render)
+const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg"; // ⬅️ ta clé publique VAPID
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -45,7 +44,6 @@ async function enablePush() {
   alert("Notifications activées ✅");
 }
 
-// Lancer l'abonnement une seule fois au chargement de l'app
 // Auto-activation seulement si ce n'est pas iOS
 const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 if (!isiOS) {
@@ -63,7 +61,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.body.appendChild(enableBtn);
 });
 
-// Bouton de test (automatique, pas besoin de toucher au HTML)
+// Bouton de test (automatique)
 window.addEventListener("DOMContentLoaded", () => {
   const btn = document.createElement("button");
   btn.id = "test-push-btn";
@@ -220,7 +218,11 @@ function onEventClick(info) {
   document.getElementById("dropoff-address").value = trajet[1] || "";
   document.getElementById("event-date").value = ev.startStr.slice(0,16);
   document.getElementById("recurrence").value = "none";
-  document.getElementById("notification").value = "none";
+  // ✅ préremplir la notif selon l'événement
+  const notifSel = document.getElementById("notification");
+  notifSel.value = (full && Number.isFinite(full.reminderMinutes))
+    ? String(full.reminderMinutes)
+    : "none";
   document.getElementById("recurrence-duration-label").classList.add("hidden");
   document.getElementById("event-form").dataset.editId = ev.id;
   document.getElementById("btn-delete-one").disabled = false;
@@ -229,24 +231,27 @@ function onEventClick(info) {
 }
 
 /* ======== CRUD RDV ======== */
-function saveEvent() {
+async function saveEvent() {
   const name = document.getElementById("client-name").value;
   const pickup = document.getElementById("pickup-address").value;
   const dropoff = document.getElementById("dropoff-address").value;
   const date = document.getElementById("event-date").value;
   const repeat = document.getElementById("recurrence").value;
   const notify = document.getElementById("notification").value;
+  const notifMin = notify !== "none" ? parseInt(notify, 10) : null;
   const duration = document.getElementById("recurrence-duration").value;
   const editId = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
-  const baseId = editId ? editId.split("-")[0] : Date.now().toString();
+  // série = id sans le suffixe -<nombre> (évite d'effacer toute la journée)
+  const baseId = editId ? editId.replace(/-\d+$/, "") : Date.now().toString();
+
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
 
-  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false }];
+  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
 
   let limitDate = new Date(startDate);
   switch (duration) {
@@ -263,28 +268,51 @@ function saveEvent() {
   while (repeat !== "none") {
     let nd = new Date(startDate.getTime());
     if (repeat === "daily") nd.setDate(nd.getDate() + count);
-    else if (repeat === "weekly") nd.setDate(nd.getDate() + 7*count);
-    else if (repeat === "monthly") { const d = nd.getDate(); nd.setMonth(nd.getMonth() + count); if (nd.getDate() < d) nd.setDate(0); }
+    else if (repeat === "weekly") nd.setDate(nd.getDate() + 7 * count);
+    else if (repeat === "monthly") {
+      const d = nd.getDate();
+      nd.setMonth(nd.getMonth() + count);
+      if (nd.getDate() < d) nd.setDate(0);
+    }
     if (nd > limitDate) break;
-    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false });
-    count++;
+    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
+    count++; // ✅ important (sinon boucle infinie)
   }
 
-  if (editId) events = events.filter(e => !e.id.startsWith(baseId));
+  if (editId) {
+    // n’efface que la série exacte (id ou id-<n>), pas toute la journée
+    const baseRoot = editId.replace(/-\d+$/, "");
+    events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
+  }
   events = [...events, ...list];
+
   localStorage.setItem("events", JSON.stringify(events));
 
-  if (notify !== "none") {
-    const delay = new Date(date).getTime() - Date.now() - parseInt(notify)*60000;
-    if (delay > 0) setTimeout(() => alert(`Rappel : RDV avec ${name} à ${pickup}`), delay);
-  }
+  // ✅ sync vers le backend pour les rappels push
+  try {
+    const payloadEvents = list.map(e => ({
+      id: e.id,
+      title: e.title,
+      startISO: new Date(e.start).toISOString(),
+      ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
+    }));
+    await fetch(`${BACKEND_URL}/sync-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: payloadEvents })
+    });
+  } catch (_) { /* ok si offline */ }
 
   hideEventForm(); renderCalendar();
 }
+
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
-  const baseId = editId.split("-")[0];
-  events = single ? events.filter(e => e.id !== editId) : events.filter(e => !e.id.startsWith(baseId));
+  const baseRoot = editId.replace(/-\d+$/, "");
+  events = single
+    ? events.filter(e => e.id !== editId)
+    : events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
+
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm(); renderCalendar();
 }
@@ -294,7 +322,7 @@ function openDeleteModal(){ document.getElementById("delete-modal").classList.re
 function closeDeleteModal(){ document.getElementById("delete-modal").classList.add("hidden"); }
 function confirmDelete(type) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
-  const baseId = editId.split("-")[0];
+  const baseRoot = editId.replace(/-\d+$/, "");
   const original = events.find(e => e.id === editId); if (!original) return;
   const startDate = new Date(original.start);
   let limitDate = new Date(startDate);
@@ -307,10 +335,10 @@ function confirmDelete(type) {
     case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
     case "one": events = events.filter(e => e.id !== editId); break;
-    case "all": events = events.filter(e => !e.id.startsWith(baseId)); break;
+    case "all": events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-"))); break;
   }
   if (["1w","2w","1m","2m","3m","6m","12m"].includes(type)) {
-    events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limitDate);
+    events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")) || new Date(e.start) > limitDate);
   }
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteModal(); hideEventForm(); renderCalendar();
@@ -326,16 +354,17 @@ function closeDeleteSeriesModal(){ document.getElementById("delete-series-modal"
 function confirmDeleteSeries() {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
   const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; if (!editId) return closeDeleteSeriesModal();
-  const baseId = editId.split("-")[0];
+  const baseRoot = editId.replace(/-\d+$/, "");
   const ref = events.find(e => e.id === editId);
   const weeks = parseInt(document.getElementById("delete-weeks")?.value || "9999", 10);
   if (!ref || isNaN(weeks)) return closeDeleteSeriesModal();
   const limit = new Date(new Date(ref.start).getTime()); limit.setDate(limit.getDate() + 7*weeks);
-  events = events.filter(e => !e.id.startsWith(baseId) || new Date(e.start) > limit);
+  events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")) || new Date(e.start) > limit);
   localStorage.setItem("events", JSON.stringify(events));
   closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
+/* ======== PDF PANEL ======== */
 function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
   const list  = document.getElementById("pdf-list");
@@ -355,7 +384,6 @@ function openPdfPanel() {
       a.href = "#";
       a.textContent = f.name;
 
-      // IMPORTANT: ne pas mettre a.download ni a.href = f.dataUrl
       a.onclick = (e) => {
         e.preventDefault();
         try {
@@ -531,15 +559,12 @@ function viewPdfFromStored(f) {
   window.open(u, "_blank");
 }
 
-
-
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
   prunePdfHistory(); // garde l'historique à 5 jours en permanence
 }
-
 
 /* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
 function extractRequestedDate(text){
@@ -549,7 +574,7 @@ function extractRequestedDate(text){
     const day = parseInt(m[1],10);
     const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
     const year = parseInt(m[3],10);
-    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DÉCEMBRE:11, DECEMBRE:11};
     const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
   // fallback "JEUDI 02 OCTOBRE 2025"
@@ -558,7 +583,7 @@ function extractRequestedDate(text){
     const day = parseInt(m[2],10);
     const monKey = m[3].normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
     const year = parseInt(m[4],10);
-    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DECEMBRE:11, DÉCEMBRE:11};
+    const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DÉCEMBRE:11, DECEMBRE:11};
     const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
   const d = new Date(); d.setHours(0,0,0,0); return d;
@@ -567,7 +592,7 @@ function extractDateFromName(name){
   if (!name) return null;
   const s = name.replace(/[_\.]/g,' ').replace(/\s+/g,' ').trim();
 
-  // 1) dd <mois texte> [yyyy]  ex: "02 OCT", "2 octobre 2025"
+  // 1) dd <mois texte> [yyyy]
   let m = s.match(/\b(\d{1,2})\s*(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avril|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\.?\s*(\d{4})?\b/i);
   if (m) {
     const day = parseInt(m[1], 10);
@@ -591,7 +616,7 @@ function extractDateFromName(name){
     }
   }
 
-  // 2) dd[-/_ ]mm[-/_ ]yyyy  ex: 02-10-2025, 02_10_25
+  // 2) dd[-/_ ]mm[-/_ ]yyyy
   m = s.match(/\b(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})\b/);
   if (m) {
     const day = parseInt(m[1],10);
@@ -600,7 +625,7 @@ function extractDateFromName(name){
     return new Date(year, month, day, 0,0,0,0);
   }
 
-  // 3) yyyy[-/_ ]mm[-/_ ]dd  ex: 2025-10-02
+  // 3) yyyy[-/_ ]mm[-/_ ]dd
   m = s.match(/\b(20\d{2})[-/ ](\d{1,2})[-/ ](\d{1,2})\b/);
   if (m) {
     const year = parseInt(m[1],10);
@@ -613,10 +638,7 @@ function extractDateFromName(name){
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-/* ======== PARSEUR PDF (multi RDV) — patch anti-commentaires avant l'adresse ======== */
 const PROX = 40; // caractères max entre le numéro et le mot de voie
-
-// Motif d'adresse "proche" (utilise PROX)
 const SUBADDR_PROX = new RegExp(
   `\\b\\d{1,5}[A-Za-zÀ-ÿ0-9' .\\-]{0,${PROX}}?\\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\\b)\\b[^\\-,;)]*`,
   "gi"
@@ -625,19 +647,16 @@ const SUBADDR_PROX = new RegExp(
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // même structure que ta meilleure version
   const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
-  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi; // (sans TA ici)
+  const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
   const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
   const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
 
-  // fallback plus large (au cas où)
   const SUBADDR_WIDE = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
 
-  // Nom: "NOM, PRÉNOM" ou "Prénom Nom"
   const NAME_RX = /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
 
   function cleanName(s) {
@@ -650,8 +669,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   }
   function isValidName(n) {
     if (!n) return false;
-    if (/\d/.test(n)) return false;    // pas de chiffres
-    if (STREET.test(n)) return false;  // ne ressemble pas à une adresse
+    if (/\d/.test(n)) return false;
+    if (STREET.test(n)) return false;
     return NAME_RX.test(n);
   }
 
@@ -665,15 +684,12 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     let matches = s.match(SUBADDR_PROX);
     if (!matches || matches.length === 0) matches = s.match(SUBADDR_WIDE);
-    if (!matches || matches.length === 0) return s; // rien trouvé : filtré plus bas
+    if (!matches || matches.length === 0) return s;
 
-    // DERNIÈRE adresse détectée
     let pick = matches[matches.length - 1].trim();
 
-    // corrige “reste d’heure” devant l’adresse
     pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
 
-    // si le fallback a trop englouti, recale sur le dernier motif serré
     const lastTight = pick.match(/\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}?)\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i);
     if (lastTight) {
       const idx = pick.lastIndexOf(lastTight[0]);
@@ -687,8 +703,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     const u = (s || "").toUpperCase();
     if (!u) return false;
     if (MONTH_RE.test(u)) return false;
-    if (!/^\d{1,5}\b/.test(u)) return false;   // commence par un numéro
-    if (!STREET.test(u)) return false;         // contient un mot de voie
+    if (!/^\d{1,5}\b/.test(u)) return false;
+    if (!STREET.test(u)) return false;
     if (u.length < 8) return false;
     return true;
   }
@@ -719,7 +735,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     });
   }
 
-  // Dédoublonnage (heure + nom + adresses)
   const seen = new Set();
   return out.filter(e => {
     const k = `${e.start}|${e.title}`;
@@ -741,7 +756,7 @@ async function handlePdfImport(file){
     fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
 
-  // 2) Date de référence + parsing RDV (on réutilise tes fonctions existantes)
+  // 2) Date de référence + parsing RDV
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
 
@@ -751,17 +766,16 @@ async function handlePdfImport(file){
     if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
   }
 
-  // 3) AJOUT : sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
+  // 3) Sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
   try {
     const dataUrl = await fileToDataUrl(file);
-    storePdfFile(file.name, dataUrl);   // ta version appelle déjà prunePdfHistory()
+    storePdfFile(file.name, dataUrl);
   } catch (e) {
     console.warn("Impossible de convertir le PDF en DataURL:", e);
   }
 
   alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}.\nLe PDF a été ajouté dans « Fichiers PDF » (5 jours).`);
 }
-
 
 /* ======== MODALE JOUR (résumé propre) ======== */
 function openDayEventsModal(dateStr) {
@@ -803,7 +817,7 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
 /* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
-  prunePdfHistory();
+prunePdfHistory();
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
   if (notes) notes.addEventListener("input", () => {
@@ -921,17 +935,3 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
