@@ -1,3 +1,4 @@
+
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -139,17 +140,7 @@ function showApp() {
   const noteKey = "notes_" + currentUser.email;
   document.getElementById("notes-box").value = localStorage.getItem(noteKey) || "";
 
-  // Charger cache local immédiatement
-  try { events = JSON.parse(localStorage.getItem("events") || "[]"); } catch { events = []; }
   renderCalendar();
-
-  // Pull serveur initial + démarrer sync périodique
-  if (typeof pullFromServer === "function") {
-    pullFromServer(true).finally(() => {
-      if (typeof startPeriodicSync === "function") startPeriodicSync();
-    });
-  }
-
   updateAccountNotification();
 
   const configBtn = document.getElementById("config-btn");
@@ -219,25 +210,20 @@ function showEventForm() {
 function hideEventForm(){ document.getElementById("event-form").classList.add("hidden"); delete document.getElementById("event-form").dataset.editId; }
 function onEventClick(info) {
   const ev = info.event;
+  const [name, , pickup] = ev.title.split(" – ");
   const full = events.find(e => e.id === ev.id);
-
-  const isAdmin = (currentUser && currentUser.role === "admin" && currentUser.approved === true);
-  if (!isAdmin) {
-    // Sur mobile / non-admin : affiche seulement le résumé de la journée
-    openDayEventsModal(ev.startStr.slice(0,10));
-    return;
-  }
-
-  const [name] = ev.title.split(" – ");
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
   document.getElementById("client-name").value = name || "";
-  document.getElementById("pickup-address").value = trajet[0] || "";
+  document.getElementById("pickup-address").value = trajet[0] || pickup || "";
   document.getElementById("dropoff-address").value = trajet[1] || "";
   document.getElementById("event-date").value = ev.startStr.slice(0,16);
   document.getElementById("recurrence").value = "none";
+  // ✅ préremplir la notif selon l'événement
   const notifSel = document.getElementById("notification");
-  notifSel.value = (full && Number.isFinite(full.reminderMinutes)) ? String(full.reminderMinutes) : "none";
+  notifSel.value = (full && Number.isFinite(full.reminderMinutes))
+    ? String(full.reminderMinutes)
+    : "none";
   document.getElementById("recurrence-duration-label").classList.add("hidden");
   document.getElementById("event-form").dataset.editId = ev.id;
   document.getElementById("btn-delete-one").disabled = false;
@@ -259,23 +245,16 @@ async function saveEvent() {
 
   if (!name || !date) return alert("Nom et date requis");
 
-  const isAdmin = (currentUser && currentUser.role === "admin" && currentUser.approved === true);
-  if (editId && !isAdmin) {
-    alert("Seul un admin peut modifier un RDV existant.");
-    return;
-  }
-
-  const updatedAt = Date.now();
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
+
+  // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
+  const baseId = editId || Date.now().toString();
+
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
 
-  // En édition : on garde l'ID exact pour remplacer CET événement
-  const baseId = editId || Date.now().toString();
+  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
 
-  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin, updatedAt }];
-
-  // Durée de récurrence
   let limitDate = new Date(startDate);
   switch (duration) {
     case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
@@ -298,44 +277,45 @@ async function saveEvent() {
       if (nd.getDate() < d) nd.setDate(0);
     }
     if (nd > limitDate) break;
-    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin, updatedAt });
-    count++;
+    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
+    count++; // important
   }
 
-  // Fusion locale + rendu
-  let newEvents = events.slice();
-  if (editId) newEvents = newEvents.filter(e => e.id !== editId);
-  newEvents = [...newEvents, ...list];
-  // Appliquer tri + sauvegarde locale + rendu
-  if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-  else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
+  if (editId) {
+    // ✅ En édition : ne supprime QUE l'événement ciblé
+    events = events.filter(e => e.id !== editId);
+  }
+  events = [...events, ...list];
 
-  // Sync serveur
-  if (typeof queueUpserts === "function") queueUpserts(list);
+  localStorage.setItem("events", JSON.stringify(events));
 
-  hideEventForm();
+  // ✅ sync vers le backend pour les rappels push
+  try {
+    const payloadEvents = list.map(e => ({
+      id: e.id,
+      title: e.title,
+      startISO: new Date(e.start).toISOString(),
+      ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
+    }));
+    await fetch(`${BACKEND_URL}/sync-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: payloadEvents })
+    });
+  } catch (_) { /* ok si offline */ }
+
+  hideEventForm(); renderCalendar();
 }
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
-
-  const isAdmin = (currentUser && currentUser.role === "admin" && currentUser.approved === true);
-  if (!isAdmin) { alert("Seul un admin peut supprimer des RDV."); return; }
-
   const baseRoot = editId.replace(/-\d+$/, "");
-  const idsToDelete = single
-    ? [editId]
-    : events.filter(e => (e.id === baseRoot || e.id.startsWith(baseRoot + "-"))).map(e => e.id);
+  events = single
+    ? events.filter(e => e.id !== editId)
+    : events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
 
-  const keep = new Set(idsToDelete);
-  const newEvents = events.filter(e => !keep.has(e.id));
-
-  if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-  else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
-
-  if (typeof queueDeletes === "function") queueDeletes(idsToDelete);
-
-  hideEventForm();
+  localStorage.setItem("events", JSON.stringify(events));
+  hideEventForm(); renderCalendar();
 }
 
 /* ======== SUPPRESSION — MODALES ======== */
@@ -343,15 +323,10 @@ function openDeleteModal(){ document.getElementById("delete-modal").classList.re
 function closeDeleteModal(){ document.getElementById("delete-modal").classList.add("hidden"); }
 function confirmDelete(type) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
-
-  const isAdmin = (currentUser && currentUser.role === "admin" && currentUser.approved === true);
-  if (!isAdmin) { alert("Seul un admin peut supprimer des RDV."); return; }
-
   const baseRoot = editId.replace(/-\d+$/, "");
   const original = events.find(e => e.id === editId); if (!original) return;
   const startDate = new Date(original.start);
   let limitDate = new Date(startDate);
-
   switch (type) {
     case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
     case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
@@ -360,38 +335,14 @@ function confirmDelete(type) {
     case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
     case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
-    case "one": {
-      const newEvents = events.filter(e => e.id !== editId);
-      if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-      else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
-      if (typeof queueDeletes === "function") queueDeletes([editId]);
-      closeDeleteModal(); hideEventForm();
-      return;
-    }
-    case "all": {
-      const ids = events.filter(e => (e.id === baseRoot || e.id.startsWith(baseRoot + "-"))).map(e => e.id);
-      const newEvents = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
-      if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-      else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
-      if (typeof queueDeletes === "function") queueDeletes(ids);
-      closeDeleteModal(); hideEventForm();
-      return;
-    }
+    case "one": events = events.filter(e => e.id !== editId); break;
+    case "all": events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-"))); break;
   }
-
-  // Suppression limitée
-  const ids = events
-    .filter(e => (e.id === baseRoot || e.id.startsWith(baseRoot + "-")) && new Date(e.start) <= limitDate)
-    .map(e => e.id);
-
-  const keep = new Set(ids);
-  const newEvents = events.filter(e => !(keep.has(e.id)));
-
-  if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-  else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
-  if (typeof queueDeletes === "function") queueDeletes(ids);
-
-  closeDeleteModal(); hideEventForm();
+  if (["1w","2w","1m","2m","3m","6m","12m"].includes(type)) {
+    events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")) || new Date(e.start) > limitDate);
+  }
+  localStorage.setItem("events", JSON.stringify(events));
+  closeDeleteModal(); hideEventForm(); renderCalendar();
 }
 
 /* ======== SUPPR SÉRIE ======== */
@@ -404,28 +355,14 @@ function closeDeleteSeriesModal(){ document.getElementById("delete-series-modal"
 function confirmDeleteSeries() {
   const modal = document.getElementById("delete-series-modal"); if (!modal) return;
   const editId = modal.dataset.editId || document.getElementById("event-form")?.dataset?.editId; if (!editId) return closeDeleteSeriesModal();
-
-  const isAdmin = (currentUser && currentUser.role === "admin" && currentUser.approved === true);
-  if (!isAdmin) { alert("Seul un admin peut supprimer des RDV."); return; }
-
   const baseRoot = editId.replace(/-\d+$/, "");
   const ref = events.find(e => e.id === editId);
   const weeks = parseInt(document.getElementById("delete-weeks")?.value || "9999", 10);
   if (!ref || isNaN(weeks)) return closeDeleteSeriesModal();
-
   const limit = new Date(new Date(ref.start).getTime()); limit.setDate(limit.getDate() + 7*weeks);
-  const ids = events
-    .filter(e => (e.id === baseRoot || e.id.startsWith(baseRoot + "-")) && new Date(e.start) <= limit)
-    .map(e => e.id);
-
-  const keep = new Set(ids);
-  const newEvents = events.filter(e => !(keep.has(e.id)));
-
-  if (typeof setEventsAndRender === "function") setEventsAndRender(newEvents);
-  else { events = newEvents; localStorage.setItem("events", JSON.stringify(events)); renderCalendar(); }
-  if (typeof queueDeletes === "function") queueDeletes(ids);
-
-  closeDeleteSeriesModal(); hideEventForm();
+  events = events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")) || new Date(e.start) > limit);
+  localStorage.setItem("events", JSON.stringify(events));
+  closeDeleteSeriesModal(); hideEventForm(); renderCalendar();
 }
 
 /* ======== PDF PANEL ======== */
@@ -827,10 +764,7 @@ async function handlePdfImport(file){
   if (parsed.length) {
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
-    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); 
-    try { if (typeof setEventsAndRender==="function") { events = events; } } catch(e) {}
-    if (typeof queueUpserts === "function") queueUpserts(parsed);
-  }
+    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
   }
 
   // 3) Sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
@@ -992,144 +926,6 @@ function savePdfConfig(){
 }
 
 /* ======== EXPORT GLOBAL ======== */
-
-/* ======================= SYNC PATCH (multi-appareils) ======================= */
-// Calendrier partagé via serveur (BACKEND_URL).
-// - Source de vérité: serveur ; cache local pour hors-ligne.
-// - Merge par updatedAt (le plus récent gagne).
-// - Poll toutes les 10s.
-// - Non-admin: ajout OK; modif/suppression bloquées (déjà géré dans UI).
-
-(function(){
-  const SYNC_INTERVAL_MS = 10000;
-  const BATCH_PUSH_DEBOUNCE = 1200;
-  let pushTimer = null;
-  let pendingUpserts = [];
-  let pendingDeletes = [];
-  let lastServerPull = 0;
-
-  // ID appareil (pour debug côté serveur)
-  const DEVICE_ID = (() => {
-    try {
-      let id = localStorage.getItem("deviceId");
-      if (!id) { id = (crypto?.randomUUID?.() || ("dev-"+Date.now()+"-"+Math.random().toString(36).slice(2))); localStorage.setItem("deviceId", id); }
-      return id;
-    } catch { return "dev-"+Date.now(); }
-  })();
-
-  function isAdminUser(){
-    return currentUser && currentUser.role === "admin" && currentUser.approved === true;
-  }
-
-  function setEventsAndRender(list){
-    list.sort((a,b)=> new Date(a.start) - new Date(b.start));
-    events = list;
-    localStorage.setItem("events", JSON.stringify(events));
-    if (calendar) {
-      calendar.removeAllEvents();
-      calendar.addEventSource(events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })));
-    } else {
-      renderCalendar();
-    }
-  }
-
-  function schedulePush(){
-    clearTimeout(pushTimer);
-    pushTimer = setTimeout(pushToServer, BATCH_PUSH_DEBOUNCE);
-  }
-
-  function queueUpserts(list){
-    const map = new Map(pendingUpserts.map(e => [e.id, e]));
-    const now = Date.now();
-    for (const ev of list) map.set(ev.id, { ...ev, updatedAt: ev.updatedAt || now });
-    pendingUpserts = Array.from(map.values());
-    schedulePush();
-  }
-
-  function queueDeletes(ids){
-    const set = new Set([ ...pendingDeletes, ...ids ]);
-    pendingDeletes = Array.from(set.values());
-    schedulePush();
-  }
-
-  async function pushToServer(){
-    const upserts = pendingUpserts.slice();
-    const deletes = pendingDeletes.slice();
-    pendingUpserts = []; pendingDeletes = [];
-    if (upserts.length===0 && deletes.length===0) return;
-    try {
-      if (upserts.length){
-        await fetch(`${BACKEND_URL}/events/upsert`, {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ deviceId: DEVICE_ID, events: upserts })
-        });
-      }
-      if (deletes.length){
-        await fetch(`${BACKEND_URL}/events/delete`, {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ deviceId: DEVICE_ID, ids: deletes, updatedAt: Date.now() })
-        });
-      }
-    } catch (e) {
-      // Remettre en file si échec (réseau)
-      pendingUpserts = [...upserts, ...pendingUpserts];
-      pendingDeletes = [...deletes, ...pendingDeletes];
-    }
-  }
-
-  async function pullFromServer(initial=false){
-    try {
-      const since = initial ? 0 : lastServerPull;
-      const res = await fetch(`${BACKEND_URL}/events?since=${since}`, { method:"GET" });
-      if (!res.ok) throw new Error("HTTP "+res.status);
-      const payload = await res.json();
-      const serverEvents = Array.isArray(payload?.events) ? payload.events : [];
-
-      if (serverEvents.length === 0 && initial){
-        // Si serveur vide : pousser notre cache local existant
-        if (events?.length) queueUpserts(events);
-        lastServerPull = Date.now();
-        return;
-      }
-
-      const localMap = new Map(events.map(e=>[e.id,e]));
-      for (const s of serverEvents){
-        const l = localMap.get(s.id);
-        const su = s.updatedAt || 0;
-        const lu = l?.updatedAt || 0;
-        if (!l) { if (!s.deleted) localMap.set(s.id, s); }
-        else if (su > lu) {
-          if (s.deleted) localMap.delete(s.id);
-          else localMap.set(s.id, s);
-        }
-      }
-
-      setEventsAndRender(Array.from(localMap.values()));
-      lastServerPull = Date.now();
-    } catch (e) {
-      // hors-ligne → rester sur le cache
-      if (initial && (!events || events.length===0)) {
-        try { events = JSON.parse(localStorage.getItem("events") || "[]"); } catch { events = []; }
-        renderCalendar();
-      }
-    }
-  }
-
-  let syncIntervalHandle = null;
-  function startPeriodicSync(){
-    if (syncIntervalHandle) clearInterval(syncIntervalHandle);
-    syncIntervalHandle = setInterval(()=>{ pullFromServer(false); }, SYNC_INTERVAL_MS);
-  }
-
-  // Exposer pour l'app
-  Object.assign(window, {
-    queueUpserts, queueDeletes, pullFromServer, startPeriodicSync, setEventsAndRender, isAdminUser
-  });
-})();
-/* ===================== /SYNC PATCH (multi-appareils) ======================= */
-
 Object.assign(window, {
   showLogin, showRegister, login, register, logout,
   showApp, showEventForm, hideEventForm, saveEvent, deleteEvent,
