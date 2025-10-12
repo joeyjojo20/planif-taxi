@@ -1,4 +1,3 @@
-
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -936,3 +935,238 @@ Object.assign(window, {
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
   openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
 });
+
+
+/* ======================= SUPABASE SYNC PATCH (100% gratuit) =======================
+   Remplace Render pour la synchro multi-appareils en utilisant Supabase (Free Tier).
+   Étapes côté Supabase:
+     1) Crée un projet → copie SUPABASE_URL et SUPABASE_ANON_KEY.
+     2) SQL (dans SQL editor) :
+        -- TABLE events
+        create table if not exists events (
+          id text primary key,
+          title text not null,
+          start text not null,
+          all_day boolean default false,
+          reminder_minutes int,
+          updated_at bigint not null,
+          deleted boolean default false
+        );
+        -- TABLE subscriptions (pour les push)
+        create table if not exists subscriptions (
+          endpoint text primary key,
+          p256dh text not null,
+          auth text not null,
+          ua text,
+          created_at bigint not null
+        );
+        -- RLS (politiques simples; à durcir si besoin)
+        alter table events enable row level security;
+        create policy "events_all"
+          on events for all
+          using (true) with check (true);
+        alter table subscriptions enable row level security;
+        create policy "subs_all"
+          on subscriptions for all
+          using (true) with check (true);
+
+     3) Dans index.html, charge la lib Supabase juste avant app.js :
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+     4) Mets SUPABASE_URL et SUPABASE_ANON_KEY ci-dessous.
+*/
+// ====== CONFIG SUPABASE ======
+const SUPABASE_URL = window.SUPABASE_URL || "https://YOUR-PROJECT.supabase.co"; // ← remplace
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "YOUR-ANON-KEY";          // ← remplace
+const supabase = (window.supabase && window.supabase.createClient)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+(function(){
+  if (!supabase) {
+    console.warn("Supabase client non chargé. Ajoute le script CDN dans index.html.");
+    return;
+  }
+
+  const SYNC_INTERVAL_MS = 10000;
+  const LAST_PULL_KEY = "events_last_pull_ms";
+  const SHADOW_KEY = "events_shadow_v1";
+
+  function isAdminUser(){
+    return window.currentUser && window.currentUser.role === 'admin' && window.currentUser.approved === true;
+  }
+  function loadLocal(){ try{ return JSON.parse(localStorage.getItem("events")||"[]") }catch{ return [] } }
+  function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)) }
+  function setEventsAndRender(list){
+    try { window.events = list.slice().sort((a,b)=> new Date(a.start)-new Date(b.start)); } catch {}
+    saveLocal(window.events);
+    try {
+      if (window.calendar) {
+        window.calendar.removeAllEvents();
+        window.calendar.addEventSource(window.events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })));
+      } else if (typeof renderCalendar === 'function') {
+        renderCalendar();
+      }
+    } catch(e){ console.error(e); }
+  }
+  function hashOf(e){
+    return JSON.stringify({title:e.title,start:e.start,allDay:!!e.allDay,reminderMinutes:(e.reminderMinutes ?? null),deleted:!!e.deleted});
+  }
+  function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
+  function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
+
+  async function pushDiff(){
+    const local = loadLocal();
+    const shadow = readShadow();
+    const upserts = [];
+    const deletes = [];
+    const now = Date.now();
+
+    const byId = new Map(local.map(e=>[e.id,e]));
+
+    for(const ev of local){
+      const h = hashOf(ev);
+      if (shadow[ev.id] !== h){
+        upserts.push({
+          id: String(ev.id),
+          title: String(ev.title||""),
+          start: String(ev.start||""),
+          all_day: !!ev.allDay,
+          reminder_minutes: (ev.reminderMinutes==null? null : Number(ev.reminderMinutes)),
+          updated_at: now,
+          deleted: !!ev.deleted
+        });
+      }
+    }
+    for(const id in shadow){
+      if (!byId.has(id)){
+        deletes.push(id);
+      }
+    }
+
+    if (upserts.length){
+      const { error } = await supabase.from("events").upsert(upserts, { onConflict: "id" });
+      if (error) console.warn("upsert error", error.message);
+    }
+    if (deletes.length){
+      const rows = deletes.map(id => ({
+        id: String(id),
+        title: "",
+        start: "",
+        all_day: false,
+        reminder_minutes: null,
+        updated_at: now,
+        deleted: true
+      }));
+      const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+      if (error) console.warn("delete mark error", error.message);
+    }
+
+    const newShadow = {};
+    for(const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
+    writeShadow(newShadow);
+  }
+
+  async function pull(initial=false){
+    let since = 0;
+    try { since = initial ? 0 : Number(localStorage.getItem(LAST_PULL_KEY)||0) } catch {}
+    let q = supabase.from("events").select("*");
+    if (since > 0) q = q.gt("updated_at", since);
+    const { data, error } = await q.order("updated_at", { ascending: true });
+    if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+
+    if (!data || !data.length){
+      if (initial) await pushDiff();
+      localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
+      return;
+    }
+    const local = loadLocal();
+    const map = new Map(local.map(e=>[e.id,e]));
+    for(const r of data){
+      if (r.deleted){ map.delete(r.id); continue; }
+      map.set(r.id, {
+        id: String(r.id),
+        title: String(r.title||""),
+        start: String(r.start||""),
+        allDay: !!r.all_day,
+        reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
+      });
+    }
+    const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
+    setEventsAndRender(merged);
+
+    const shadow = {};
+    for(const ev of merged) shadow[ev.id] = hashOf(ev);
+    writeShadow(shadow);
+    localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
+  }
+
+  let timer=null;
+  function startSync(){
+    clearInterval(timer);
+    timer = setInterval(async ()=>{ await pushDiff(); await pull(false); }, 10000);
+  }
+
+  const _onEventClick = window.onEventClick;
+  window.onEventClick = function(info){
+    if (!isAdminUser()){
+      try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
+      return;
+    }
+    return _onEventClick ? _onEventClick(info) : undefined;
+  };
+  const _deleteEvent = window.deleteEvent;
+  window.deleteEvent = function(single){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _deleteEvent ? _deleteEvent(single) : undefined;
+  };
+  const _confirmDelete = window.confirmDelete;
+  window.confirmDelete = function(type){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _confirmDelete ? _confirmDelete(type) : undefined;
+  };
+  const _confirmDeleteSeries = window.confirmDeleteSeries;
+  window.confirmDeleteSeries = function(){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _confirmDeleteSeries ? _confirmDeleteSeries() : undefined;
+  };
+
+  const _saveEvent = window.saveEvent;
+  window.saveEvent = async function(){
+    const editId = document.getElementById("event-form")?.dataset?.editId;
+    if (editId && !isAdminUser()){ alert("Seul un admin peut modifier un RDV existant."); return; }
+    const r = _saveEvent ? await _saveEvent() : undefined;
+    await pushDiff();
+    return r;
+  };
+
+  // Enregistrer l’abonnement push dans Supabase (au lieu de /subscribe Render)
+  const _enablePush = window.enablePush;
+  window.enablePush = async function(){
+    try {
+      await (_enablePush ? _enablePush() : Promise.resolve());
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub){
+        const { keys } = sub.toJSON();
+        const ua = navigator.userAgent || "unknown";
+        const { error } = await supabase.from("subscriptions").upsert({
+          endpoint: sub.endpoint,
+          p256dh: keys.p256dh,
+          auth: keys.auth,
+          ua,
+          created_at: Date.now()
+        });
+        if (error) console.warn("sub upsert error", error.message);
+      }
+    } catch(e) { console.warn(e); }
+  };
+
+  const _showApp = window.showApp;
+  window.showApp = async function(){
+    const r = _showApp ? _showApp() : undefined;
+    await pull(true);
+    startSync();
+    return r;
+  };
+})();
