@@ -939,92 +939,63 @@ Object.assign(window, {
 });
 
 
-/* ======================= SUPABASE SYNC PATCH (100% gratuit) =======================
-   Remplace Render pour la synchro multi-appareils en utilisant Supabase (Free Tier).
-   Étapes côté Supabase:
-     1) Crée un projet → copie SUPABASE_URL et SUPABASE_ANON_KEY.
-     2) SQL (dans SQL editor) :
-        -- TABLE events
-        create table if not exists events (
-          id text primary key,
-          title text not null,
-          start text not null,
-          all_day boolean default false,
-          reminder_minutes int,
-          updated_at bigint not null,
-          deleted boolean default false
-        );
-        -- TABLE subscriptions (pour les push)
-        create table if not exists subscriptions (
-          endpoint text primary key,
-          p256dh text not null,
-          auth text not null,
-          ua text,
-          created_at bigint not null
-        );
-        -- RLS (politiques simples; à durcir si besoin)
-        alter table events enable row level security;
-        create policy "events_all"
-          on events for all
-          using (true) with check (true);
-        alter table subscriptions enable row level security;
-        create policy "subs_all"
-          on subscriptions for all
-          using (true) with check (true);
-
-     3) Dans index.html, charge la lib Supabase juste avant app.js :
-        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-     4) Mets SUPABASE_URL et SUPABASE_ANON_KEY ci-dessous.
-*/
 // ====== CONFIG SUPABASE ======
-const SUPABASE_URL = window.SUPABASE_URL || "https://YOUR-PROJECT.supabase.co"; // ← remplace
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "YOUR-ANON-KEY";          // ← remplace
+
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";   // <-- remplace par ton Project URL
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";                 // <-- remplace par ta anon public key
 const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
 (function(){
   if (!supabase) {
-    console.warn("Supabase client non chargé. Ajoute le script CDN dans index.html.");
+    console.warn("Supabase non chargé : vérifie la balise <script supabase-js> AVANT app.js.");
     return;
   }
 
-  const SYNC_INTERVAL_MS = 10000;
   const LAST_PULL_KEY = "events_last_pull_ms";
   const SHADOW_KEY = "events_shadow_v1";
 
+  // ==== Admin: détection simple & robuste
   function isAdminUser(){
-    return window.currentUser && window.currentUser.role === 'admin' && window.currentUser.approved === true;
+    try {
+      if (window.currentUser && window.currentUser.role === 'admin') return true;
+      const users = JSON.parse(localStorage.getItem("users") || "[]");
+      const email = (document.getElementById("welcome")?.textContent || "")
+        .replace("Bonjour","").trim();
+      const me = users.find(u => u.email === email);
+      return !!(me && me.role === 'admin'); // pas de check "approved"
+    } catch { return false; }
   }
+
+  // ==== Offline-first helpers
   function loadLocal(){ try{ return JSON.parse(localStorage.getItem("events")||"[]") }catch{ return [] } }
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)) }
   function setEventsAndRender(list){
     try { window.events = list.slice().sort((a,b)=> new Date(a.start)-new Date(b.start)); } catch {}
     saveLocal(window.events);
-    try {
-      if (window.calendar) {
-        window.calendar.removeAllEvents();
-        window.calendar.addEventSource(window.events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })));
-      } else if (typeof renderCalendar === 'function') {
-        renderCalendar();
-      }
-    } catch(e){ console.error(e); }
+    // On évite window.calendar.removeAllEvents (conflit avec l'élément DOM #calendar)
+    // On rerend simplement le calendrier depuis events
+    try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
   }
   function hashOf(e){
-    return JSON.stringify({title:e.title,start:e.start,allDay:!!e.allDay,reminderMinutes:(e.reminderMinutes ?? null),deleted:!!e.deleted});
+    return JSON.stringify({
+      title:e.title, start:e.start, allDay:!!e.allDay,
+      reminderMinutes:(e.reminderMinutes ?? null), deleted:!!e.deleted
+    });
   }
   function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
 
+  // ==== Push local → serveur (upsert + tombstones)
   async function pushDiff(){
     const local = loadLocal();
     const shadow = readShadow();
-    const upserts = [];
-    const deletes = [];
     const now = Date.now();
 
     const byId = new Map(local.map(e=>[e.id,e]));
+    const upserts = [];
+    const deletes = [];
 
     for(const ev of local){
       const h = hashOf(ev);
@@ -1041,9 +1012,7 @@ const supabase = (window.supabase && window.supabase.createClient)
       }
     }
     for(const id in shadow){
-      if (!byId.has(id)){
-        deletes.push(id);
-      }
+      if (!byId.has(id)) deletes.push(id);
     }
 
     if (upserts.length){
@@ -1052,13 +1021,8 @@ const supabase = (window.supabase && window.supabase.createClient)
     }
     if (deletes.length){
       const rows = deletes.map(id => ({
-        id: String(id),
-        title: "",
-        start: "",
-        all_day: false,
-        reminder_minutes: null,
-        updated_at: now,
-        deleted: true
+        id: String(id), title:"", start:"", all_day:false,
+        reminder_minutes:null, updated_at: now, deleted: true
       }));
       const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
       if (error) console.warn("delete mark error", error.message);
@@ -1069,6 +1033,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     writeShadow(newShadow);
   }
 
+  // ==== Pull serveur → local (merge par updated_at)
   async function pull(initial=false){
     let since = 0;
     try { since = initial ? 0 : Number(localStorage.getItem(LAST_PULL_KEY)||0) } catch {}
@@ -1078,7 +1043,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
 
     if (!data || !data.length){
-      if (initial) await pushDiff();
+      if (initial) await pushDiff(); // premier run: on pousse nos events si serveur vide
       localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
       return;
     }
@@ -1103,19 +1068,28 @@ const supabase = (window.supabase && window.supabase.createClient)
     localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
   }
 
-  let timer=null;
-  function startSync(){
-    clearInterval(timer);
-    timer = setInterval(async ()=>{ await pushDiff(); await pull(false); }, 10000);
-  }
+  // ==== Cycle de sync (offline-first + backoff + reprise immédiate)
+  let timer=null, backoff=10_000; // 10s
+  const MAX_BACKOFF=300_000;      // 5 min
 
+  async function safeSync() {
+    try { await pushDiff(); await pull(false); backoff = 10_000; }
+    catch { backoff = Math.min(backoff * 2, MAX_BACKOFF); }
+    finally { clearTimeout(timer); timer = setTimeout(safeSync, backoff); }
+  }
+  function startSync(){ clearTimeout(timer); backoff = 10_000; timer = setTimeout(safeSync, 500); }
+  window.addEventListener("online", () => { backoff = 1_000; clearTimeout(timer); timer = setTimeout(safeSync, 100); });
+  window.addEventListener("offline", () => { console.warn("Hors-ligne: on garde localement, sync au retour réseau."); });
+
+  // ==== Rôles: non-admin = lecture seule (admin = formulaire)
   const _onEventClick = window.onEventClick;
   window.onEventClick = function(info){
-    if (!isAdminUser()){
+    if (isAdminUser()) {
+      return _onEventClick ? _onEventClick(info) : undefined; // formulaire
+    } else {
       try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
-      return;
+      return; // résumé jour
     }
-    return _onEventClick ? _onEventClick(info) : undefined;
   };
   const _deleteEvent = window.deleteEvent;
   window.deleteEvent = function(single){
@@ -1133,6 +1107,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     return _confirmDeleteSeries ? _confirmDeleteSeries() : undefined;
   };
 
+  // ==== Pousser après ajout/édition
   const _saveEvent = window.saveEvent;
   window.saveEvent = async function(){
     const editId = document.getElementById("event-form")?.dataset?.editId;
@@ -1142,7 +1117,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     return r;
   };
 
-  // Enregistrer l’abonnement push dans Supabase (au lieu de /subscribe Render)
+  // ==== Enregistrer l’abonnement push dans Supabase (remplace /subscribe Render)
   const _enablePush = window.enablePush;
   window.enablePush = async function(){
     try {
@@ -1164,6 +1139,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     } catch(e) { console.warn(e); }
   };
 
+  // ==== Lancer la sync au login / affichage app
   const _showApp = window.showApp;
   window.showApp = async function(){
     const r = _showApp ? _showApp() : undefined;
@@ -1173,8 +1149,10 @@ const supabase = (window.supabase && window.supabase.createClient)
   };
 })();
 
+
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
