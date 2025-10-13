@@ -968,11 +968,35 @@ const supabase = (window.supabase && window.supabase.createClient)
   // ==== Local helpers
   function loadLocal() { try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
   function saveLocal(arr) { localStorage.setItem("events", JSON.stringify(arr)); }
+
+  // --- Rendu avec normalisation: évènements horodatés => allDay:false + end = start+30min
   function setEventsAndRender(list) {
-    try { window.events = list.slice().sort((a, b) => new Date(a.start) - new Date(b.start)); } catch {}
+    function normalize(ev) {
+      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+      const hasTime = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+      let endISO;
+      if (hasTime) {
+        const d = new Date(startStr);
+        d.setMinutes(d.getMinutes() + 30);
+        endISO = d.toISOString();
+      }
+      return {
+        ...ev,
+        start: startStr,
+        end: endISO,                // utile si ton renderCalendar tient compte de end
+        allDay: hasTime ? false : !!ev.allDay
+      };
+    }
+
+    try {
+      const normalized = (list || []).map(normalize)
+        .sort((a, b) => new Date(a.start) - new Date(b.start));
+      window.events = normalized;
+    } catch {}
     saveLocal(window.events);
     try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
   }
+
   function hashOf(e) {
     return JSON.stringify({
       title: e.title, start: e.start, allDay: !!e.allDay,
@@ -990,6 +1014,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     bus = supabase.channel("rdv-bus", { config: { broadcast: { ack: true } } });
 
     bus.on("broadcast", { event: "events-updated" }, () => {
+      console.log("[BUS] received events-updated -> pull()");
       clearTimeout(window._pullDeb);
       window._pullDeb = setTimeout(() => pull(false), 200);
     });
@@ -1019,6 +1044,9 @@ const supabase = (window.supabase && window.supabase.createClient)
 
   // ==== Push local → serveur
   async function pushDiff() {
+    ensureBus();
+    console.log("[BUS] pushDiff start");
+
     const local = loadLocal();
     const shadow = readShadow();
     const now = Date.now();
@@ -1029,11 +1057,13 @@ const supabase = (window.supabase && window.supabase.createClient)
     for (const ev of local) {
       const h = hashOf(ev);
       if (shadow[ev.id] !== h) {
+        const startStr = String(ev.start || "");
+        const hasTime = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
         upserts.push({
           id: String(ev.id),
           title: String(ev.title || ""),
-          start: String(ev.start || ""),
-          all_day: !!ev.allDay,
+          start: startStr,
+          all_day: hasTime ? false : !!ev.allDay,
           reminder_minutes: (ev.reminderMinutes == null ? null : Number(ev.reminderMinutes)),
           updated_at: now,
           deleted: !!ev.deleted
@@ -1059,7 +1089,8 @@ const supabase = (window.supabase && window.supabase.createClient)
     for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
 
-    await busNotify(); // annoncer aux autres onglets
+    console.log("[BUS] sending events-updated");
+    await busNotify(); // annonce aux autres onglets
   }
 
   // ==== Pull serveur → local (merge par updated_at) avec DRIFT
@@ -1148,14 +1179,45 @@ const supabase = (window.supabase && window.supabase.createClient)
   };
 
   // ==== Pousser après ajout/édition
-  const _saveEvent = window.saveEvent;
-  window.saveEvent = async function () {
-    const editId = document.getElementById("event-form")?.dataset?.editId;
-    if (editId && !isAdminUser()) { alert("Seul un admin peut modifier un RDV existant."); return; }
-    const r = _saveEvent ? await _saveEvent() : undefined;
-    await pushDiff();
-    return r;
-  };
+ // ==== Pousser après ajout/édition (avec NORMALISATION pour “rentrer dans la case”)
+const _saveEvent = window.saveEvent;
+window.saveEvent = async function () {
+  const editId = document.getElementById("event-form")?.dataset?.editId;
+  if (editId && !isAdminUser()) { alert("Seul un admin peut modifier un RDV existant."); return; }
+
+  // 1) appel de ta saveEvent d’origine (lit le formulaire, ajoute/modifie window.events)
+  const r = _saveEvent ? await _saveEvent() : undefined;
+
+  // 2) NORMALISATION des RDV “manuels” : si l’événement a une heure, on force allDay:false + end = start +30min
+  if (Array.isArray(window.events)) {
+    window.events = window.events.map(ev => {
+      // start en string ISO
+      const s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+      // “horodaté” si la string contient une heure
+      const hasTime = s.includes("T") || /\d{2}:\d{2}/.test(s);
+
+      if (!hasTime) {
+        // vrai all-day (ex: depuis certains imports) -> on ne touche pas
+        return ev;
+      }
+
+      // fin = +30 minutes
+      const d = new Date(s);
+      const endISO = new Date(d.getTime() + 30 * 60 * 1000).toISOString();
+
+      return { ...ev, start: s, end: endISO, allDay: false };
+    });
+
+    // 3) re-render avec les valeurs normalisées (les RDV “rentrent” dans la case du jour)
+    try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
+  }
+
+  // 4) sync + broadcast pour l’autre appareil/onglet
+  await pushDiff();
+
+  return r;
+};
+
 
   // ==== Abonnement push (stockage)
   const _enablePush = window.enablePush;
@@ -1184,7 +1246,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     startSync();          // secours/offline
     return r;
   };
-})(); // <-- FIN DU BLOC, bien fermer !
+})();
 
 
 
@@ -1192,6 +1254,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
