@@ -941,8 +941,9 @@ Object.assign(window, {
 
 // ====== CONFIG SUPABASE ======
 
-const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";   // <-- remplace par ton Project URL
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";                 // <-- remplace par ta anon public key
+
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";   // ton Project URL
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M"; // ta anon key
 const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
@@ -974,8 +975,6 @@ const supabase = (window.supabase && window.supabase.createClient)
   function setEventsAndRender(list){
     try { window.events = list.slice().sort((a,b)=> new Date(a.start)-new Date(b.start)); } catch {}
     saveLocal(window.events);
-    // On évite window.calendar.removeAllEvents (conflit avec l'élément DOM #calendar)
-    // On rerend simplement le calendrier depuis events
     try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
   }
   function hashOf(e){
@@ -987,7 +986,7 @@ const supabase = (window.supabase && window.supabase.createClient)
   function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
 
-  // ==== Push local → serveur (upsert + tombstones)
+  // ==== Push local → serveur (upsert + tombstones) + Broadcast
   async function pushDiff(){
     const local = loadLocal();
     const shadow = readShadow();
@@ -1031,6 +1030,19 @@ const supabase = (window.supabase && window.supabase.createClient)
     const newShadow = {};
     for(const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
+
+    // >>> Annoncer aux autres onglets (Broadcast)
+    try {
+      if (window._bus) {
+        await window._bus.send({
+          type: 'broadcast',
+          event: 'events-updated',
+          payload: { ts: Date.now() }
+        });
+      }
+    } catch (e) {
+      console.warn('[BUS] send failed', e);
+    }
   }
 
   // ==== Pull serveur → local (merge par updated_at)
@@ -1071,7 +1083,6 @@ const supabase = (window.supabase && window.supabase.createClient)
   // ==== Cycle de sync (offline-first + backoff + reprise immédiate)
   let timer=null, backoff=10_000; // 10s
   const MAX_BACKOFF=300_000;      // 5 min
-
   async function safeSync() {
     try { await pushDiff(); await pull(false); backoff = 10_000; }
     catch { backoff = Math.min(backoff * 2, MAX_BACKOFF); }
@@ -1139,42 +1150,76 @@ const supabase = (window.supabase && window.supabase.createClient)
     } catch(e) { console.warn(e); }
   };
 
-  // ==== Lancer la sync au login / affichage app
+  // ==== Lancer la sync + Realtime Broadcast
   const _showApp = window.showApp;
-  window.showApp = async function(){
+  window.showApp = async function () {
     const r = _showApp ? _showApp() : undefined;
+
+    // 1) Pull initial
     await pull(true);
-    // ===== Realtime: MAJ instantanée quand la table "events" change
-let rtDebounce = null;
-function debouncedPull() {
-  clearTimeout(rtDebounce);
-  rtDebounce = setTimeout(() => pull(false), 300); // évite le spam si plusieurs lignes changent
-}
 
-// Abonnement Supabase Realtime (INSERT/UPDATE/DELETE sur public.events)
-const rtChannel = supabase.channel('events-rt')
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-    debouncedPull(); // tire les dernières données
-  })
-  .subscribe(status => {
-    console.log('Realtime status:', status);
-  });
+    // 2) Canal BROADCAST (temps réel sans réplication)
+    if (!window._broadcastInited && supabase) {
+      window._broadcastInited = true;
 
-// Nettoyage si besoin (facultatif)
-window.addEventListener('beforeunload', () => {
-  try { supabase.removeChannel(rtChannel); } catch {}
-});
+      // Nettoyer d'éventuels canaux orphelins
+      try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
 
+      window._bus = supabase.channel('rdv-bus', { config: { broadcast: { ack: true } } });
+
+      window._bus.on('broadcast', { event: 'events-updated' }, () => {
+        clearTimeout(window._pullDeb);
+        window._pullDeb = setTimeout(() => pull(false), 200);
+      });
+
+      window._bus.subscribe((status) => {
+        console.log('[BUS] status:', status); // attendu: 'SUBSCRIBED'
+      });
+
+      window.addEventListener('beforeunload', () => {
+        try { supabase.removeChannel(window._bus); } catch {}
+        window._broadcastInited = false;
+      });
+    }
+
+    // 3) (Optionnel) Realtime Postgres (si activé côté Supabase) — non bloquant
+    if (!window._rtInited && supabase) {
+      window._rtInited = true;
+      let rtDebounce = null;
+      const debouncedPull = () => {
+        clearTimeout(rtDebounce);
+        rtDebounce = setTimeout(() => pull(false), 300);
+      };
+      try {
+        window._rtChannel = supabase
+          .channel('events-rt')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+            debouncedPull();
+          })
+          .subscribe((status) => console.log('[RT] status:', status));
+      } catch(e) {
+        console.warn('[RT] init error', e);
+      }
+      window.addEventListener('beforeunload', () => {
+        try { supabase.removeChannel(window._rtChannel); } catch {}
+        window._rtInited = false;
+      });
+    }
+
+    // 4) Cycle de sync périodique (secours/offline)
     startSync();
+
     return r;
   };
 })();
+
 
 
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
