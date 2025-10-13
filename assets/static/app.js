@@ -1073,90 +1073,213 @@ const supabase = (window.supabase && window.supabase.createClient)
   }
 
   // ==== Pull serveur → local (merge par updated_at)
- // ---- remplace TOUTE ta fonction pull(...) par ceci
-async function pull(initial = false){
-  // On utilise un curseur "à rebours" pour absorber les décalages d'horloge
-  const DRIFT_MS = 60000; // 60s de marge
-  let since = 0;
-  try { since = Number(localStorage.getItem(LAST_PULL_KEY) || 0); } catch {}
-  const sinceWithDrift = Math.max(0, since - DRIFT_MS);
+// ====== CONFIG SUPABASE ======
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";
+const supabase = (window.supabase && window.supabase.createClient)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
-  let q = supabase.from("events").select("*");
-  if (!initial && since > 0) q = q.gt("updated_at", sinceWithDrift);
+(function(){
+  if (!supabase) { console.warn("Supabase non chargé."); return; }
 
-  const { data, error } = await q.order("updated_at", { ascending: true });
-  if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+  const LAST_PULL_KEY = "events_last_pull_ms";
+  const SHADOW_KEY    = "events_shadow_v1";
 
-  // s'il n'y a rien de neuf, NE PAS avancer le curseur (évite de rater le prochain write)
-  if (!data || !data.length){
-    if (initial) await pushDiff(); // premier run: on pousse nos events si serveur vide
-    return;
+  // ==== Admin simple
+  function isAdminUser(){
+    try {
+      if (window.currentUser && window.currentUser.role === 'admin') return true;
+      const users = JSON.parse(localStorage.getItem("users") || "[]");
+      const email = (document.getElementById("welcome")?.textContent || "")
+        .replace("Bonjour","").trim();
+      const me = users.find(u => u.email === email);
+      return !!(me && me.role === 'admin');
+    } catch { return false; }
   }
 
-  const local = loadLocal();
-  const map = new Map(local.map(e=>[e.id,e]));
-  let maxUpdated = since; // on garde le max serveur vu
-
-  for(const r of data){
-    if (typeof r.updated_at === "number") maxUpdated = Math.max(maxUpdated, r.updated_at);
-    if (r.deleted){ map.delete(r.id); continue; }
-    map.set(r.id, {
-      id: String(r.id),
-      title: String(r.title||""),
-      start: String(r.start||""),
-      allDay: !!r.all_day,
-      reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
+  // ==== Local helpers
+  function loadLocal(){ try{ return JSON.parse(localStorage.getItem("events")||"[]") }catch{ return [] } }
+  function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)) }
+  function setEventsAndRender(list){
+    try { window.events = list.slice().sort((a,b)=> new Date(a.start)-new Date(b.start)); } catch {}
+    saveLocal(window.events);
+    try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
+  }
+  function hashOf(e){
+    return JSON.stringify({
+      title:e.title, start:e.start, allDay:!!e.allDay,
+      reminderMinutes:(e.reminderMinutes ?? null), deleted:!!e.deleted
     });
   }
+  function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
+  function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
 
-  const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
-  setEventsAndRender(merged);
+  // ========= BROADCAST ROBUSTE (file d’attente + ready)
+  let bus = null, busReady = false, busQueue = [];
+  function ensureBus() {
+    if (bus) return;
+    try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
+    bus = supabase.channel('rdv-bus', { config: { broadcast: { ack: true } } });
 
-  const shadow = {};
-  for(const ev of merged) shadow[ev.id] = hashOf(ev);
-  writeShadow(shadow);
+    bus.on('broadcast', { event: 'events-updated' }, () => {
+      clearTimeout(window._pullDeb);
+      window._pullDeb = setTimeout(() => pull(false), 200);
+    });
 
-  // IMPORTANT: on avance le curseur au MAX updated_at SERVEUR, pas à Date.now()
-  localStorage.setItem(LAST_PULL_KEY, String(maxUpdated));
-}
+    bus.subscribe((status) => {
+      console.log('[BUS] status:', status);
+      if (status === 'SUBSCRIBED') {
+        busReady = true;
+        const q = busQueue.slice(); busQueue = [];
+        q.forEach(p => bus.send(p).catch(()=>{}));
+      }
+    });
 
+    window.addEventListener('beforeunload', () => {
+      try { supabase.removeChannel(bus); } catch {}
+      bus = null; busReady = false; busQueue = [];
+    });
+  }
+  async function busNotify() {
+    ensureBus();
+    const payload = { type: 'broadcast', event: 'events-updated', payload: { ts: Date.now() } };
+    try {
+      if (busReady) await bus.send(payload);
+      else busQueue.push(payload);
+    } catch(e) { console.warn('[BUS] send failed', e); }
+  }
 
-  // ==== Cycle de sync (offline-first + backoff + reprise immédiate)
-  let timer=null, backoff=10_000; // 10s
-  const MAX_BACKOFF=300_000;      // 5 min
+  // ==== Push local → serveur
+  async function pushDiff(){
+    const local  = loadLocal();
+    const shadow = readShadow();
+    const now    = Date.now();
+
+    const byId   = new Map(local.map(e=>[e.id,e]));
+    const upserts = [], deletes = [];
+
+    for(const ev of local){
+      const h = hashOf(ev);
+      if (shadow[ev.id] !== h){
+        upserts.push({
+          id: String(ev.id),
+          title: String(ev.title||""),
+          start: String(ev.start||""),
+          all_day: !!ev.allDay,
+          reminder_minutes: (ev.reminderMinutes==null? null : Number(ev.reminderMinutes)),
+          updated_at: now,
+          deleted: !!ev.deleted
+        });
+      }
+    }
+    for(const id in shadow){ if (!byId.has(id)) deletes.push(id); }
+
+    if (upserts.length){
+      const { error } = await supabase.from("events").upsert(upserts, { onConflict: "id" });
+      if (error) console.warn("upsert error", error.message);
+    }
+    if (deletes.length){
+      const rows = deletes.map(id => ({
+        id: String(id), title:"", start:"", all_day:false,
+        reminder_minutes:null, updated_at: now, deleted: true
+      }));
+      const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+      if (error) console.warn("delete mark error", error.message);
+    }
+
+    const newShadow = {};
+    for(const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
+    writeShadow(newShadow);
+
+    // annoncer aux autres onglets
+    await busNotify();
+  }
+
+  // ==== Pull serveur → local (merge par updated_at) AVEC DRIFT
+  async function pull(initial = false){
+    const DRIFT_MS = 60000; // 60s de marge
+    let since = 0;
+    try { since = Number(localStorage.getItem(LAST_PULL_KEY) || 0); } catch {}
+    const sinceWithDrift = Math.max(0, since - DRIFT_MS);
+
+    let q = supabase.from("events").select("*");
+    if (!initial && since > 0) q = q.gt("updated_at", sinceWithDrift);
+
+    const { data, error } = await q.order("updated_at", { ascending: true });
+    if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+
+    if (!data || !data.length){
+      if (initial) await pushDiff();
+      return; // NE PAS avancer le curseur si rien
+    }
+
+    const local = loadLocal();
+    const map = new Map(local.map(e=>[e.id,e]));
+    let maxUpdated = since;
+
+    for(const r of data){
+      if (typeof r.updated_at === "number") maxUpdated = Math.max(maxUpdated, r.updated_at);
+      if (r.deleted){ map.delete(r.id); continue; }
+      map.set(r.id, {
+        id: String(r.id),
+        title: String(r.title||""),
+        start: String(r.start||""),
+        allDay: !!r.all_day,
+        reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
+      });
+    }
+
+    const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
+    setEventsAndRender(merged);
+
+    const shadow = {};
+    for(const ev of merged) shadow[ev.id] = hashOf(ev);
+    writeShadow(shadow);
+
+    // avancer le curseur au MAX vu côté serveur
+    localStorage.setItem(LAST_PULL_KEY, String(maxUpdated));
+  }
+
+  // ==== Cycle de sync (offline-first + backoff)
+  let timer=null, backoff=10_000;
+  const MAX_BACKOFF=300_000;
   async function safeSync() {
     try { await pushDiff(); await pull(false); backoff = 10_000; }
     catch { backoff = Math.min(backoff * 2, MAX_BACKOFF); }
     finally { clearTimeout(timer); timer = setTimeout(safeSync, backoff); }
   }
   function startSync(){ clearTimeout(timer); backoff = 10_000; timer = setTimeout(safeSync, 500); }
-  window.addEventListener("online", () => { backoff = 1_000; clearTimeout(timer); timer = setTimeout(safeSync, 100); });
-  window.addEventListener("offline", () => { console.warn("Hors-ligne: on garde localement, sync au retour réseau."); });
+  window.addEventListener("online",  () => { backoff = 1_000; clearTimeout(timer); timer = setTimeout(safeSync, 100); });
+  window.addEventListener("offline", () => { console.warn("Hors-ligne: local puis sync au retour réseau."); });
 
-  // ==== Rôles: non-admin = lecture seule (admin = formulaire)
+  // ==== Rôles
   const _onEventClick = window.onEventClick;
   window.onEventClick = function(info){
-    if (isAdminUser()) {
-      return _onEventClick ? _onEventClick(info) : undefined; // formulaire
-    } else {
-      try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
-      return; // résumé jour
-    }
+    if (isAdminUser()) return _onEventClick ? _onEventClick(info) : undefined;
+    try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
+    return;
   };
   const _deleteEvent = window.deleteEvent;
-  window.deleteEvent = function(single){
+  window.deleteEvent = async function(single){
     if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
-    return _deleteEvent ? _deleteEvent(single) : undefined;
+    const r = _deleteEvent ? await _deleteEvent(single) : undefined;
+    await pushDiff();
+    return r;
   };
   const _confirmDelete = window.confirmDelete;
-  window.confirmDelete = function(type){
+  window.confirmDelete = async function(type){
     if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
-    return _confirmDelete ? _confirmDelete(type) : undefined;
+    const r = _confirmDelete ? await _confirmDelete(type) : undefined;
+    await pushDiff();
+    return r;
   };
   const _confirmDeleteSeries = window.confirmDeleteSeries;
-  window.confirmDeleteSeries = function(){
+  window.confirmDeleteSeries = async function(){
     if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
-    return _confirmDeleteSeries ? _confirmDeleteSeries() : undefined;
+    const r = _confirmDeleteSeries ? await _confirmDeleteSeries() : undefined;
+    await pushDiff();
+    return r;
   };
 
   // ==== Pousser après ajout/édition
@@ -1169,7 +1292,7 @@ async function pull(initial = false){
     return r;
   };
 
-  // ==== Enregistrer l’abonnement push dans Supabase (remplace /subscribe Render)
+  // ==== Abonnement push (stockage abonnement)
   const _enablePush = window.enablePush;
   window.enablePush = async function(){
     try {
@@ -1180,31 +1303,21 @@ async function pull(initial = false){
         const { keys } = sub.toJSON();
         const ua = navigator.userAgent || "unknown";
         const { error } = await supabase.from("subscriptions").upsert({
-          endpoint: sub.endpoint,
-          p256dh: keys.p256dh,
-          auth: keys.auth,
-          ua,
-          created_at: Date.now()
+          endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth,
+          ua, created_at: Date.now()
         });
         if (error) console.warn("sub upsert error", error.message);
       }
     } catch(e) { console.warn(e); }
   };
 
-  // ==== Lancer la sync + abonner le bus
+  // ==== Démarrage
   const _showApp = window.showApp;
   window.showApp = async function () {
     const r = _showApp ? _showApp() : undefined;
-
-    // 1) Pull initial
-    await pull(true);
-
-    // 2) Abonner le bus (broadcast)
-    ensureBus();
-
-    // 3) Cycle périodique (secours/offline)
-    startSync();
-
+    await pull(true);     // pull initial
+    ensureBus();          // abonne le canal broadcast
+    startSync();          // secours/offline
     return r;
   };
 })();
@@ -1216,6 +1329,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
