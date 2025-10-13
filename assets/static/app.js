@@ -983,7 +983,7 @@ const supabase = (window.supabase && window.supabase.createClient)
       return {
         ...ev,
         start: startStr,
-        end: endISO,                // utile si ton renderCalendar tient compte de end
+        end: endISO,
         allDay: hasTime ? false : !!ev.allDay
       };
     }
@@ -1013,10 +1013,11 @@ const supabase = (window.supabase && window.supabase.createClient)
     try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
     bus = supabase.channel("rdv-bus", { config: { broadcast: { ack: true } } });
 
+    // >>> Forcer un PULL COMPLET à la réception du signal (fiable)
     bus.on("broadcast", { event: "events-updated" }, () => {
-      console.log("[BUS] received events-updated -> pull()");
+      console.log("[BUS] received events-updated -> pull(full)");
       clearTimeout(window._pullDeb);
-      window._pullDeb = setTimeout(() => pull(false), 200);
+      window._pullDeb = setTimeout(() => pull(true /* full */), 150);
     });
 
     bus.subscribe((status) => {
@@ -1042,7 +1043,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     } catch (e) { console.warn("[BUS] send failed", e); }
   }
 
-  // ==== Push local → serveur
+  // ==== Push local → serveur (avec await avant broadcast)
   async function pushDiff() {
     ensureBus();
     console.log("[BUS] pushDiff start");
@@ -1090,25 +1091,34 @@ const supabase = (window.supabase && window.supabase.createClient)
     writeShadow(newShadow);
 
     console.log("[BUS] sending events-updated");
-    await busNotify(); // annonce aux autres onglets
+    await busNotify();
   }
 
-  // ==== Pull serveur → local (merge par updated_at) avec DRIFT
-  async function pull(initial = false) {
-    const DRIFT_MS = 60000; // 60s de marge
+  // ==== Pull serveur → local (merge par updated_at) – FULL si demandé
+  // pull(initialOrFull) : si initialOrFull === true => FETCH COMPLET (pas de filtre)
+  async function pull(initialOrFull = false) {
+    const FULL = initialOrFull === true;        // full fetch si true
+    const DRIFT_MS = 60000;                     // marge horloge 60s
+
     let since = 0;
     try { since = Number(localStorage.getItem(LAST_PULL_KEY) || 0); } catch {}
     const sinceWithDrift = Math.max(0, since - DRIFT_MS);
 
     let q = supabase.from("events").select("*");
-    if (!initial && since > 0) q = q.gt("updated_at", sinceWithDrift);
+    if (!FULL && since > 0) {
+      q = q.gt("updated_at", sinceWithDrift);
+    }
 
     const { data, error } = await q.order("updated_at", { ascending: true });
-    if (error) { console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+    if (error) {
+      console.warn("pull error", error.message);
+      if (FULL) setEventsAndRender(loadLocal());
+      return;
+    }
 
     if (!data || !data.length) {
-      if (initial) await pushDiff();
-      return; // ne pas avancer le curseur si rien
+      if (FULL) await pushDiff(); // si serveur vide au 1er run
+      return; // ne pas avancer le curseur s'il n'y a rien
     }
 
     const local = loadLocal();
@@ -1116,7 +1126,10 @@ const supabase = (window.supabase && window.supabase.createClient)
     let maxUpdated = since;
 
     for (const r of data) {
-      if (typeof r.updated_at === "number") maxUpdated = Math.max(maxUpdated, r.updated_at);
+      // int8/bigint renvoyé en string → Number()
+      const upd = Number(r.updated_at || 0);
+      if (!Number.isNaN(upd)) maxUpdated = Math.max(maxUpdated, upd);
+
       if (r.deleted) { map.delete(r.id); continue; }
       map.set(r.id, {
         id: String(r.id),
@@ -1149,7 +1162,7 @@ const supabase = (window.supabase && window.supabase.createClient)
   window.addEventListener("online", () => { backoff = 1_000; clearTimeout(timer); timer = setTimeout(safeSync, 100); });
   window.addEventListener("offline", () => { console.warn("Hors-ligne: local puis sync au retour réseau."); });
 
-  // ==== Rôles
+  // ==== Rôles / protections UI
   const _onEventClick = window.onEventClick;
   window.onEventClick = function (info) {
     if (isAdminUser()) return _onEventClick ? _onEventClick(info) : undefined;
@@ -1178,46 +1191,31 @@ const supabase = (window.supabase && window.supabase.createClient)
     return r;
   };
 
-  // ==== Pousser après ajout/édition
- // ==== Pousser après ajout/édition (avec NORMALISATION pour “rentrer dans la case”)
-const _saveEvent = window.saveEvent;
-window.saveEvent = async function () {
-  const editId = document.getElementById("event-form")?.dataset?.editId;
-  if (editId && !isAdminUser()) { alert("Seul un admin peut modifier un RDV existant."); return; }
+  // ==== Pousser après ajout/édition (normalisation “dans la case”)
+  const _saveEvent = window.saveEvent;
+  window.saveEvent = async function () {
+    const editId = document.getElementById("event-form")?.dataset?.editId;
+    if (editId && !isAdminUser()) { alert("Seul un admin peut modifier un RDV existant."); return; }
 
-  // 1) appel de ta saveEvent d’origine (lit le formulaire, ajoute/modifie window.events)
-  const r = _saveEvent ? await _saveEvent() : undefined;
+    // 1) appel d’origine
+    const r = _saveEvent ? await _saveEvent() : undefined;
 
-  // 2) NORMALISATION des RDV “manuels” : si l’événement a une heure, on force allDay:false + end = start +30min
-  if (Array.isArray(window.events)) {
-    window.events = window.events.map(ev => {
-      // start en string ISO
-      const s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-      // “horodaté” si la string contient une heure
-      const hasTime = s.includes("T") || /\d{2}:\d{2}/.test(s);
+    // 2) normaliser les RDV manuels (heure -> allDay:false + end = start+30min)
+    if (Array.isArray(window.events)) {
+      window.events = window.events.map(ev => {
+        const s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+        const hasTime = s.includes("T") || /\d{2}:\d{2}/.test(s);
+        if (!hasTime) return ev;
+        const d = new Date(s); d.setMinutes(d.getMinutes() + 30);
+        return { ...ev, start: s, end: d.toISOString(), allDay: false };
+      });
+      try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
+    }
 
-      if (!hasTime) {
-        // vrai all-day (ex: depuis certains imports) -> on ne touche pas
-        return ev;
-      }
-
-      // fin = +30 minutes
-      const d = new Date(s);
-      const endISO = new Date(d.getTime() + 30 * 60 * 1000).toISOString();
-
-      return { ...ev, start: s, end: endISO, allDay: false };
-    });
-
-    // 3) re-render avec les valeurs normalisées (les RDV “rentrent” dans la case du jour)
-    try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
-  }
-
-  // 4) sync + broadcast pour l’autre appareil/onglet
-  await pushDiff();
-
-  return r;
-};
-
+    // 3) sync + broadcast
+    await pushDiff();
+    return r;
+  };
 
   // ==== Abonnement push (stockage)
   const _enablePush = window.enablePush;
@@ -1241,7 +1239,7 @@ window.saveEvent = async function () {
   const _showApp = window.showApp;
   window.showApp = async function () {
     const r = _showApp ? _showApp() : undefined;
-    await pull(true);     // pull initial
+    await pull(true);     // full pull initial
     ensureBus();          // abonne le canal broadcast
     startSync();          // secours/offline
     return r;
@@ -1254,6 +1252,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
