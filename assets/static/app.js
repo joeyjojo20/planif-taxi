@@ -940,8 +940,6 @@ Object.assign(window, {
 
 
 // ====== CONFIG SUPABASE ======
-
-
 const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";   // ton Project URL
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M"; // ta anon key
 const supabase = (window.supabase && window.supabase.createClient)
@@ -965,7 +963,7 @@ const supabase = (window.supabase && window.supabase.createClient)
       const email = (document.getElementById("welcome")?.textContent || "")
         .replace("Bonjour","").trim();
       const me = users.find(u => u.email === email);
-      return !!(me && me.role === 'admin'); // pas de check "approved"
+      return !!(me && me.role === 'admin');
     } catch { return false; }
   }
 
@@ -986,7 +984,46 @@ const supabase = (window.supabase && window.supabase.createClient)
   function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
 
-  // ==== Push local → serveur (upsert + tombstones) + Broadcast
+  // ========= BROADCAST ROBUSTE (file d’attente + ready)
+  let bus = null;
+  let busReady = false;
+  let busQueue = []; // envoie après SUBSCRIBED
+  function ensureBus() {
+    if (bus) return;
+    // nettoyer d’éventuels anciens canaux
+    try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
+    bus = supabase.channel('rdv-bus', { config: { broadcast: { ack: true } } });
+    bus.on('broadcast', { event: 'events-updated' }, () => {
+      clearTimeout(window._pullDeb);
+      window._pullDeb = setTimeout(() => pull(false), 200);
+    });
+    bus.subscribe((status) => {
+      console.log('[BUS] status:', status);
+      if (status === 'SUBSCRIBED') {
+        busReady = true;
+        // vider la file
+        const q = busQueue.slice(); busQueue = [];
+        q.forEach((p) => bus.send(p).catch(()=>{}));
+      }
+    });
+    window.addEventListener('beforeunload', () => {
+      try { supabase.removeChannel(bus); } catch {}
+      bus = null; busReady = false; busQueue = [];
+    });
+  }
+  async function busNotify() {
+    ensureBus();
+    const payload = { type: 'broadcast', event: 'events-updated', payload: { ts: Date.now() } };
+    try {
+      if (busReady) {
+        await bus.send(payload);
+      } else {
+        busQueue.push(payload); // sera envoyé dès SUBSCRIBED
+      }
+    } catch(e) { console.warn('[BUS] send failed', e); }
+  }
+
+  // ==== Push local → serveur (upsert + tombstones) + broadcast
   async function pushDiff(){
     const local = loadLocal();
     const shadow = readShadow();
@@ -1031,18 +1068,8 @@ const supabase = (window.supabase && window.supabase.createClient)
     for(const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
 
-    // >>> Annoncer aux autres onglets (Broadcast)
-    try {
-      if (window._bus) {
-        await window._bus.send({
-          type: 'broadcast',
-          event: 'events-updated',
-          payload: { ts: Date.now() }
-        });
-      }
-    } catch (e) {
-      console.warn('[BUS] send failed', e);
-    }
+    // annonce aux autres onglets
+    await busNotify();
   }
 
   // ==== Pull serveur → local (merge par updated_at)
@@ -1055,7 +1082,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
 
     if (!data || !data.length){
-      if (initial) await pushDiff(); // premier run: on pousse nos events si serveur vide
+      if (initial) await pushDiff();
       localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
       return;
     }
@@ -1150,7 +1177,7 @@ const supabase = (window.supabase && window.supabase.createClient)
     } catch(e) { console.warn(e); }
   };
 
-  // ==== Lancer la sync + Realtime Broadcast
+  // ==== Lancer la sync + abonner le bus
   const _showApp = window.showApp;
   window.showApp = async function () {
     const r = _showApp ? _showApp() : undefined;
@@ -1158,55 +1185,10 @@ const supabase = (window.supabase && window.supabase.createClient)
     // 1) Pull initial
     await pull(true);
 
-    // 2) Canal BROADCAST (temps réel sans réplication)
-    if (!window._broadcastInited && supabase) {
-      window._broadcastInited = true;
+    // 2) Abonner le bus (broadcast)
+    ensureBus();
 
-      // Nettoyer d'éventuels canaux orphelins
-      try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
-
-      window._bus = supabase.channel('rdv-bus', { config: { broadcast: { ack: true } } });
-
-      window._bus.on('broadcast', { event: 'events-updated' }, () => {
-        clearTimeout(window._pullDeb);
-        window._pullDeb = setTimeout(() => pull(false), 200);
-      });
-
-      window._bus.subscribe((status) => {
-        console.log('[BUS] status:', status); // attendu: 'SUBSCRIBED'
-      });
-
-      window.addEventListener('beforeunload', () => {
-        try { supabase.removeChannel(window._bus); } catch {}
-        window._broadcastInited = false;
-      });
-    }
-
-    // 3) (Optionnel) Realtime Postgres (si activé côté Supabase) — non bloquant
-    if (!window._rtInited && supabase) {
-      window._rtInited = true;
-      let rtDebounce = null;
-      const debouncedPull = () => {
-        clearTimeout(rtDebounce);
-        rtDebounce = setTimeout(() => pull(false), 300);
-      };
-      try {
-        window._rtChannel = supabase
-          .channel('events-rt')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-            debouncedPull();
-          })
-          .subscribe((status) => console.log('[RT] status:', status));
-      } catch(e) {
-        console.warn('[RT] init error', e);
-      }
-      window.addEventListener('beforeunload', () => {
-        try { supabase.removeChannel(window._rtChannel); } catch {}
-        window._rtInited = false;
-      });
-    }
-
-    // 4) Cycle de sync périodique (secours/offline)
+    // 3) Cycle périodique (secours/offline)
     startSync();
 
     return r;
@@ -1215,10 +1197,12 @@ const supabase = (window.supabase && window.supabase.createClient)
 
 
 
+
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
