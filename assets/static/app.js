@@ -1,5 +1,3 @@
-
-
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -847,7 +845,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function openAccountPanel() {
   const panel = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const users = JSON.parse(localStorage.getItem("users") || "[]`);
 
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
     if (currentUser && currentUser.role === "user") {
@@ -942,7 +940,6 @@ Object.assign(window, {
 
 
 // ====== CONFIG SUPABASE ======
-// ====== CONFIG SUPABASE ======
 const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";
 const supabase = (window.supabase && window.supabase.createClient)
@@ -971,86 +968,87 @@ const supabase = (window.supabase && window.supabase.createClient)
   function loadLocal(){ try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
- // --- Rendu avec normalisation + HARD REFRESH FullCalendar
-function setEventsAndRender(list) {
-  // 1) normaliser: si horodaté => allDay:false + end = start+30min + title par défaut
-  function normalize(ev) {
-    const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-    const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
-    let endISO;
-    if (hasTime) {
-      const d = new Date(startStr);
-      d.setMinutes(d.getMinutes() + 30);
-      endISO = d.toISOString();
+  // --- Rendu avec normalisation + HARD REFRESH FullCalendar (corrigé)
+  function setEventsAndRender(list) {
+    // 1) normaliser
+    function normalize(ev) {
+      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+      let endISO;
+      if (hasTime) {
+        const d = new Date(startStr);
+        d.setMinutes(d.getMinutes() + 30);
+        endISO = d.toISOString();
+      }
+      return {
+        ...ev,
+        title: String((ev.title || "").trim() || "RDV"),
+        start: startStr,
+        end: hasTime ? endISO : undefined,
+        allDay: hasTime ? false : !!ev.allDay
+      };
     }
-    return {
-      ...ev,
-      title: String((ev.title || "").trim() || "RDV"),
-      start: startStr,
-      end: hasTime ? endISO : undefined,
-      allDay: hasTime ? false : !!ev.allDay
-    };
+
+    try {
+      const normalized = (list || []).map(normalize)
+        .sort((a, b) => new Date(a.start) - new Date(b.start));
+      window.events = normalized;
+    } catch {}
+
+    // 2) persister local
+    saveLocal(window.events);
+
+    // 3) HARD REFRESH corrigé : on recrée l’instance (pas de removeAllEvents)
+    try {
+      if (window.calendar && typeof window.calendar.destroy === "function") {
+        try { window.calendar.destroy(); } catch(_) {}
+        window.calendar = null;
+      }
+
+      if (typeof renderCalendar === "function") {
+        renderCalendar();
+      } else {
+        const el = document.getElementById("calendar");
+        if (el && window.FullCalendar && window.events) {
+          const fcEvents = window.events.map(e => ({
+            id: String(e.id),
+            title: e.title,
+            start: e.start,
+            end:   e.end,
+            allDay: !!e.allDay
+          }));
+          try {
+            window.calendar = new FullCalendar.Calendar(el, {
+              timeZone: 'local',
+              initialView: 'dayGridMonth',
+              locale: 'fr',
+              headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+              dateClick: info => (window.openDayEventsModal ? openDayEventsModal(info.dateStr) : null),
+              events: fcEvents,
+              eventClick: (info) => (window.onEventClick ? onEventClick(info) : null)
+            });
+            window.calendar.render();
+          } catch (e) {
+            console.error("FC fallback init error:", e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("refresh calendar error (recreate):", e);
+      try { if (typeof renderCalendar === "function") renderCalendar(); } catch(_) {}
+    }
   }
 
-  try {
-    const normalized = (list || []).map(normalize)
-      .sort((a, b) => new Date(a.start) - new Date(b.start));
-    window.events = normalized;
-  } catch {}
-
-  // 2) persister local
-  saveLocal(window.events);
-
-  // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
-  try {
-    const fcEvents = (window.events || []).map(e => ({
-      id: String(e.id),
+  // --- utilisé par pushDiff/pull pour détecter les changements ---
+  function hashOf(e){
+    return JSON.stringify({
       title: e.title,
       start: e.start,
-      end:   e.end,
-      allDay: !!e.allDay
-    }));
-
-    if (window.calendar) {
-      try {
-        // Nettoyer toutes les sources + événements (double sécurité)
-        const sources = window.calendar.getEventSources?.() || [];
-        sources.forEach(s => { try { s.remove(); } catch {} });
-        window.calendar.batchRendering?.(() => {
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        });
-        if (!window.calendar.batchRendering) {
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        }
-      } catch (e) {
-        console.warn("FC refresh fallback:", e);
-        window.calendar.removeAllEvents();
-        window.calendar.addEventSource(fcEvents);
-      }
-    } else if (typeof renderCalendar === "function") {
-      // si pas d'instance globale, repasse par ton constructeur
-      renderCalendar();
-    }
-  } catch (e) {
-    console.error("refresh calendar error:", e);
-    if (typeof renderCalendar === "function") {
-      try { renderCalendar(); } catch {}
-    }
+      allDay: !!e.allDay,
+      reminderMinutes: (e.reminderMinutes ?? null),
+      deleted: !!e.deleted
+    });
   }
-}
-
-// --- inchangé : utilisé par pushDiff/pull pour détecter les changements ---
-function hashOf(e){
-  return JSON.stringify({
-    title: e.title,
-    start: e.start,
-    allDay: !!e.allDay,
-    reminderMinutes: (e.reminderMinutes ?? null),
-    deleted: !!e.deleted
-  });
-}
 
   function readShadow(){ try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
@@ -1297,22 +1295,7 @@ function hashOf(e){
   };
 })();
 
-
-
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
-
-
-
-
-
-
-
-
-
-
