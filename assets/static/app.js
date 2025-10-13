@@ -1010,44 +1010,46 @@ const supabase = (window.supabase && window.supabase.createClient)
     saveLocal(window.events);
 
     // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
-    try {
-      const fcEvents = (window.events || []).map(e => ({
+   // 3) HARD REFRESH du calendrier (recrée l'instance proprement, toutes versions)
+try {
+  // 3.1 Détruire l’instance existante si présente
+  if (window.calendar && typeof window.calendar.destroy === "function") {
+    try { window.calendar.destroy(); } catch (_) {}
+    window.calendar = null;
+  }
+
+  // 3.2 Recréer proprement
+  if (typeof renderCalendar === "function") {
+    // Chemin normal : ta fonction se charge de relire window.events
+    renderCalendar();
+  } else {
+    // Fallback universel : on reconstruit manuellement avec window.events
+    const el = document.getElementById("calendar");
+    if (el && window.FullCalendar && window.events) {
+      const fcEvents = window.events.map(e => ({
         id: String(e.id),
         title: e.title,
         start: e.start,
         end:   e.end,
         allDay: !!e.allDay
       }));
-
-      if (window.calendar) {
-        try {
-          // Nettoyer toutes les sources + événements (double sécurité)
-          const sources = window.calendar.getEventSources?.() || [];
-          sources.forEach(s => { try { s.remove(); } catch {} });
-          window.calendar.batchRendering?.(() => {
-            window.calendar.removeAllEvents();
-            window.calendar.addEventSource(fcEvents);
-          });
-          if (!window.calendar.batchRendering) {
-            window.calendar.removeAllEvents();
-            window.calendar.addEventSource(fcEvents);
-          }
-        } catch (e) {
-          console.warn("FC refresh fallback:", e);
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        }
-      } else if (typeof renderCalendar === "function") {
-        // si pas d'instance globale, repasse par ton constructeur
-        renderCalendar();
-      }
-    } catch (e) {
-      console.error("refresh calendar error:", e);
-      if (typeof renderCalendar === "function") {
-        try { renderCalendar(); } catch {}
-      }
+      try { window.calendar = new FullCalendar.Calendar(el, {
+        timeZone: 'local',
+        initialView: 'dayGridMonth',
+        locale: 'fr',
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+        dateClick: info => (window.openDayEventsModal ? openDayEventsModal(info.dateStr) : null),
+        events: fcEvents,
+        eventClick: (info) => (window.onEventClick ? onEventClick(info) : null)
+      }); window.calendar.render(); } catch (e) { console.error("FC fallback init error:", e); }
     }
   }
+} catch (e) {
+  console.error("refresh calendar error (recreate):", e);
+  // ultime filet de sécurité
+  try { if (typeof renderCalendar === "function") renderCalendar(); } catch (_) {}
+}
+
 
   // --- utilisé par pushDiff/pull pour détecter les changements ---
   function hashOf(e){
@@ -1313,3 +1315,4 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
