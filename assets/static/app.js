@@ -1,3 +1,4 @@
+
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -1043,7 +1044,6 @@ try {
     try { renderCalendar(); } catch {}
   }
 }
-}
 
 
 // --- inchangé : utilisé par pushDiff/pull pour détecter les changements ---
@@ -1308,7 +1308,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
 
 
 
