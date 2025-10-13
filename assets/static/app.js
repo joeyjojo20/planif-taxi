@@ -845,7 +845,8 @@ document.addEventListener("DOMContentLoaded", () => {
 function openAccountPanel() {
   const panel = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
-  const users = JSON.parse(localStorage.getItem("users") || "[]`);
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+
 
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
     if (currentUser && currentUser.role === "user") {
@@ -1299,3 +1300,4 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
