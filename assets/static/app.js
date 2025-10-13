@@ -1170,3 +1170,219 @@ const supabase = (window.supabase && window.supabase.createClient)
     return r;
   };
 })();
+
+
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";   // ← colle ton Project URL
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";                 // ← colle ta anon key
+const supabase = (window.supabase && window.supabase.createClient)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+(function(){
+  if (!supabase) {
+    console.warn("Supabase non chargé : vérifie la balise <script supabase-js> AVANT app.js.");
+    return;
+  }
+
+  const LAST_PULL_KEY = "events_last_pull_ms";
+  const SHADOW_KEY = "events_shadow_v1";
+
+  // ===== Offline-first helpers
+  function isAdminUser(){ return window.currentUser && window.currentUser.role==="admin" && window.currentUser.approved===true; }
+  function loadLocal(){ try{ return JSON.parse(localStorage.getItem("events")||"[]") }catch{ return [] } }
+  function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)) }
+  function setEventsAndRender(list){
+    try { window.events = list.slice().sort((a,b)=> new Date(a.start)-new Date(b.start)); } catch {}
+    saveLocal(window.events);
+    try {
+      if (window.calendar) {
+        window.calendar.removeAllEvents();
+        window.calendar.addEventSource(window.events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })));
+      } else if (typeof renderCalendar === "function") {
+        renderCalendar();
+      }
+    } catch(e){ console.error(e); }
+  }
+  function hashOf(e){
+    return JSON.stringify({title:e.title,start:e.start,allDay:!!e.allDay,reminderMinutes:(e.reminderMinutes ?? null),deleted:!!e.deleted});
+  }
+  function readShadow(){ try{ return JSON.parse(localStorage.getItem(SHADOW_KEY)||"{}") }catch{ return {} } }
+  function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)) }
+
+  // ===== Push local→serveur (upsert + tombstones)
+  async function pushDiff(){
+    const local = loadLocal();
+    const shadow = readShadow();
+    const now = Date.now();
+
+    const byId = new Map(local.map(e=>[e.id,e]));
+    const upserts = [];
+    const deletes = [];
+
+    for(const ev of local){
+      const h = hashOf(ev);
+      if (shadow[ev.id] !== h){
+        upserts.push({
+          id: String(ev.id),
+          title: String(ev.title||""),
+          start: String(ev.start||""),
+          all_day: !!ev.allDay,
+          reminder_minutes: (ev.reminderMinutes==null? null : Number(ev.reminderMinutes)),
+          updated_at: now,
+          deleted: !!ev.deleted
+        });
+      }
+    }
+    for(const id in shadow){
+      if (!byId.has(id)) deletes.push(id);
+    }
+
+    if (upserts.length){
+      const { error } = await supabase.from("events").upsert(upserts, { onConflict: "id" });
+      if (error) console.warn("upsert error", error.message);
+    }
+    if (deletes.length){
+      const rows = deletes.map(id => ({
+        id: String(id), title:"", start:"", all_day:false,
+        reminder_minutes:null, updated_at: now, deleted: true
+      }));
+      const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+      if (error) console.warn("delete mark error", error.message);
+    }
+
+    const newShadow = {};
+    for(const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
+    writeShadow(newShadow);
+  }
+
+  // ===== Pull serveur→local (merge updated_at)
+  async function pull(initial=false){
+    let since = 0;
+    try { since = initial ? 0 : Number(localStorage.getItem(LAST_PULL_KEY)||0) } catch {}
+    let q = supabase.from("events").select("*");
+    if (since > 0) q = q.gt("updated_at", since);
+    const { data, error } = await q.order("updated_at", { ascending: true });
+    if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+
+    if (!data || !data.length){
+      if (initial) await pushDiff(); // premier démarrage: on pousse nos events locaux si serveur vide
+      localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
+      return;
+    }
+    const local = loadLocal();
+    const map = new Map(local.map(e=>[e.id,e]));
+    for(const r of data){
+      if (r.deleted){ map.delete(r.id); continue; }
+      map.set(r.id, {
+        id: String(r.id),
+        title: String(r.title||""),
+        start: String(r.start||""),
+        allDay: !!r.all_day,
+        reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
+      });
+    }
+    const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
+    setEventsAndRender(merged);
+
+    const shadow = {};
+    for(const ev of merged) shadow[ev.id] = hashOf(ev);
+    writeShadow(shadow);
+    localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
+  }
+
+  // ===== Cycle de sync (offline-first + backoff + reprise immédiate au retour réseau)
+  let timer=null, backoff=10_000; // 10s
+  const MAX_BACKOFF=300_000;      // 5 min
+
+  async function safeSync() {
+    try {
+      await pushDiff();
+      await pull(false);
+      backoff = 10_000; // succès → reset backoff
+    } catch {
+      backoff = Math.min(backoff * 2, MAX_BACKOFF);
+    } finally {
+      clearTimeout(timer);
+      timer = setTimeout(safeSync, backoff);
+    }
+  }
+  function startSync(){
+    clearTimeout(timer);
+    backoff = 10_000;
+    timer = setTimeout(safeSync, 500); // premier run rapide
+  }
+  window.addEventListener("online", () => { // réseau revenu → sync rapide
+    backoff = 1_000;
+    clearTimeout(timer);
+    timer = setTimeout(safeSync, 100);
+  });
+  window.addEventListener("offline", () => {
+    console.warn("Hors-ligne: on garde localement et on resynchronise dès que le réseau revient.");
+  });
+
+  // ===== Verrous rôle: non-admin = lecture seule pour édit/suppr
+  const _onEventClick = window.onEventClick;
+  window.onEventClick = function(info){
+    if (!isAdminUser()){
+      try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
+      return;
+    }
+    return _onEventClick ? _onEventClick(info) : undefined;
+  };
+  const _deleteEvent = window.deleteEvent;
+  window.deleteEvent = function(single){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _deleteEvent ? _deleteEvent(single) : undefined;
+  };
+  const _confirmDelete = window.confirmDelete;
+  window.confirmDelete = function(type){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _confirmDelete ? _confirmDelete(type) : undefined;
+  };
+  const _confirmDeleteSeries = window.confirmDeleteSeries;
+  window.confirmDeleteSeries = function(){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
+    return _confirmDeleteSeries ? _confirmDeleteSeries() : undefined;
+  };
+
+  // ===== Hook sur la sauvegarde (pousse après ajout/édition)
+  const _saveEvent = window.saveEvent;
+  window.saveEvent = async function(){
+    const editId = document.getElementById("event-form")?.dataset?.editId;
+    if (editId && !isAdminUser()){ alert("Seul un admin peut modifier un RDV existant."); return; }
+    const r = _saveEvent ? await _saveEvent() : undefined;
+    await pushDiff();
+    return r;
+  };
+
+  // ===== Enregistrement abonnement push dans Supabase (remplace /subscribe Render)
+  const _enablePush = window.enablePush;
+  window.enablePush = async function(){
+    try {
+      await (_enablePush ? _enablePush() : Promise.resolve());
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub){
+        const { keys } = sub.toJSON();
+        const ua = navigator.userAgent || "unknown";
+        const { error } = await supabase.from("subscriptions").upsert({
+          endpoint: sub.endpoint,
+          p256dh: keys.p256dh,
+          auth: keys.auth,
+          ua,
+          created_at: Date.now()
+        });
+        if (error) console.warn("sub upsert error", error.message);
+      }
+    } catch(e) { console.warn(e); }
+  };
+
+  // ===== Lancer la sync au login / affichage app
+  const _showApp = window.showApp;
+  window.showApp = async function(){
+    const r = _showApp ? _showApp() : undefined;
+    await pull(true);
+    startSync();
+    return r;
+  };
+})();
