@@ -1188,11 +1188,11 @@ const supabase = (window.supabase && window.supabase.createClient)
 
 
 
-
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
