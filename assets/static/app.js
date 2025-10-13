@@ -969,40 +969,87 @@ const supabase = (window.supabase && window.supabase.createClient)
   function loadLocal(){ try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
-  // Normalise les RDV: si horodaté -> allDay:false + end = start+30 min (affichage “dans la case”)
-  function setEventsAndRender(list){
-    function normalize(ev){
-      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
-      let endISO;
-      if (hasTime){
-        const d = new Date(startStr);
-        d.setMinutes(d.getMinutes() + 30);
-        endISO = d.toISOString();
-      }
-      return {
-        ...ev,
-        title: String((ev.title||"").trim() || "RDV"),
-        start: startStr,
-        end: hasTime ? endISO : undefined,
-        allDay: hasTime ? false : !!ev.allDay
-      };
+ // --- Rendu avec normalisation + HARD REFRESH FullCalendar
+function setEventsAndRender(list) {
+  // 1) normaliser: si horodaté => allDay:false + end = start+30min + title par défaut
+  function normalize(ev) {
+    const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+    const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+    let endISO;
+    if (hasTime) {
+      const d = new Date(startStr);
+      d.setMinutes(d.getMinutes() + 30);
+      endISO = d.toISOString();
     }
-    try {
-      const normalized = (list || []).map(normalize)
-        .sort((a,b)=> new Date(a.start) - new Date(b.start));
-      window.events = normalized;
-    } catch {}
-    saveLocal(window.events);
-    try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
+    return {
+      ...ev,
+      title: String((ev.title || "").trim() || "RDV"),
+      start: startStr,
+      end: hasTime ? endISO : undefined,
+      allDay: hasTime ? false : !!ev.allDay
+    };
   }
 
-  function hashOf(e){
-    return JSON.stringify({
-      title:e.title, start:e.start, allDay:!!e.allDay,
-      reminderMinutes:(e.reminderMinutes ?? null), deleted:!!e.deleted
-    });
+  try {
+    const normalized = (list || []).map(normalize)
+      .sort((a, b) => new Date(a.start) - new Date(b.start));
+    window.events = normalized;
+  } catch {}
+
+  // 2) persister local
+  saveLocal(window.events);
+
+  // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
+  try {
+    const fcEvents = (window.events || []).map(e => ({
+      id: String(e.id),
+      title: e.title,
+      start: e.start,
+      end:   e.end,
+      allDay: !!e.allDay
+    }));
+
+    if (window.calendar) {
+      try {
+        // Nettoyer toutes les sources + événements (double sécurité)
+        const sources = window.calendar.getEventSources?.() || [];
+        sources.forEach(s => { try { s.remove(); } catch {} });
+        window.calendar.batchRendering?.(() => {
+          window.calendar.removeAllEvents();
+          window.calendar.addEventSource(fcEvents);
+        });
+        if (!window.calendar.batchRendering) {
+          window.calendar.removeAllEvents();
+          window.calendar.addEventSource(fcEvents);
+        }
+      } catch (e) {
+        console.warn("FC refresh fallback:", e);
+        window.calendar.removeAllEvents();
+        window.calendar.addEventSource(fcEvents);
+      }
+    } else if (typeof renderCalendar === "function") {
+      // si pas d'instance globale, repasse par ton constructeur
+      renderCalendar();
+    }
+  } catch (e) {
+    console.error("refresh calendar error:", e);
+    if (typeof renderCalendar === "function") {
+      try { renderCalendar(); } catch {}
+    }
   }
+}
+
+// --- inchangé : utilisé par pushDiff/pull pour détecter les changements ---
+function hashOf(e){
+  return JSON.stringify({
+    title: e.title,
+    start: e.start,
+    allDay: !!e.allDay,
+    reminderMinutes: (e.reminderMinutes ?? null),
+    deleted: !!e.deleted
+  });
+}
+
   function readShadow(){ try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
 
@@ -1254,6 +1301,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
