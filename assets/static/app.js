@@ -103,6 +103,7 @@ function showRegister() {
 }
 function login() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
+  window.currentUser = currentUser; 
   const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
   const found = users.find(u => u.email === email && u.password === password);
@@ -126,6 +127,7 @@ function register() {
   users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
   if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
   currentUser = newUser; showApp(); setTimeout(showNotesIfAny, 300);
+  window.currentUser = currentUser; 
 }
 function logout(){ currentUser = null; location.reload(); }
 
@@ -1170,3 +1172,4 @@ const supabase = (window.supabase && window.supabase.createClient)
     return r;
   };
 })();
+
