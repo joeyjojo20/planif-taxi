@@ -1,4 +1,3 @@
-
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -6,7 +5,6 @@
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
-const BACKEND_URL = "https://rdv-taxi-backend.onrender.com"; // ⬅️ remplace par ton URL Render
 const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg"; // ⬅️ ta clé publique VAPID
 
 function urlBase64ToUint8Array(base64String) {
@@ -36,10 +34,9 @@ async function enablePush() {
     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
   });
 
-  await fetch(`${BACKEND_URL}/subscribe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sub)
+  // ➜ Supabase Edge Function : enregistrer l’abonnement
+  await supabase.functions.invoke('subscribe', {
+    body: { ...(sub.toJSON?.() || sub), ua: navigator.userAgent || "unknown" }
   });
 
   alert("Notifications activées ✅");
@@ -62,7 +59,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.body.appendChild(enableBtn);
 });
 
-// Bouton de test (automatique)
+// Bouton de test (appelle l’Edge Function d’envoi)
 window.addEventListener("DOMContentLoaded", () => {
   const btn = document.createElement("button");
   btn.id = "test-push-btn";
@@ -70,9 +67,8 @@ window.addEventListener("DOMContentLoaded", () => {
   btn.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer";
   btn.onclick = async () => {
     try {
-      const r = await fetch(`${BACKEND_URL}/test-push`, { method: "POST" });
-      const j = await r.json();
-      alert(j.ok ? "Notif envoyée ✅" : `Échec: ${j.error || "?"}`);
+      await supabase.functions.invoke('send-reminders', { body: { manual: true } });
+      alert("Tentative d’envoi des rappels (si dûs).");
     } catch(e) { alert("Erreur réseau"); }
   };
   document.body.appendChild(btn);
@@ -104,12 +100,14 @@ function showRegister() {
 }
 function login() {
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  window.currentUser = currentUser; 
   const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
   const found = users.find(u => u.email === email && u.password === password);
   if (!found) return alert("Identifiants incorrects");
   currentUser = found;
+  // ✅ expose après avoir trouvé le compte
+  window.currentUser = currentUser;
+  // auto-approve anciens admins
   if (currentUser.role === "admin" && currentUser.approved === undefined) {
     currentUser.approved = true;
     const i = users.findIndex(u => u.email === currentUser.email);
@@ -291,7 +289,7 @@ async function saveEvent() {
 
   localStorage.setItem("events", JSON.stringify(events));
 
-  // ✅ sync vers le backend pour les rappels push
+  // ➜ Upsert vers Supabase pour que la fonction cron envoie les rappels
   try {
     const payloadEvents = list.map(e => ({
       id: e.id,
@@ -299,11 +297,7 @@ async function saveEvent() {
       startISO: new Date(e.start).toISOString(),
       ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
     }));
-    await fetch(`${BACKEND_URL}/sync-events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: payloadEvents })
-    });
+    await supabase.functions.invoke('sync-events', { body: { events: payloadEvents } });
   } catch (_) { /* ok si offline */ }
 
   hideEventForm(); renderCalendar();
@@ -650,7 +644,7 @@ const SUBADDR_PROX = new RegExp(
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+  const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \ \-]+)/gms;
 
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
@@ -734,7 +728,9 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       id,
       title: `${name || "Client inconnu"} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
-      allDay: false
+      allDay: false,
+      // ✅ défaut import
+      reminderMinutes: 15
     });
   }
 
@@ -767,6 +763,19 @@ async function handlePdfImport(file){
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
     if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
+  }
+
+  // ✅ Sync immédiate vers Supabase (pour rappels serverless)
+  try {
+    const payloadEvents = parsed.map(e => ({
+      id: e.id,
+      title: e.title,
+      startISO: new Date(e.start).toISOString(),
+      reminderMinutes: e.reminderMinutes ?? 15
+    }));
+    await supabase.functions.invoke('sync-events', { body: { events: payloadEvents } });
+  } catch (e) {
+    console.warn("Edge sync après import (OK offline):", e);
   }
 
   // 3) Sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
@@ -970,86 +979,86 @@ const supabase = (window.supabase && window.supabase.createClient)
   function loadLocal(){ try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
- // --- Rendu avec normalisation + HARD REFRESH FullCalendar
-function setEventsAndRender(list) {
-  // 1) normaliser: si horodaté => allDay:false + end = start+30min + title par défaut
-  function normalize(ev) {
-    const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-    const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
-    let endISO;
-    if (hasTime) {
-      const d = new Date(startStr);
-      d.setMinutes(d.getMinutes() + 30);
-      endISO = d.toISOString();
+  // --- Rendu avec normalisation + HARD REFRESH FullCalendar
+  function setEventsAndRender(list) {
+    // 1) normaliser: si horodaté => allDay:false + end = start+30min + title par défaut
+    function normalize(ev) {
+      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+      let endISO;
+      if (hasTime) {
+        const d = new Date(startStr);
+        d.setMinutes(d.getMinutes() + 30);
+        endISO = d.toISOString();
+      }
+      return {
+        ...ev,
+        title: String((ev.title || "").trim() || "RDV"),
+        start: startStr,
+        end: hasTime ? endISO : undefined,
+        allDay: hasTime ? false : !!ev.allDay
+      };
     }
-    return {
-      ...ev,
-      title: String((ev.title || "").trim() || "RDV"),
-      start: startStr,
-      end: hasTime ? endISO : undefined,
-      allDay: hasTime ? false : !!ev.allDay
-    };
-  }
 
-  try {
-    const normalized = (list || []).map(normalize)
-      .sort((a, b) => new Date(a.start) - new Date(b.start));
-    window.events = normalized;
-  } catch {}
+    try {
+      const normalized = (list || []).map(normalize)
+        .sort((a, b) => new Date(a.start) - new Date(b.start));
+      window.events = normalized;
+    } catch {}
 
-  // 2) persister local
-  saveLocal(window.events);
+    // 2) persister local
+    saveLocal(window.events);
 
-  // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
-  try {
-    const fcEvents = (window.events || []).map(e => ({
-      id: String(e.id),
-      title: e.title,
-      start: e.start,
-      end:   e.end,
-      allDay: !!e.allDay
-    }));
+    // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
+    try {
+      const fcEvents = (window.events || []).map(e => ({
+        id: String(e.id),
+        title: e.title,
+        start: e.start,
+        end:   e.end,
+        allDay: !!e.allDay
+      }));
 
-    if (window.calendar) {
-      try {
-        // Nettoyer toutes les sources + événements (double sécurité)
-        const sources = window.calendar.getEventSources?.() || [];
-        sources.forEach(s => { try { s.remove(); } catch {} });
-        window.calendar.batchRendering?.(() => {
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        });
-        if (!window.calendar.batchRendering) {
+      if (window.calendar) {
+        try {
+          // Nettoyer toutes les sources + événements (double sécurité)
+          const sources = window.calendar.getEventSources?.() || [];
+          sources.forEach(s => { try { s.remove(); } catch {} });
+          window.calendar.batchRendering?.(() => {
+            window.calendar.removeAllEvents();
+            window.calendar.addEventSource(fcEvents);
+          });
+          if (!window.calendar.batchRendering) {
+            window.calendar.removeAllEvents();
+            window.calendar.addEventSource(fcEvents);
+          }
+        } catch (e) {
+          console.warn("FC refresh fallback:", e);
           window.calendar.removeAllEvents();
           window.calendar.addEventSource(fcEvents);
         }
-      } catch (e) {
-        console.warn("FC refresh fallback:", e);
-        window.calendar.removeAllEvents();
-        window.calendar.addEventSource(fcEvents);
+      } else if (typeof renderCalendar === "function") {
+        // si pas d'instance globale, repasse par ton constructeur
+        renderCalendar();
       }
-    } else if (typeof renderCalendar === "function") {
-      // si pas d'instance globale, repasse par ton constructeur
-      renderCalendar();
-    }
-  } catch (e) {
-    console.error("refresh calendar error:", e);
-    if (typeof renderCalendar === "function") {
-      try { renderCalendar(); } catch {}
+    } catch (e) {
+      console.error("refresh calendar error:", e);
+      if (typeof renderCalendar === "function") {
+        try { renderCalendar(); } catch {}
+      }
     }
   }
-}
 
-// --- inchangé : utilisé par pushDiff/pull pour détecter les changements ---
-function hashOf(e){
-  return JSON.stringify({
-    title: e.title,
-    start: e.start,
-    allDay: !!e.allDay,
-    reminderMinutes: (e.reminderMinutes ?? null),
-    deleted: !!e.deleted
-  });
-}
+  // --- utilisé par pushDiff/pull pour détecter les changements ---
+  function hashOf(e){
+    return JSON.stringify({
+      title: e.title,
+      start: e.start,
+      allDay: !!e.allDay,
+      reminderMinutes: (e.reminderMinutes ?? null),
+      deleted: !!e.deleted
+    });
+  }
 
   function readShadow(){ try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
@@ -1121,6 +1130,7 @@ function hashOf(e){
     }
     for (const id in shadow){ if (!byId.has(id)) deletes.push(id); }
 
+    // 1) Upsert Supabase
     if (upserts.length){
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
@@ -1134,12 +1144,16 @@ function hashOf(e){
       if (error) console.warn("delete mark error", error.message);
     }
 
+    // 2) Shadow local
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
 
     console.log("[BUS] sending events-updated");
     await busNotify();
   }
+
+  // Exposition d’un hook global pour les imports ou autres actions
+  window._sup_pushDiff = async function(){ try { await pushDiff(); } catch(e){ console.warn(e); } };
 
   // ---------- PULL serveur -> local ----------
   // pull(initialOrFull): si true => FULL fetch (pas de filtre)
@@ -1295,23 +1309,7 @@ function hashOf(e){
     return r;
   };
 })();
-
-
-
 window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
-
-
-
-
-
-
-
-
-
-
