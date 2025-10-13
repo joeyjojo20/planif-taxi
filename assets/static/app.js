@@ -1000,44 +1000,50 @@ function setEventsAndRender(list) {
   saveLocal(window.events);
 
   // 3) HARD REFRESH du calendrier (supprime tout puis réinjecte)
-  try {
-    const fcEvents = (window.events || []).map(e => ({
-      id: String(e.id),
-      title: e.title,
-      start: e.start,
-      end:   e.end,
-      allDay: !!e.allDay
-    }));
+  // 3) HARD REFRESH du calendrier (compatible toutes versions de FullCalendar)
+try {
+  const fcEvents = (window.events || []).map(e => ({
+    id: String(e.id),
+    title: e.title,
+    start: e.start,
+    end:   e.end,
+    allDay: !!e.allDay
+  }));
 
-    if (window.calendar) {
-      try {
-        // Nettoyer toutes les sources + événements (double sécurité)
-        const sources = window.calendar.getEventSources?.() || [];
-        sources.forEach(s => { try { s.remove(); } catch {} });
-        window.calendar.batchRendering?.(() => {
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        });
-        if (!window.calendar.batchRendering) {
-          window.calendar.removeAllEvents();
-          window.calendar.addEventSource(fcEvents);
-        }
-      } catch (e) {
-        console.warn("FC refresh fallback:", e);
-        window.calendar.removeAllEvents();
+  if (window.calendar) {
+    try {
+      // 1) retirer les sources si l'API existe
+      const sources = window.calendar.getEventSources?.() || [];
+      sources.forEach(s => { try { s.remove(); } catch {} });
+
+      // 2) retirer tous les events existants (API sûre)
+      const existing = window.calendar.getEvents?.() || [];
+      existing.forEach(ev => { try { ev.remove(); } catch {} });
+
+      // 3) réinjecter
+      if (typeof window.calendar.addEventSource === "function") {
         window.calendar.addEventSource(fcEvents);
+      } else if (typeof window.calendar.addEvent === "function") {
+        fcEvents.forEach(obj => { try { window.calendar.addEvent(obj); } catch {} });
+      } else {
+        // si aucune API d'ajout : retomber sur ton constructeur
+        if (typeof renderCalendar === "function") renderCalendar();
       }
-    } else if (typeof renderCalendar === "function") {
-      // si pas d'instance globale, repasse par ton constructeur
-      renderCalendar();
+    } catch (e) {
+      console.warn("FC refresh fallback:", e);
+      if (typeof renderCalendar === "function") renderCalendar();
     }
-  } catch (e) {
-    console.error("refresh calendar error:", e);
-    if (typeof renderCalendar === "function") {
-      try { renderCalendar(); } catch {}
-    }
+  } else if (typeof renderCalendar === "function") {
+    // pas d'instance globale -> reconstruire
+    renderCalendar();
+  }
+} catch (e) {
+  console.error("refresh calendar error:", e);
+  if (typeof renderCalendar === "function") {
+    try { renderCalendar(); } catch {}
   }
 }
+
 
 // --- inchangé : utilisé par pushDiff/pull pour détecter les changements ---
 function hashOf(e){
@@ -1301,6 +1307,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
