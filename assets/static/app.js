@@ -1144,6 +1144,27 @@ const supabase = (window.supabase && window.supabase.createClient)
   window.showApp = async function(){
     const r = _showApp ? _showApp() : undefined;
     await pull(true);
+    // ===== Realtime: MAJ instantanée quand la table "events" change
+let rtDebounce = null;
+function debouncedPull() {
+  clearTimeout(rtDebounce);
+  rtDebounce = setTimeout(() => pull(false), 300); // évite le spam si plusieurs lignes changent
+}
+
+// Abonnement Supabase Realtime (INSERT/UPDATE/DELETE sur public.events)
+const rtChannel = supabase.channel('events-rt')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
+    debouncedPull(); // tire les dernières données
+  })
+  .subscribe(status => {
+    console.log('Realtime status:', status);
+  });
+
+// Nettoyage si besoin (facultatif)
+window.addEventListener('beforeunload', () => {
+  try { supabase.removeChannel(rtChannel); } catch {}
+});
+
     startSync();
     return r;
   };
@@ -1154,5 +1175,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
