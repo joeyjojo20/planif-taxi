@@ -970,31 +970,35 @@ const supabase = (window.supabase && window.supabase.createClient)
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
   // --- Rendu avec normalisation + HARD REFRESH FullCalendar (corrigé)
-  function setEventsAndRender(list) {
-    // 1) normaliser
-    function normalize(ev) {
-      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
-      let endISO;
-      if (hasTime) {
-        const d = new Date(startStr);
-        d.setMinutes(d.getMinutes() + 30);
-        endISO = d.toISOString();
-      }
-      return {
-        ...ev,
-        title: String((ev.title || "").trim() || "RDV"),
-        start: startStr,
-        end: hasTime ? endISO : undefined,
-        allDay: hasTime ? false : !!ev.allDay
-      };
+function setEventsAndRender(list) {
+  function normalize(ev) {
+    const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+    const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+    let endISO;
+    if (hasTime) {
+      const d = new Date(startStr);
+      d.setMinutes(d.getMinutes() + 30);
+      endISO = d.toISOString();
     }
+    return {
+      ...ev,
+      title: String((ev.title || "").trim() || "RDV"),
+      start: startStr,
+      end: hasTime ? endISO : undefined,
+      allDay: hasTime ? false : !!ev.allDay
+    };
+  }
 
-    try {
-      const normalized = (list || []).map(normalize)
-        .sort((a, b) => new Date(a.start) - new Date(b.start));
-      window.events = normalized;
-    } catch {}
+  try {
+    const normalized = (list || [])
+      .map(normalize)
+      .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+    // 🔧 clé du correctif : on met à jour LES DEUX variables
+    window.events = normalized;   // copie globale
+    events = normalized;          // copie lue par renderCalendar()
+  } catch {}
+
 
     // 2) persister local
     saveLocal(window.events);
@@ -1300,4 +1304,5 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
