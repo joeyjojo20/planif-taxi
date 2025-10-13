@@ -1073,39 +1073,53 @@ const supabase = (window.supabase && window.supabase.createClient)
   }
 
   // ==== Pull serveur → local (merge par updated_at)
-  async function pull(initial=false){
-    let since = 0;
-    try { since = initial ? 0 : Number(localStorage.getItem(LAST_PULL_KEY)||0) } catch {}
-    let q = supabase.from("events").select("*");
-    if (since > 0) q = q.gt("updated_at", since);
-    const { data, error } = await q.order("updated_at", { ascending: true });
-    if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+ // ---- remplace TOUTE ta fonction pull(...) par ceci
+async function pull(initial = false){
+  // On utilise un curseur "à rebours" pour absorber les décalages d'horloge
+  const DRIFT_MS = 60000; // 60s de marge
+  let since = 0;
+  try { since = Number(localStorage.getItem(LAST_PULL_KEY) || 0); } catch {}
+  const sinceWithDrift = Math.max(0, since - DRIFT_MS);
 
-    if (!data || !data.length){
-      if (initial) await pushDiff();
-      localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
-      return;
-    }
-    const local = loadLocal();
-    const map = new Map(local.map(e=>[e.id,e]));
-    for(const r of data){
-      if (r.deleted){ map.delete(r.id); continue; }
-      map.set(r.id, {
-        id: String(r.id),
-        title: String(r.title||""),
-        start: String(r.start||""),
-        allDay: !!r.all_day,
-        reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
-      });
-    }
-    const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
-    setEventsAndRender(merged);
+  let q = supabase.from("events").select("*");
+  if (!initial && since > 0) q = q.gt("updated_at", sinceWithDrift);
 
-    const shadow = {};
-    for(const ev of merged) shadow[ev.id] = hashOf(ev);
-    writeShadow(shadow);
-    localStorage.setItem(LAST_PULL_KEY, String(Date.now()));
+  const { data, error } = await q.order("updated_at", { ascending: true });
+  if (error){ console.warn("pull error", error.message); if (initial) setEventsAndRender(loadLocal()); return; }
+
+  // s'il n'y a rien de neuf, NE PAS avancer le curseur (évite de rater le prochain write)
+  if (!data || !data.length){
+    if (initial) await pushDiff(); // premier run: on pousse nos events si serveur vide
+    return;
   }
+
+  const local = loadLocal();
+  const map = new Map(local.map(e=>[e.id,e]));
+  let maxUpdated = since; // on garde le max serveur vu
+
+  for(const r of data){
+    if (typeof r.updated_at === "number") maxUpdated = Math.max(maxUpdated, r.updated_at);
+    if (r.deleted){ map.delete(r.id); continue; }
+    map.set(r.id, {
+      id: String(r.id),
+      title: String(r.title||""),
+      start: String(r.start||""),
+      allDay: !!r.all_day,
+      reminderMinutes: (r.reminder_minutes==null? null : Number(r.reminder_minutes))
+    });
+  }
+
+  const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start)-new Date(b.start));
+  setEventsAndRender(merged);
+
+  const shadow = {};
+  for(const ev of merged) shadow[ev.id] = hashOf(ev);
+  writeShadow(shadow);
+
+  // IMPORTANT: on avance le curseur au MAX updated_at SERVEUR, pas à Date.now()
+  localStorage.setItem(LAST_PULL_KEY, String(maxUpdated));
+}
+
 
   // ==== Cycle de sync (offline-first + backoff + reprise immédiate)
   let timer=null, backoff=10_000; // 10s
@@ -1202,6 +1216,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
