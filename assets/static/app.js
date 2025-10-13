@@ -5,7 +5,7 @@
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
-const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.functions.supabase.co";
+const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1";
 const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg"; // ⬅️ ta clé publique VAPID
 
 function urlBase64ToUint8Array(base64String) {
@@ -1304,6 +1304,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
