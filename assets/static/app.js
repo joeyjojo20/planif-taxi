@@ -951,280 +951,282 @@ const supabase = (window.supabase && window.supabase.createClient)
   if (!supabase) { console.warn("Supabase non chargé."); return; }
 
   const LAST_PULL_KEY = "events_last_pull_ms";
-  const SHADOW_KEY = "events_shadow_v1";
+  const SHADOW_KEY    = "events_shadow_v1";
 
-  // ==== Admin simple
+  // ---------- helpers rôle admin ----------
   function isAdminUser() {
     try {
       if (window.currentUser && window.currentUser.role === "admin") return true;
       const users = JSON.parse(localStorage.getItem("users") || "[]");
       const email = (document.getElementById("welcome")?.textContent || "")
-        .replace("Bonjour", "").trim();
+        .replace("Bonjour","").trim();
       const me = users.find(u => u.email === email);
       return !!(me && me.role === "admin");
     } catch { return false; }
   }
 
-  // ==== Local helpers
-  function loadLocal() { try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
-  function saveLocal(arr) { localStorage.setItem("events", JSON.stringify(arr)); }
+  // ---------- local storage ----------
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
+  function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
-  // --- Rendu avec normalisation: évènements horodatés => allDay:false + end = start+30min
-  function setEventsAndRender(list) {
-    function normalize(ev) {
+  // Normalise les RDV: si horodaté -> allDay:false + end = start+30 min (affichage “dans la case”)
+  function setEventsAndRender(list){
+    function normalize(ev){
       const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-      const hasTime = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
       let endISO;
-      if (hasTime) {
+      if (hasTime){
         const d = new Date(startStr);
         d.setMinutes(d.getMinutes() + 30);
         endISO = d.toISOString();
       }
       return {
         ...ev,
+        title: String((ev.title||"").trim() || "RDV"),
         start: startStr,
-        end: endISO,
+        end: hasTime ? endISO : undefined,
         allDay: hasTime ? false : !!ev.allDay
       };
     }
-
     try {
       const normalized = (list || []).map(normalize)
-        .sort((a, b) => new Date(a.start) - new Date(b.start));
+        .sort((a,b)=> new Date(a.start) - new Date(b.start));
       window.events = normalized;
     } catch {}
     saveLocal(window.events);
-    try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
+    try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
   }
 
-  function hashOf(e) {
+  function hashOf(e){
     return JSON.stringify({
-      title: e.title, start: e.start, allDay: !!e.allDay,
-      reminderMinutes: (e.reminderMinutes ?? null), deleted: !!e.deleted
+      title:e.title, start:e.start, allDay:!!e.allDay,
+      reminderMinutes:(e.reminderMinutes ?? null), deleted:!!e.deleted
     });
   }
-  function readShadow() { try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
-  function writeShadow(idx) { localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
+  function readShadow(){ try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
+  function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
 
-  // ========= BROADCAST ROBUSTE (file d’attente + ready)
-  let bus = null, busReady = false, busQueue = [];
-  function ensureBus() {
+  // ---------- Broadcast robuste ----------
+  let bus=null, busReady=false, busQueue=[];
+  function ensureBus(){
     if (bus) return;
     try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
     bus = supabase.channel("rdv-bus", { config: { broadcast: { ack: true } } });
 
-    // >>> Forcer un PULL COMPLET à la réception du signal (fiable)
-    bus.on("broadcast", { event: "events-updated" }, () => {
+    // Forcer un pull COMPLET quand on reçoit un signal (table petite => très fiable)
+    bus.on("broadcast", { event:"events-updated" }, () => {
       console.log("[BUS] received events-updated -> pull(full)");
       clearTimeout(window._pullDeb);
-      window._pullDeb = setTimeout(() => pull(true /* full */), 150);
+      window._pullDeb = setTimeout(()=> pull(true), 150);
     });
 
-    bus.subscribe((status) => {
+    bus.subscribe((status)=>{
       console.log("[BUS] status:", status);
-      if (status === "SUBSCRIBED") {
+      if (status === "SUBSCRIBED"){
         busReady = true;
         const q = busQueue.slice(); busQueue = [];
-        q.forEach(p => bus.send(p).catch(() => {}));
+        q.forEach(p => bus.send(p).catch(()=>{}));
       }
     });
 
-    window.addEventListener("beforeunload", () => {
+    window.addEventListener("beforeunload", ()=>{
       try { supabase.removeChannel(bus); } catch {}
-      bus = null; busReady = false; busQueue = [];
+      bus=null; busReady=false; busQueue=[];
     });
   }
-  async function busNotify() {
+  async function busNotify(){
     ensureBus();
-    const payload = { type: "broadcast", event: "events-updated", payload: { ts: Date.now() } };
+    const payload = { type:"broadcast", event:"events-updated", payload:{ ts: Date.now() } };
     try {
       if (busReady) await bus.send(payload);
       else busQueue.push(payload);
-    } catch (e) { console.warn("[BUS] send failed", e); }
+    } catch(e){ console.warn("[BUS] send failed", e); }
   }
 
-  // ==== Push local → serveur (avec await avant broadcast)
-  async function pushDiff() {
+  // ---------- PUSH local -> serveur ----------
+  async function pushDiff(){
     ensureBus();
     console.log("[BUS] pushDiff start");
 
-    const local = loadLocal();
+    const local  = loadLocal();
     const shadow = readShadow();
-    const now = Date.now();
+    const now    = Date.now();
 
-    const byId = new Map(local.map(e => [e.id, e]));
-    const upserts = [], deletes = [];
+    const byId   = new Map(local.map(e=>[e.id,e]));
+    const upserts=[], deletes=[];
 
-    for (const ev of local) {
+    for (const ev of local){
       const h = hashOf(ev);
-      if (shadow[ev.id] !== h) {
+      if (shadow[ev.id] !== h){
         const startStr = String(ev.start || "");
-        const hasTime = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+        const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
         upserts.push({
           id: String(ev.id),
-          title: String(ev.title || ""),
+          title: String((ev.title||"").trim() || "RDV"),
           start: startStr,
           all_day: hasTime ? false : !!ev.allDay,
-          reminder_minutes: (ev.reminderMinutes == null ? null : Number(ev.reminderMinutes)),
+          reminder_minutes: (ev.reminderMinutes==null ? null : Number(ev.reminderMinutes)),
           updated_at: now,
           deleted: !!ev.deleted
         });
       }
     }
-    for (const id in shadow) { if (!byId.has(id)) deletes.push(id); }
+    for (const id in shadow){ if (!byId.has(id)) deletes.push(id); }
 
-    if (upserts.length) {
-      const { error } = await supabase.from("events").upsert(upserts, { onConflict: "id" });
+    if (upserts.length){
+      const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-    if (deletes.length) {
+    if (deletes.length){
       const rows = deletes.map(id => ({
-        id: String(id), title: "", start: "", all_day: false,
-        reminder_minutes: null, updated_at: now, deleted: true
+        id:String(id), title:"", start:"", all_day:false,
+        reminder_minutes:null, updated_at:now, deleted:true
       }));
-      const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+      const { error } = await supabase.from("events").upsert(rows, { onConflict:"id" });
       if (error) console.warn("delete mark error", error.message);
     }
 
-    const newShadow = {};
-    for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
+    const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
 
     console.log("[BUS] sending events-updated");
     await busNotify();
   }
 
-  // ==== Pull serveur → local (merge par updated_at) – FULL si demandé
-  // pull(initialOrFull) : si initialOrFull === true => FETCH COMPLET (pas de filtre)
-  async function pull(initialOrFull = false) {
-    const FULL = initialOrFull === true;        // full fetch si true
-    const DRIFT_MS = 60000;                     // marge horloge 60s
+  // ---------- PULL serveur -> local ----------
+  // pull(initialOrFull): si true => FULL fetch (pas de filtre)
+  async function pull(initialOrFull=false){
+    const FULL = initialOrFull === true;
+    const DRIFT_MS = 60000;
 
-    let since = 0;
-    try { since = Number(localStorage.getItem(LAST_PULL_KEY) || 0); } catch {}
+    let since=0; try { since = Number(localStorage.getItem(LAST_PULL_KEY)||0); } catch {}
     const sinceWithDrift = Math.max(0, since - DRIFT_MS);
 
     let q = supabase.from("events").select("*");
-    if (!FULL && since > 0) {
-      q = q.gt("updated_at", sinceWithDrift);
-    }
+    if (!FULL && since > 0) q = q.gt("updated_at", sinceWithDrift);
 
-    const { data, error } = await q.order("updated_at", { ascending: true });
-    if (error) {
-      console.warn("pull error", error.message);
-      if (FULL) setEventsAndRender(loadLocal());
+    const { data, error } = await q.order("updated_at", { ascending:true });
+    if (error){ console.warn("pull error", error.message); if (FULL) setEventsAndRender(loadLocal()); return; }
+
+    console.log(`[PULL] rows=${(data||[]).length} (full=${FULL})`);
+
+    if (!data || !data.length){
+      if (FULL) await pushDiff();
       return;
     }
 
-    if (!data || !data.length) {
-      if (FULL) await pushDiff(); // si serveur vide au 1er run
-      return; // ne pas avancer le curseur s'il n'y a rien
-    }
-
     const local = loadLocal();
-    const map = new Map(local.map(e => [e.id, e]));
+    const map = new Map(local.map(e=>[e.id,e]));
     let maxUpdated = since;
 
-    for (const r of data) {
-      // int8/bigint renvoyé en string → Number()
+    for (const r of data){
       const upd = Number(r.updated_at || 0);
       if (!Number.isNaN(upd)) maxUpdated = Math.max(maxUpdated, upd);
+      if (r.deleted){ map.delete(r.id); continue; }
 
-      if (r.deleted) { map.delete(r.id); continue; }
+      const title = String(r.title || "").trim();
+      const start = String(r.start || "");
+
       map.set(r.id, {
         id: String(r.id),
-        title: String(r.title || ""),
-        start: String(r.start || ""),
+        title: title || "RDV",
+        start: start,
         allDay: !!r.all_day,
-        reminderMinutes: (r.reminder_minutes == null ? null : Number(r.reminder_minutes))
+        reminderMinutes: (r.reminder_minutes==null ? null : Number(r.reminder_minutes))
       });
     }
 
-    const merged = Array.from(map.values()).sort((a, b) => new Date(a.start) - new Date(b.start));
+    const merged = Array.from(map.values()).sort((a,b)=> new Date(a.start) - new Date(b.start));
     setEventsAndRender(merged);
 
-    const shadow = {};
-    for (const ev of merged) shadow[ev.id] = hashOf(ev);
+    const shadow={}; for (const ev of merged) shadow[ev.id] = hashOf(ev);
     writeShadow(shadow);
 
-    localStorage.setItem(LAST_PULL_KEY, String(maxUpdated)); // avance au max vu côté serveur
+    localStorage.setItem(LAST_PULL_KEY, String(maxUpdated));
   }
 
-  // ==== Cycle de sync (offline-first + backoff)
-  let timer = null, backoff = 10_000;
-  const MAX_BACKOFF = 300_000;
-  async function safeSync() {
-    try { await pushDiff(); await pull(false); backoff = 10_000; }
-    catch { backoff = Math.min(backoff * 2, MAX_BACKOFF); }
-    finally { clearTimeout(timer); timer = setTimeout(safeSync, backoff); }
+  // ---------- cycle de sync ----------
+  let timer=null, backoff=10_000;
+  const MAX_BACKOFF=300_000;
+  async function safeSync(){
+    try { await pushDiff(); await pull(false); backoff=10_000; }
+    catch { backoff = Math.min(backoff*2, MAX_BACKOFF); }
+    finally { clearTimeout(timer); timer=setTimeout(safeSync, backoff); }
   }
-  function startSync() { clearTimeout(timer); backoff = 10_000; timer = setTimeout(safeSync, 500); }
-  window.addEventListener("online", () => { backoff = 1_000; clearTimeout(timer); timer = setTimeout(safeSync, 100); });
-  window.addEventListener("offline", () => { console.warn("Hors-ligne: local puis sync au retour réseau."); });
+  function startSync(){ clearTimeout(timer); backoff=10_000; timer=setTimeout(safeSync, 500); }
+  window.addEventListener("online",  ()=>{ backoff=1_000; clearTimeout(timer); timer=setTimeout(safeSync,100); });
+  window.addEventListener("offline", ()=>{ console.warn("Hors-ligne: local puis sync au retour réseau."); });
 
-  // ==== Rôles / protections UI
+  // ---------- protections UI (rôles) ----------
   const _onEventClick = window.onEventClick;
-  window.onEventClick = function (info) {
+  window.onEventClick = function(info){
     if (isAdminUser()) return _onEventClick ? _onEventClick(info) : undefined;
-    try { openDayEventsModal(info.event.startStr.slice(0, 10)); } catch {}
+    try { openDayEventsModal(info.event.startStr.slice(0,10)); } catch {}
     return;
   };
   const _deleteEvent = window.deleteEvent;
-  window.deleteEvent = async function (single) {
-    if (!isAdminUser()) { alert("Seul un admin peut supprimer des RDV."); return; }
+  window.deleteEvent = async function(single){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
     const r = _deleteEvent ? await _deleteEvent(single) : undefined;
     await pushDiff();
     return r;
   };
   const _confirmDelete = window.confirmDelete;
-  window.confirmDelete = async function (type) {
-    if (!isAdminUser()) { alert("Seul un admin peut supprimer des RDV."); return; }
+  window.confirmDelete = async function(type){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
     const r = _confirmDelete ? await _confirmDelete(type) : undefined;
     await pushDiff();
     return r;
   };
   const _confirmDeleteSeries = window.confirmDeleteSeries;
-  window.confirmDeleteSeries = async function () {
-    if (!isAdminUser()) { alert("Seul un admin peut supprimer des RDV."); return; }
+  window.confirmDeleteSeries = async function(){
+    if (!isAdminUser()){ alert("Seul un admin peut supprimer des RDV."); return; }
     const r = _confirmDeleteSeries ? await _confirmDeleteSeries() : undefined;
     await pushDiff();
     return r;
   };
 
-  // ==== Pousser après ajout/édition (normalisation “dans la case”)
+  // ---------- après ajout/édition : normaliser + sync ----------
   const _saveEvent = window.saveEvent;
-  window.saveEvent = async function () {
+  window.saveEvent = async function(){
     const editId = document.getElementById("event-form")?.dataset?.editId;
-    if (editId && !isAdminUser()) { alert("Seul un admin peut modifier un RDV existant."); return; }
+    if (editId && !isAdminUser()){ alert("Seul un admin peut modifier un RDV existant."); return; }
 
-    // 1) appel d’origine
     const r = _saveEvent ? await _saveEvent() : undefined;
 
-    // 2) normaliser les RDV manuels (heure -> allDay:false + end = start+30min)
-    if (Array.isArray(window.events)) {
-      window.events = window.events.map(ev => {
-        const s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+    // normalisation pour “rentrer dans la case”
+    if (Array.isArray(window.events)){
+      window.events = window.events.map(ev=>{
+        let s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+        if (!s){
+          const sel = document.getElementById("event-date");
+          if (sel?.value) s = new Date(sel.value).toISOString();
+        }
         const hasTime = s.includes("T") || /\d{2}:\d{2}/.test(s);
-        if (!hasTime) return ev;
-        const d = new Date(s); d.setMinutes(d.getMinutes() + 30);
-        return { ...ev, start: s, end: d.toISOString(), allDay: false };
+        let endISO = ev.end;
+        if (hasTime){
+          if (!(endISO && String(endISO).includes("T"))){
+            const d = new Date(s); d.setMinutes(d.getMinutes()+30); endISO = d.toISOString();
+          }
+        }
+        const title = String((ev.title||"").trim() || "RDV");
+        return { ...ev, title, start:s, end: hasTime?endISO:undefined, allDay: hasTime?false:!!ev.allDay };
       });
-      try { if (typeof renderCalendar === "function") renderCalendar(); } catch (e) { console.error(e); }
+      try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
     }
 
-    // 3) sync + broadcast
-    await pushDiff();
+    await pushDiff(); // sync + broadcast
     return r;
   };
 
-  // ==== Abonnement push (stockage)
+  // ---------- abonnement push (stockage) ----------
   const _enablePush = window.enablePush;
-  window.enablePush = async function () {
-    try {
+  window.enablePush = async function(){
+    try{
       await (_enablePush ? _enablePush() : Promise.resolve());
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
-      if (sub) {
+      if (sub){
         const { keys } = sub.toJSON();
         const ua = navigator.userAgent || "unknown";
         const { error } = await supabase.from("subscriptions").upsert({
@@ -1232,16 +1234,16 @@ const supabase = (window.supabase && window.supabase.createClient)
         });
         if (error) console.warn("sub upsert error", error.message);
       }
-    } catch (e) { console.warn(e); }
+    } catch(e){ console.warn(e); }
   };
 
-  // ==== Démarrage
+  // ---------- démarrage ----------
   const _showApp = window.showApp;
-  window.showApp = async function () {
+  window.showApp = async function(){
     const r = _showApp ? _showApp() : undefined;
-    await pull(true);     // full pull initial
-    ensureBus();          // abonne le canal broadcast
-    startSync();          // secours/offline
+    await pull(true);   // full pull initial
+    ensureBus();        // abonnement broadcast
+    startSync();        // secours/offline
     return r;
   };
 })();
@@ -1252,6 +1254,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
