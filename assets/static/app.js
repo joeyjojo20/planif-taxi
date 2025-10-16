@@ -6,7 +6,7 @@
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
 const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1";
-const VAPID_PUBLIC_KEY = "BDzLVRARuXgDcyTMYZzr0WNzeJM7Q8Bbsu2RkEoJbJdMVmI28QcpJpoVp3HhjRumrCQ1gLt8K4sUmRfOsRZjIhg"; // ⬅️ ta clé publique VAPID
+const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY"; // ⬅️ ta clé publique VAPID
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -1304,6 +1304,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
