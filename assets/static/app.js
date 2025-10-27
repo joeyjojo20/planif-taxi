@@ -1129,14 +1129,14 @@ function setEventsAndRender(list) {
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-    if (deletes.length){
-  const rows = deletes.map(id => ({
-    id: String(id),
-    deleted: true,
-    updated_at: now      // ms (Date.now())
-  }));
-  const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
-  if (error) console.warn("delete mark error", error.message);
+   if (deletes.length) {
+  const now = Date.now();
+  const { error } = await supabase
+    .from('events')
+    .update({ deleted: true, updated_at: now })
+    .in('id', deletes.map(id => String(id)));
+
+  if (error) console.warn('delete mark error', error.message);
 }
 
 
@@ -1306,6 +1306,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
