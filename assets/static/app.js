@@ -15,6 +15,14 @@ function urlBase64ToUint8Array(base64String) {
   for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
   return arr;
 }
+// Construit un Date LOCAL à partir des inputs date/heure, puis renvoie un ISO correct
+function localDateTimeToISO(dateStr, timeStr) {
+  // dateStr = "YYYY-MM-DD", timeStr = "HH:MM"
+  const [Y, M, D] = dateStr.split('-').map(Number);
+  const [h, m]   = timeStr.split(':').map(Number);
+  const dt = new Date(Y, M - 1, D, h, m, 0); // ← LOCAL (America/Toronto)
+  return dt.toISOString();                    // ← ISO UTC correct pour la DB
+}
 
 async function enablePush() {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) {
@@ -1308,6 +1316,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
