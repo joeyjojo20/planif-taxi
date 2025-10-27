@@ -1130,13 +1130,15 @@ function setEventsAndRender(list) {
       if (error) console.warn("upsert error", error.message);
     }
     if (deletes.length){
-      const rows = deletes.map(id => ({
-        id:String(id), title:"", start:"", all_day:false,
-        reminder_minutes:null, updated_at:now, deleted:true
-      }));
-      const { error } = await supabase.from("events").upsert(rows, { onConflict:"id" });
-      if (error) console.warn("delete mark error", error.message);
-    }
+  const rows = deletes.map(id => ({
+    id: String(id),
+    deleted: true,
+    updated_at: now      // ms (Date.now())
+  }));
+  const { error } = await supabase.from("events").upsert(rows, { onConflict: "id" });
+  if (error) console.warn("delete mark error", error.message);
+}
+
 
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
@@ -1304,6 +1306,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
