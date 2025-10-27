@@ -305,23 +305,24 @@ async function saveEvent() {
   localStorage.setItem("events", JSON.stringify(events));
 
   // sync vers le backend pour les rappels push (conversion en ISO ici)
-  try {
-    const payloadEvents = list.map(e => ({
-      id: e.id,
-      title: e.title,
-      startISO: new Date(e.start).toISOString(),
-      ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
-    }));
-    await fetch(`${BACKEND_URL}/sync-events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: payloadEvents })
-    });
-  } catch (_) { /* ok si offline */ }
+ // ⬇️ remplace TON fetch actuel par CE bloc
+try {
+  const payload = list.map(e => ({
+    id: e.id,
+    title: e.title,
+    start: new Date(e.start).toISOString(),  // field = "start" (ISO)
+    all_day: false,
+    reminder_minutes: e.reminderMinutes ?? null,
+    deleted: false
+  }));
+  const r = await fetch(`${BACKEND_URL}/sync-events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload) // ⬅️ on envoie le tableau, pas {events: …}
+  });
+  console.log('sync-events =>', r.status, await r.text());
+} catch (_) { /* ok si offline */ }
 
-  hideEventForm();
-  renderCalendar();
-}
 
 
 function deleteEvent(single) {
@@ -1324,6 +1325,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
