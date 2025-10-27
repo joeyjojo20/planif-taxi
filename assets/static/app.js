@@ -259,10 +259,12 @@ async function saveEvent() {
   // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
   const baseId = editId || Date.now().toString();
 
-  const startDate = new Date(date);
-  const startStr = formatLocalDateTimeString(startDate);
+  // date = "YYYY-MM-DDTHH:mm" (input local). On convertit en ISO UTC correct.
+const startLocal = new Date(date);            // interprété en heure locale
+const startISO   = startLocal.toISOString();  // stocke en UTC correspondant à ta locale
 
-  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
+const list = [{ id: baseId, title: fullTitle, start: startISO, allDay: false, reminderMinutes: notifMin }];
+
 
   let limitDate = new Date(startDate);
   switch (duration) {
@@ -286,7 +288,7 @@ async function saveEvent() {
       if (nd.getDate() < d) nd.setDate(0);
     }
     if (nd > limitDate) break;
-    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
+    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: new Date(nd).toISOString(), allDay: false, reminderMinutes: notifMin });
     count++; // important
   }
 
@@ -1316,6 +1318,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
