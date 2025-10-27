@@ -242,38 +242,36 @@ function onEventClick(info) {
 
 /* ======== CRUD RDV ======== */
 async function saveEvent() {
-  const name = document.getElementById("client-name").value;
-  const pickup = document.getElementById("pickup-address").value;
-  const dropoff = document.getElementById("dropoff-address").value;
-  const date = document.getElementById("event-date").value;
-  const repeat = document.getElementById("recurrence").value;
-  const notify = document.getElementById("notification").value;
+  const name     = document.getElementById("client-name").value;
+  const pickup   = document.getElementById("pickup-address").value;
+  const dropoff  = document.getElementById("dropoff-address").value;
+  const date     = document.getElementById("event-date").value;
+  const repeat   = document.getElementById("recurrence").value;
+  const notify   = document.getElementById("notification").value;
   const notifMin = notify !== "none" ? parseInt(notify, 10) : null;
   const duration = document.getElementById("recurrence-duration").value;
-  const editId = document.getElementById("event-form").dataset.editId;
+  const editId   = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
 
-  // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
+  // En édition : on garde l'ID exact pour remplacer uniquement CET événement
   const baseId = editId || Date.now().toString();
 
-  // date = "YYYY-MM-DDTHH:mm" (input local). On convertit en ISO UTC correct.
-const startLocal = new Date(date);            // interprété en heure locale
-const startISO   = startLocal.toISOString();  // stocke en UTC correspondant à ta locale
+  const startDate = new Date(date); // <-- CE NOM est utilisé partout plus bas
+  const startStr  = formatLocalDateTimeString(startDate);
 
-const list = [{ id: baseId, title: fullTitle, start: startISO, allDay: false, reminderMinutes: notifMin }];
-
+  const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
 
   let limitDate = new Date(startDate);
   switch (duration) {
-    case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
-    case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
-    case "1m": limitDate.setMonth(limitDate.getMonth() + 1); break;
-    case "2m": limitDate.setMonth(limitDate.getMonth() + 2); break;
-    case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
-    case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
+    case "1w":  limitDate.setDate(limitDate.getDate() + 7);  break;
+    case "2w":  limitDate.setDate(limitDate.getDate() + 14); break;
+    case "1m":  limitDate.setMonth(limitDate.getMonth() + 1); break;
+    case "2m":  limitDate.setMonth(limitDate.getMonth() + 2); break;
+    case "3m":  limitDate.setMonth(limitDate.getMonth() + 3); break;
+    case "6m":  limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
   }
 
@@ -288,19 +286,25 @@ const list = [{ id: baseId, title: fullTitle, start: startISO, allDay: false, re
       if (nd.getDate() < d) nd.setDate(0);
     }
     if (nd > limitDate) break;
-    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: new Date(nd).toISOString(), allDay: false, reminderMinutes: notifMin });
-    count++; // important
+    list.push({
+      id: `${baseId}-${count}`,
+      title: fullTitle,
+      start: formatLocalDateTimeString(nd),
+      allDay: false,
+      reminderMinutes: notifMin
+    });
+    count++;
   }
 
   if (editId) {
-    // ✅ En édition : ne supprime QUE l'événement ciblé
+    // En édition : ne supprime QUE l'événement ciblé
     events = events.filter(e => e.id !== editId);
   }
   events = [...events, ...list];
 
   localStorage.setItem("events", JSON.stringify(events));
 
-  // ✅ sync vers le backend pour les rappels push
+  // sync vers le backend pour les rappels push (conversion en ISO ici)
   try {
     const payloadEvents = list.map(e => ({
       id: e.id,
@@ -315,8 +319,10 @@ const list = [{ id: baseId, title: fullTitle, start: startISO, allDay: false, re
     });
   } catch (_) { /* ok si offline */ }
 
-  hideEventForm(); renderCalendar();
+  hideEventForm();
+  renderCalendar();
 }
+
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
@@ -1318,6 +1324,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
