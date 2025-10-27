@@ -1129,7 +1129,8 @@ function setEventsAndRender(list) {
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-   if (deletes.length) {
+  // deletes: UPDATE (pas upsert), on ne touche pas à title/start
+if (deletes.length) {
   const now = Date.now();
   const { error } = await supabase
     .from('events')
@@ -1138,6 +1139,7 @@ function setEventsAndRender(list) {
 
   if (error) console.warn('delete mark error', error.message);
 }
+
 
 
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
@@ -1306,6 +1308,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
