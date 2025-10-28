@@ -67,13 +67,43 @@ window.addEventListener("DOMContentLoaded", () => {
   btn.id = "test-push-btn";
   btn.textContent = "🔔 Test notif";
   btn.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer";
+
   btn.onclick = async () => {
+    // 1) Tenter le backend /test-push
+    let backendOk = false;
     try {
       const r = await fetch(`${BACKEND_URL}/test-push`, { method: "POST" });
-      const j = await r.json();
-      alert(j.ok ? "Notif envoyée ✅" : `Échec: ${j.error || "?"}`);
-    } catch(e) { alert("Erreur réseau"); }
+      if (r.ok) {
+        const j = await r.json().catch(() => ({}));
+        if (j && (j.ok ?? 0) > 0) {
+          backendOk = true;
+          alert("Notif envoyée ✅ (backend)");
+        }
+      }
+    } catch (_) {
+      // réseau HS → on bascule sur fallback
+    }
+    if (backendOk) return;
+
+    // 2) Fallback local via Service Worker
+    try {
+      const reg = await navigator.serviceWorker.getRegistration("/");
+      if (!reg || !reg.active) throw new Error("SW non actif");
+      reg.active.postMessage({
+        type: "LOCAL_TEST_NOTIFY",
+        payload: {
+          title: "Test RDV Taxi (local)",
+          body: "Fallback service worker ✔",
+          data: { url: "/" }
+        }
+      });
+      alert("Notif locale envoyée ✅ (fallback)");
+    } catch (e) {
+      console.warn("Fallback local échoué:", e);
+      alert("Échec test notif (backend + fallback). Vérifie SW/permissions.");
+    }
   };
+
   document.body.appendChild(btn);
 });
 
@@ -1313,6 +1343,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
