@@ -8,6 +8,34 @@ let currentUser = null;
 const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1";
 const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY"; // ⬅️ ta clé publique VAPID
 
+// Réactive silencieusement la push si déjà autorisée (aucun prompt)
+async function ensurePushReady() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    // Ne JAMAIS re-demander : on agit seulement si déjà "granted"
+    if (Notification.permission !== "granted") return;
+
+    // SW ok (idempotent)
+    const reg = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+
+    // S’assurer qu’une subscription existe
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+
+    // Laisse ta logique existante stocker/mettre à jour la sub (hook enablePush déjà présent)
+    if (window.enablePush) {
+      await window.enablePush();
+    }
+  } catch (e) {
+    console.warn("ensurePushReady:", e);
+  }
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -1331,6 +1359,7 @@ function setEventsAndRender(list) {
   window.showApp = async function(){
     const r = _showApp ? _showApp() : undefined;
     await pull(true);   // full pull initial
+    await ensurePushReady();  
     ensureBus();        // abonnement broadcast
     startSync();        // secours/offline
     return r;
@@ -1342,6 +1371,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
