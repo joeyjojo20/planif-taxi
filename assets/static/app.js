@@ -291,22 +291,30 @@ async function saveEvent() {
   localStorage.setItem("events", JSON.stringify(events));
 
   // ✅ sync vers le backend pour les rappels push
+   // ✅ sync vers le backend pour les rappels push
   try {
-    const payloadEvents = list.map(e => ({
+    const payload = list.map(e => ({
       id: e.id,
       title: e.title,
-      startISO: new Date(e.start).toISOString(),
-      ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
+      start: e.start,               // déjà ISO après patch #2
+      all_day: false,
+      reminder_minutes: e.reminderMinutes ?? null,
+      deleted: false
     }));
-    await fetch(`${BACKEND_URL}/sync-events`, {
+    const r = await fetch(`${BACKEND_URL}/sync-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: payloadEvents })
+      body: JSON.stringify(payload) // ⬅️ on envoie un TABLEAU, pas {events: ...}
     });
-  } catch (_) { /* ok si offline */ }
+    console.log("sync-events =>", r.status, await r.text());
+  } catch (e) {
+    console.warn("sync-events error:", e);
+  } finally {
+    // ✅ ferme toujours la modale, même s'il y a une erreur réseau
+    hideEventForm();
+    renderCalendar();
+  }
 
-  hideEventForm(); renderCalendar();
-}
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
@@ -1305,6 +1313,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
