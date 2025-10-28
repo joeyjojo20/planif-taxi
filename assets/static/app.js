@@ -15,14 +15,6 @@ function urlBase64ToUint8Array(base64String) {
   for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
   return arr;
 }
-// Construit un Date LOCAL à partir des inputs date/heure, puis renvoie un ISO correct
-function localDateTimeToISO(dateStr, timeStr) {
-  // dateStr = "YYYY-MM-DD", timeStr = "HH:MM"
-  const [Y, M, D] = dateStr.split('-').map(Number);
-  const [h, m]   = timeStr.split(':').map(Number);
-  const dt = new Date(Y, M - 1, D, h, m, 0); // ← LOCAL (America/Toronto)
-  return dt.toISOString();                    // ← ISO UTC correct pour la DB
-}
 
 async function enablePush() {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) {
@@ -242,36 +234,36 @@ function onEventClick(info) {
 
 /* ======== CRUD RDV ======== */
 async function saveEvent() {
-  const name     = document.getElementById("client-name").value;
-  const pickup   = document.getElementById("pickup-address").value;
-  const dropoff  = document.getElementById("dropoff-address").value;
-  const date     = document.getElementById("event-date").value;
-  const repeat   = document.getElementById("recurrence").value;
-  const notify   = document.getElementById("notification").value;
+  const name = document.getElementById("client-name").value;
+  const pickup = document.getElementById("pickup-address").value;
+  const dropoff = document.getElementById("dropoff-address").value;
+  const date = document.getElementById("event-date").value;
+  const repeat = document.getElementById("recurrence").value;
+  const notify = document.getElementById("notification").value;
   const notifMin = notify !== "none" ? parseInt(notify, 10) : null;
   const duration = document.getElementById("recurrence-duration").value;
-  const editId   = document.getElementById("event-form").dataset.editId;
+  const editId = document.getElementById("event-form").dataset.editId;
 
   if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
 
-  // En édition : on garde l'ID exact pour remplacer uniquement CET événement
+  // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
   const baseId = editId || Date.now().toString();
 
-  const startDate = new Date(date); // <-- CE NOM est utilisé partout plus bas
-  const startStr  = formatLocalDateTimeString(startDate);
+  const startDate = new Date(date);
+  const startStr = formatLocalDateTimeString(startDate);
 
   const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
 
   let limitDate = new Date(startDate);
   switch (duration) {
-    case "1w":  limitDate.setDate(limitDate.getDate() + 7);  break;
-    case "2w":  limitDate.setDate(limitDate.getDate() + 14); break;
-    case "1m":  limitDate.setMonth(limitDate.getMonth() + 1); break;
-    case "2m":  limitDate.setMonth(limitDate.getMonth() + 2); break;
-    case "3m":  limitDate.setMonth(limitDate.getMonth() + 3); break;
-    case "6m":  limitDate.setMonth(limitDate.getMonth() + 6); break;
+    case "1w": limitDate.setDate(limitDate.getDate() + 7); break;
+    case "2w": limitDate.setDate(limitDate.getDate() + 14); break;
+    case "1m": limitDate.setMonth(limitDate.getMonth() + 1); break;
+    case "2m": limitDate.setMonth(limitDate.getMonth() + 2); break;
+    case "3m": limitDate.setMonth(limitDate.getMonth() + 3); break;
+    case "6m": limitDate.setMonth(limitDate.getMonth() + 6); break;
     case "12m": limitDate.setFullYear(limitDate.getFullYear() + 1); break;
   }
 
@@ -286,43 +278,35 @@ async function saveEvent() {
       if (nd.getDate() < d) nd.setDate(0);
     }
     if (nd > limitDate) break;
-    list.push({
-      id: `${baseId}-${count}`,
-      title: fullTitle,
-      start: formatLocalDateTimeString(nd),
-      allDay: false,
-      reminderMinutes: notifMin
-    });
-    count++;
+    list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
+    count++; // important
   }
 
   if (editId) {
-    // En édition : ne supprime QUE l'événement ciblé
+    // ✅ En édition : ne supprime QUE l'événement ciblé
     events = events.filter(e => e.id !== editId);
   }
   events = [...events, ...list];
 
   localStorage.setItem("events", JSON.stringify(events));
 
-  // sync vers le backend pour les rappels push (conversion en ISO ici)
- // ⬇️ remplace TON fetch actuel par CE bloc
-try {
-  const payload = list.map(e => ({
-    id: e.id,
-    title: e.title,
-    start: new Date(e.start).toISOString(),  // field = "start" (ISO)
-    all_day: false,
-    reminder_minutes: e.reminderMinutes ?? null,
-    deleted: false
-  }));
-  const r = await fetch(`${BACKEND_URL}/sync-events`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload) // ⬅️ on envoie le tableau, pas {events: …}
-  });
-  console.log('sync-events =>', r.status, await r.text());
-} catch (_) { /* ok si offline */ }
-} 
+  // ✅ sync vers le backend pour les rappels push
+  try {
+    const payloadEvents = list.map(e => ({
+      id: e.id,
+      title: e.title,
+      startISO: new Date(e.start).toISOString(),
+      ...(e.reminderMinutes != null ? { reminderMinutes: e.reminderMinutes } : {})
+    }));
+    await fetch(`${BACKEND_URL}/sync-events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: payloadEvents })
+    });
+  } catch (_) { /* ok si offline */ }
+
+  hideEventForm(); renderCalendar();
+}
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
@@ -1145,18 +1129,14 @@ function setEventsAndRender(list) {
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-  // deletes: UPDATE (pas upsert), on ne touche pas à title/start
-if (deletes.length) {
-  const now = Date.now();
-  const { error } = await supabase
-    .from('events')
-    .update({ deleted: true, updated_at: now })
-    .in('id', deletes.map(id => String(id)));
-
-  if (error) console.warn('delete mark error', error.message);
-}
-
-
+    if (deletes.length){
+      const rows = deletes.map(id => ({
+        id:String(id), title:"", start:"", all_day:false,
+        reminder_minutes:null, updated_at:now, deleted:true
+      }));
+      const { error } = await supabase.from("events").upsert(rows, { onConflict:"id" });
+      if (error) console.warn("delete mark error", error.message);
+    }
 
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
@@ -1317,6 +1297,7 @@ if (deletes.length) {
     ensureBus();        // abonnement broadcast
     startSync();        // secours/offline
     return r;
+    
   };
 })();
 
@@ -1324,15 +1305,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
-
-
-
-
-
-
 
 
 
