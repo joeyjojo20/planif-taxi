@@ -322,8 +322,7 @@ try {
   });
   console.log('sync-events =>', r.status, await r.text());
 } catch (_) { /* ok si offline */ }
-
-
+} 
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
@@ -1325,6 +1324,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
