@@ -314,7 +314,7 @@ async function saveEvent() {
     hideEventForm();
     renderCalendar();
   }
-
+ }
 
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
@@ -1313,6 +1313,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
