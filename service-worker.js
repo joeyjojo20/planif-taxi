@@ -20,3 +20,17 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
+// ↓↓↓ AJOUTE EN BAS DU FICHIER ↓↓↓
+self.addEventListener("message", (event) => {
+  if (!event?.data || event.data.type !== "LOCAL_TEST_NOTIFY") return;
+  const p = event.data.payload || {};
+  event.waitUntil(
+    self.registration.showNotification(p.title || "Test RDV Taxi", {
+      body: p.body || "Notification locale (fallback)",
+      data: p.data || { url: "/" },
+      icon: "/icon-192.png",
+      badge: "/icon-192.png"
+    })
+  );
+});
+
