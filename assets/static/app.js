@@ -1167,14 +1167,13 @@ function setEventsAndRender(list) {
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-    if (deletes.length){
-      const rows = deletes.map(id => ({
-        id:String(id), title:"", start:"", all_day:false,
-        reminder_minutes:null, updated_at:now, deleted:true
-      }));
-      const { error } = await supabase.from("events").upsert(rows, { onConflict:"id" });
-      if (error) console.warn("delete mark error", error.message);
-    }
+   if (deletes.length){
+  const { error } = await supabase
+    .from("events")
+    .update({ deleted: true, updated_at: now })
+    .in("id", deletes.map(String));
+  if (error) console.warn("delete mark error", error.message);
+}
 
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
@@ -1343,6 +1342,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
