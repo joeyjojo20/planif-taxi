@@ -827,6 +827,11 @@ async function handlePdfImport(file){
   // 2) Date de référence + parsing RDV
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
+  
+// 👇 Par défaut : chaque RDV importé a 15 min de rappel, modifiable ensuite
+for (const ev of parsed) {
+  if (ev.reminderMinutes == null) ev.reminderMinutes = 15;
+}
 
   if (parsed.length) {
     events = [...events, ...parsed];
@@ -1371,6 +1376,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
