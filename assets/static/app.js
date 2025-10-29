@@ -830,7 +830,7 @@ async function handlePdfImport(file){
   
 // 👇 Par défaut : chaque RDV importé a 15 min de rappel, modifiable ensuite
 for (const ev of parsed) {
-  if (ev.reminderMinutes == null) ev.reminderMinutes = 15;
+  if (ev.reminderMinutes == null) ev.reminderMinutes = 10;
 }
 
   if (parsed.length) {
@@ -1376,6 +1376,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
