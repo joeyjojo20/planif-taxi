@@ -1472,23 +1472,30 @@ function setEventsAndRender(list) {
     return r;
   };
 
-  // ---------- abonnement push (stockage) ----------
-  const _enablePush = window.enablePush;
-  window.enablePush = async function(){
-    try{
-      await (_enablePush ? _enablePush() : Promise.resolve());
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub){
-        const { keys } = sub.toJSON();
-        const ua = navigator.userAgent || "unknown";
-        const { error } = await supabase.from("subscriptions").upsert({
-          endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth, ua, Date.now()
-        });
-        if (error) console.warn("sub upsert error", error.message);
-      }
-    } catch(e){ console.warn(e); }
-  };
+ // ---------- abonnement push (stockage) ----------
+const _enablePush = window.enablePush;
+window.enablePush = async function () {
+  try {
+    await (_enablePush ? _enablePush() : Promise.resolve());
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const { keys } = sub.toJSON();
+      const ua = navigator.userAgent || "unknown";
+
+      const { error } = await supabase.from("subscriptions").upsert({
+        endpoint: sub.endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        ua
+      });
+      if (error) console.warn("sub upsert error", error.message);
+    }
+  } catch (e) {
+    console.warn(e);
+  }
+};
 
  // ---------- démarrage ----------
 const _showApp = window.showApp;
@@ -1510,6 +1517,7 @@ Object.assign(window, {
 
 // ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
+
 
 
 
