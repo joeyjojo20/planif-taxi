@@ -1519,18 +1519,191 @@ Object.assign(window, {
 })();
 
 
+/* ======================= RDV TAXI — AUTH SUPABASE (PATCH OVERRIDE) =======================
+   Ce bloc n'écrase rien d'existant; il redéfinit proprement login/register/logout et les exports
+   pour que l'auth soit hébergée (Supabase). Il ajoute aussi l'écran "en attente" et corrige
+   l'upsert des subscriptions (pas de created_at en millisecondes).
+   ---------------------------------------------------------------------- */
 
+(function () {
+  try {
+    // Assure qu'on a un client supabase (créé plus haut normalement)
+    if (typeof supabase === "undefined" || !supabase) {
+      if (window.supabase && window.supabase.createClient && typeof SUPABASE_URL !== "undefined" && typeof SUPABASE_ANON_KEY !== "undefined") {
+        window.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } else {
+        console.warn("[PATCH AUTH] Supabase client introuvable.");
+      }
+    }
 
+    // --- UI helpers si absents ---
+    if (typeof window.showRegister !== "function") {
+      window.showRegister = function showRegister(){
+        const $ = (id)=>document.getElementById(id);
+        $("#login-screen")?.classList.add("hidden");
+        $("#register-screen")?.classList.remove("hidden");
+        $("#awaiting-approval")?.classList.add("hidden");
+        $("#main-screen")?.classList.add("hidden");
+      };
+    }
+    if (typeof window.showLogin !== "function") {
+      window.showLogin = function showLogin(){
+        const $ = (id)=>document.getElementById(id);
+        $("#login-screen")?.classList.remove("hidden");
+        $("#register-screen")?.classList.add("hidden");
+        $("#awaiting-approval")?.classList.add("hidden");
+        $("#main-screen")?.classList.add("hidden");
+      };
+    }
+    if (typeof window.showAwaitingApproval !== "function") {
+      window.showAwaitingApproval = function showAwaitingApproval(){
+        const $ = (id)=>document.getElementById(id);
+        $("#login-screen")?.classList.add("hidden");
+        $("#register-screen")?.classList.add("hidden");
+        $("#awaiting-approval")?.classList.remove("hidden");
+        $("#main-screen")?.classList.add("hidden");
+      };
+    }
 
+    // --- Profile loader ---
+    async function loadOrCreateProfile(user) {
+      if (!user || !supabase) return null;
+      const { data, error } = await supabase.from('profiles')
+        .select('id,email,role,approved,wants_admin')
+        .eq('id', user.id).limit(1);
+      let p = data && data[0];
+      if (!p) {
+        const ins = { id:user.id, email:user.email, role:'user', approved:false, wants_admin:false };
+        await supabase.from('profiles').insert(ins);
+        p = ins;
+      }
+      window.currentUser = {
+        id: user.id,
+        email: user.email,
+        role: p.role,
+        approved: p.approved,
+        wantsAdmin: p.wants_admin
+      };
+      return window.currentUser;
+    }
 
+    // --- Auth functions (override) ---
+    async function login() {
+      const emailEl = document.getElementById("email");
+      const passEl  = document.getElementById("password");
+      const email = (emailEl?.value || "").trim();
+      const password = passEl?.value || "";
+      if (!supabase) { alert("Auth indisponible (supabase non chargé)."); return; }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert("Identifiants incorrects ou compte non approuvé.");
+    }
 
+    async function register() {
+      const emailEl = document.getElementById("register-email");
+      const passEl  = document.getElementById("register-password");
+      let email = (emailEl?.value || "");
+      email = email.replace(/\\s+/g, "").toLowerCase().trim();
+      const password = passEl?.value || "";
+      if (!supabase) { alert("Inscription indisponible (supabase non chargé)."); return; }
 
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) { alert("Inscription impossible: " + error.message); console.warn(error); return; }
+      const user = data.user;
 
+      // Bootstrap: premier compte => admin approuvé
+      const { count, error: countErr } = await supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'admin');
 
+      const isBootstrap = !countErr && (count === 0);
 
+      await supabase.from('profiles').upsert({
+        id: user.id,
+        email,
+        role: isBootstrap ? 'admin' : 'user',
+        approved: isBootstrap ? true : false,
+        wants_admin: false
+      });
 
+      if (isBootstrap) alert("Premier compte créé : vous êtes ADMIN (approuvé). Vous pouvez vous connecter.");
+      else window.showAwaitingApproval && window.showAwaitingApproval();
+    }
 
+    async function logout() {
+      if (supabase) await supabase.auth.signOut();
+      window.currentUser = null;
+      window.showLogin && window.showLogin();
+      try { if (typeof localStorage !== "undefined") localStorage.removeItem("supabase-auth-token"); } catch {}
+    }
 
+    // --- Boot auth listeners (override-safe) ---
+    (function bootAuth(){
+      if (!supabase) return;
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session?.user) {
+          await loadOrCreateProfile(session.user);
+          if (window.currentUser?.approved) {
+            window.showApp && window.showApp();
+            setTimeout(()=> (window.showNotesIfAny && window.showNotesIfAny()), 300);
+          } else {
+            window.showAwaitingApproval && window.showAwaitingApproval();
+          }
+        } else {
+          window.showLogin && window.showLogin();
+        }
+      });
 
+      supabase.auth.onAuthStateChange(async (_event, sess) => {
+        if (sess?.user) {
+          await loadOrCreateProfile(sess.user);
+          if (window.currentUser?.approved) {
+            window.showApp && window.showApp();
+            setTimeout(()=> (window.showNotesIfAny && window.showNotesIfAny()), 300);
+          } else {
+            window.showAwaitingApproval && window.showAwaitingApproval();
+          }
+        } else {
+          window.currentUser = null;
+          window.showLogin && window.showLogin();
+        }
+      });
+    })();
 
+    // --- Override exports (onclick HTML) ---
+    window.login = login;
+    window.register = register;
+    window.logout = logout;
+
+    // --- Patch enablePush upsert (no created_at milliseconds) ---
+    (function patchEnablePush(){
+      try {
+        const orig = window.enablePush;
+        window.enablePush = async function(){
+          try{
+            if (orig) await orig();
+            if (!('serviceWorker' in navigator)) return;
+            const reg = await navigator.serviceWorker.ready;
+            const sub = await reg.pushManager.getSubscription();
+            if (sub && supabase) {
+              const { keys } = sub.toJSON();
+              const ua = navigator.userAgent || "unknown";
+              const { error } = await supabase.from("subscriptions").upsert({
+                endpoint: sub.endpoint,
+                p256dh: keys.p256dh,
+                auth: keys.auth,
+                ua
+              });
+              if (error) console.warn("sub upsert error", error.message);
+            }
+          } catch(e){ console.warn(e); }
+        };
+      } catch(e){ /* ignore */ }
+    })();
+
+  } catch (e) {
+    console.warn("[PATCH AUTH] init error", e);
+  }
+})();
+/* =================== FIN PATCH AUTH SUPABASE (override minimal) =================== */
 
