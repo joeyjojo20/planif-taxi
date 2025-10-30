@@ -136,7 +136,7 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
-  localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
+  localStorage.setItem("users", JSON.stringify([{ email: "admin@....com", password: "admin123", role: "admin", approved: true }]));
 }
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
@@ -159,35 +159,49 @@ function showRegister() {
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-function login() {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  window.currentUser = currentUser; 
-  const email = document.getElementById("email").value;
+// === UI: écran "compte en attente" ===
+function showAwaitingApproval(){
+  const $ = (id) => document.getElementById(id);
+  $("#login-screen")?.classList.add("hidden");
+  $("#register-screen")?.classList.add("hidden");
+  $("#main-screen")?.classList.add("hidden");
+  $("#awaiting-approval")?.classList.remove("hidden");
+}
+
+
+async function login() {
+  const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
-  const found = users.find(u => u.email === email && u.password === password);
-  if (!found) return alert("Identifiants incorrects");
-  currentUser = found;
-  if (currentUser.role === "admin" && currentUser.approved === undefined) {
-    currentUser.approved = true;
-    const i = users.findIndex(u => u.email === currentUser.email);
-    if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
-  }
-  showApp();
-  setTimeout(showNotesIfAny, 300);
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) alert("Identifiants incorrects ou compte non approuvé.");
+  // bootAuth() + onAuthStateChange gèrent l’UI ensuite
 }
-function register() {
-  const email = document.getElementById("register-email").value;
+
+async function register() {
+  const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
-  const roleChoice = document.getElementById("register-role").value;
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
-  const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
-  users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
-  if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
-  currentUser = newUser; showApp(); setTimeout(showNotesIfAny, 300);
-  window.currentUser = currentUser; 
+
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) return alert("Inscription impossible: " + error.message);
+
+  const user = data.user;
+  // Profil par défaut: user non approuvé => accès bloqué tant qu’un admin n’approuve pas
+  await supabase.from('profiles').upsert({
+    id: user.id,
+    email,
+    role: 'user',
+    approved: false,
+    wants_admin: false
+  });
+
+  alert("Compte créé. En attente d'approbation par un administrateur.");
+  // bootAuth() affichera automatiquement l’écran “en attente”
 }
-function logout(){ currentUser = null; location.reload(); }
+
+async function logout() {
+  await supabase.auth.signOut();
+  location.reload();
+}
 
 /* ======== APP / UI ======== */
 function showApp() {
@@ -1035,11 +1049,65 @@ const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
+// ⬇️ Ces 2 constantes doivent être accessibles partout
+const LAST_PULL_KEY = "events_last_pull_ms";
+const SHADOW_KEY    = "events_shadow_v1";
+
 (function () {
   if (!supabase) { console.warn("Supabase non chargé."); return; }
 
-  const LAST_PULL_KEY = "events_last_pull_ms";
-  const SHADOW_KEY    = "events_shadow_v1";
+  /* ======== AUTH SUPABASE (hébergé) ======== */
+  async function loadOrCreateProfile(user) {
+    const { data, error } = await supabase.from('profiles')
+      .select('id,email,role,approved,wants_admin')
+      .eq('id', user.id).limit(1);
+
+    let p = data?.[0];
+    if (!p) {
+      const ins = {
+        id: user.id,
+        email: user.email,
+        role: 'user',
+        approved: false,
+        wants_admin: false
+      };
+      await supabase.from('profiles').insert(ins);
+      p = ins;
+    }
+
+    window.currentUser = {
+      id: user.id,
+      email: user.email,
+      role: p.role,
+      approved: p.approved,
+      wantsAdmin: p.wants_admin
+    };
+    return window.currentUser;
+  }
+
+  (function bootAuth(){
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        await loadOrCreateProfile(session.user);
+        if (window.currentUser.approved) { showApp(); setTimeout(showNotesIfAny, 300); }
+        else showAwaitingApproval();
+      } else {
+        showLogin();
+      }
+    });
+
+    supabase.auth.onAuthStateChange(async (_event, sess) => {
+      if (sess?.user) {
+        await loadOrCreateProfile(sess.user);
+        if (window.currentUser.approved) { showApp(); setTimeout(showNotesIfAny, 300); }
+        else showAwaitingApproval();
+      } else {
+        window.currentUser = null;
+        showLogin();
+      }
+    });
+  })();
+})(); 
 
   // ---------- helpers rôle admin ----------
   function isAdminUser() {
@@ -1393,6 +1461,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
