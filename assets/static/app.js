@@ -230,19 +230,36 @@ function hideNotesPopup(){ document.getElementById("notes-popup").classList.add(
 
 /* ======== CALENDRIER ======== */
 function renderCalendar() {
-  const el = document.getElementById("calendar"); if (!el) return;
-  if (calendar) calendar.destroy();
-  calendar = new FullCalendar.Calendar(el, {
-    timeZone: 'local',
-    initialView: 'dayGridMonth',
-    locale: 'fr',
-    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
-    dateClick: info => openDayEventsModal(info.dateStr),
-    events: events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) })),
-    eventClick: onEventClick
+  const el = document.getElementById("calendar");
+  if (!el) return;
+
+  // Prépare la liste d'événements (même mapping qu'avant)
+  const mapped = events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) }));
+
+  // Si le calendrier n'existe pas encore, on le crée UNE seule fois
+  if (!calendar) {
+    calendar = new FullCalendar.Calendar(el, {
+      timeZone: 'local',
+      initialView: 'dayGridMonth',
+      locale: 'fr',
+      headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+      dateClick: info => openDayEventsModal(info.dateStr),
+      events: mapped,
+      eventClick: onEventClick
+    });
+    calendar.render();
+    return;
+  }
+
+  // Sinon, on met simplement à jour les événements (pas de destroy/recreate)
+  calendar.batchRendering(() => {
+    calendar.removeAllEvents();
+    for (const ev of mapped) {
+      calendar.addEvent(ev);
+    }
   });
-  calendar.render();
 }
+
 function shortenEvent(title, dateStr) {
   const parts = title.split(" – ");
   const name = parts[0];
@@ -1376,6 +1393,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
