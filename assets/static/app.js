@@ -1464,7 +1464,7 @@ function setEventsAndRender(list) {
         const { keys } = sub.toJSON();
         const ua = navigator.userAgent || "unknown";
         const { error } = await supabase.from("subscriptions").upsert({
-          endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth, ua, created_at: Date.now()
+          endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth, ua, Date.now()
         });
         if (error) console.warn("sub upsert error", error.message);
       }
@@ -1491,6 +1491,7 @@ Object.assign(window, {
 
 // ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
+
 
 
 
