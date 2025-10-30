@@ -183,16 +183,24 @@ async function login() {
 }
 
 // remplace entièrement ta register() par ceci
+// remplace intégralement ta fonction register()
 async function register() {
-  const email = document.getElementById("register-email").value.trim();
+  // Nettoyage agressif de l'email (supprime tous les espaces invisibles)
+  let email = document.getElementById("register-email").value || "";
+  email = email.replace(/\s+/g, "").toLowerCase().trim();
   const password = document.getElementById("register-password").value;
 
+  // 1) Tentative d'inscription Supabase
   const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) return alert("Inscription impossible: " + error.message);
+  if (error) {
+    alert("Inscription impossible: " + error.message);
+    console.warn("signUp error", error);
+    return;
+  }
 
   const user = data.user;
 
-  // Y a-t-il déjà des admins ?
+  // 2) Combien d'admins existent déjà ? (bootstrap du premier compte)
   const { count, error: countErr } = await supabase
     .from('profiles')
     .select('id', { count: 'exact', head: true })
@@ -200,13 +208,15 @@ async function register() {
 
   const isBootstrap = !countErr && (count === 0);
 
-  await supabase.from('profiles').upsert({
+  // 3) Créer/mettre à jour le profil
+  const { error: upErr } = await supabase.from('profiles').upsert({
     id: user.id,
     email,
     role: isBootstrap ? 'admin' : 'user',
     approved: isBootstrap ? true : false,
     wants_admin: false
   });
+  if (upErr) console.warn("profiles upsert error", upErr);
 
   if (isBootstrap) {
     alert("Premier compte créé : vous êtes ADMIN (approuvé). Vous pouvez vous connecter.");
@@ -214,7 +224,6 @@ async function register() {
     alert("Compte créé. En attente d'approbation par un administrateur.");
   }
 }
-
 
 async function logout() {
   await supabase.auth.signOut();
@@ -1482,6 +1491,7 @@ Object.assign(window, {
 
 // ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
+
 
 
 
