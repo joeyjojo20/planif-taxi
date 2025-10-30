@@ -182,6 +182,7 @@ async function login() {
   // bootAuth() + onAuthStateChange gèrent l’UI ensuite
 }
 
+// remplace entièrement ta register() par ceci
 async function register() {
   const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
@@ -190,18 +191,30 @@ async function register() {
   if (error) return alert("Inscription impossible: " + error.message);
 
   const user = data.user;
-  // Profil par défaut: user non approuvé => accès bloqué tant qu’un admin n’approuve pas
+
+  // Y a-t-il déjà des admins ?
+  const { count, error: countErr } = await supabase
+    .from('profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('role', 'admin');
+
+  const isBootstrap = !countErr && (count === 0);
+
   await supabase.from('profiles').upsert({
     id: user.id,
     email,
-    role: 'user',
-    approved: false,
+    role: isBootstrap ? 'admin' : 'user',
+    approved: isBootstrap ? true : false,
     wants_admin: false
   });
 
-  alert("Compte créé. En attente d'approbation par un administrateur.");
-  // bootAuth() affichera automatiquement l’écran “en attente”
+  if (isBootstrap) {
+    alert("Premier compte créé : vous êtes ADMIN (approuvé). Vous pouvez vous connecter.");
+  } else {
+    alert("Compte créé. En attente d'approbation par un administrateur.");
+  }
 }
+
 
 async function logout() {
   await supabase.auth.signOut();
@@ -1469,6 +1482,7 @@ Object.assign(window, {
 
 // ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
+
 
 
 
