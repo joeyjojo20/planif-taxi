@@ -135,9 +135,14 @@ window.addEventListener("DOMContentLoaded", () => {
   document.body.appendChild(btn);
 });
 
+/* Désactivé: migration vers Supabase Auth
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
-  localStorage.setItem("users", JSON.stringify([{ email: "admin@....com", password: "admin123", role: "admin", approved: true }]));
+  localStorage.setItem("users", JSON.stringify([
+    { email: "admin@....com", password: "admin123", role: "admin", approved: true }
+  ]));
 }
+*/
+
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
 
@@ -1107,7 +1112,7 @@ const SHADOW_KEY    = "events_shadow_v1";
       }
     });
   })();
-})(); 
+
 
   // ---------- helpers rôle admin ----------
   function isAdminUser() {
@@ -1444,24 +1449,26 @@ function setEventsAndRender(list) {
     } catch(e){ console.warn(e); }
   };
 
-  // ---------- démarrage ----------
-  const _showApp = window.showApp;
-  window.showApp = async function(){
-    const r = _showApp ? _showApp() : undefined;
-    await pull(true);   // full pull initial
-    await ensurePushReady();  
-    ensureBus();        // abonnement broadcast
-    startSync();        // secours/offline
-    return r;
-    
-  };
+ // ---------- démarrage ----------
+const _showApp = window.showApp;
+window.showApp = async function(){
+  const r = _showApp ? _showApp() : undefined;
+  await pull(true);
+  await ensurePushReady();
+  ensureBus();
+  startSync();
+  return r;
+};
+
+// Exports globaux pour le HTML (liens onclick)
+Object.assign(window, {
+  login, register, logout,
+  showRegister, showLogin,
+  showAwaitingApproval
+});
+
+// ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
-
-window.login = login;
-window.register = register;
-window.showRegister = showRegister;
-window.showLogin = showLogin;
-
 
 
 
