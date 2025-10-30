@@ -3,6 +3,8 @@
  ***********************/
 
 /* ======== ÉTAT GLOBAL ======== */
+let calendar; // instance unique FullCalendar
+let CAL_OPTS = null;
 let currentUser = null;
 // === PUSH NOTIFS (ajout) ===
 const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1";
@@ -1376,6 +1378,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
