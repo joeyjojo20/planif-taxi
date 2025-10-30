@@ -154,16 +154,28 @@ function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm" (local)
 function cleanText(s){ return (s||"").replace(/\s+/g," ").trim(); }
 
 /* ======== AUTH ======== */
-function showLogin() {
-  document.getElementById("login-screen").classList.remove("hidden");
-  document.getElementById("register-screen").classList.add("hidden");
-  document.getElementById("main-screen").classList.add("hidden");
+function showRegister(){
+  const $ = (id)=>document.getElementById(id);
+  $("#login-screen")?.classList.add("hidden");
+  $("#register-screen")?.classList.remove("hidden");
+  $("#awaiting-approval")?.classList.add("hidden");
+  $("#main-screen")?.classList.add("hidden");
 }
-function showRegister() {
-  document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("register-screen").classList.remove("hidden");
-  document.getElementById("main-screen").classList.add("hidden");
+function showLogin(){
+  const $ = (id)=>document.getElementById(id);
+  $("#login-screen")?.classList.remove("hidden");
+  $("#register-screen")?.classList.add("hidden");
+  $("#awaiting-approval")?.classList.add("hidden");
+  $("#main-screen")?.classList.add("hidden");
 }
+function showAwaitingApproval(){
+  const $ = (id)=>document.getElementById(id);
+  $("#login-screen")?.classList.add("hidden");
+  $("#register-screen")?.classList.add("hidden");
+  $("#awaiting-approval")?.classList.remove("hidden");
+  $("#main-screen")?.classList.add("hidden");
+}
+
 // === UI: écran "compte en attente" ===
 function showAwaitingApproval(){
   const $ = (id) => document.getElementById(id);
@@ -229,6 +241,13 @@ async function logout() {
   await supabase.auth.signOut();
   location.reload();
 }
+// Rendre dispos pour les onclick="..."
+window.login = login;               // async OK
+window.register = register;         // async OK
+window.logout = logout;             // async OK
+window.showRegister = showRegister;
+window.showLogin = showLogin;
+window.showAwaitingApproval = showAwaitingApproval;
 
 /* ======== APP / UI ======== */
 function showApp() {
@@ -1491,6 +1510,7 @@ Object.assign(window, {
 
 // ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
 })();
+
 
 
 
