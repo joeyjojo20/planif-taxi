@@ -135,14 +135,9 @@ window.addEventListener("DOMContentLoaded", () => {
   document.body.appendChild(btn);
 });
 
-/* Désactivé: migration vers Supabase Auth
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
-  localStorage.setItem("users", JSON.stringify([
-    { email: "admin@....com", password: "admin123", role: "admin", approved: true }
-  ]));
+  localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
 }
-*/
-
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
 
@@ -154,100 +149,45 @@ function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm" (local)
 function cleanText(s){ return (s||"").replace(/\s+/g," ").trim(); }
 
 /* ======== AUTH ======== */
-function showRegister(){
-  const $ = (id)=>document.getElementById(id);
-  $("#login-screen")?.classList.add("hidden");
-  $("#register-screen")?.classList.remove("hidden");
-  $("#awaiting-approval")?.classList.add("hidden");
-  $("#main-screen")?.classList.add("hidden");
+function showLogin() {
+  document.getElementById("login-screen").classList.remove("hidden");
+  document.getElementById("register-screen").classList.add("hidden");
+  document.getElementById("main-screen").classList.add("hidden");
 }
-function showLogin(){
-  const $ = (id)=>document.getElementById(id);
-  $("#login-screen")?.classList.remove("hidden");
-  $("#register-screen")?.classList.add("hidden");
-  $("#awaiting-approval")?.classList.add("hidden");
-  $("#main-screen")?.classList.add("hidden");
+function showRegister() {
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("register-screen").classList.remove("hidden");
+  document.getElementById("main-screen").classList.add("hidden");
 }
-function showAwaitingApproval(){
-  const $ = (id)=>document.getElementById(id);
-  $("#login-screen")?.classList.add("hidden");
-  $("#register-screen")?.classList.add("hidden");
-  $("#awaiting-approval")?.classList.remove("hidden");
-  $("#main-screen")?.classList.add("hidden");
-}
-
-// === UI: écran "compte en attente" ===
-function showAwaitingApproval(){
-  const $ = (id) => document.getElementById(id);
-  $("#login-screen")?.classList.add("hidden");
-  $("#register-screen")?.classList.add("hidden");
-  $("#main-screen")?.classList.add("hidden");
-  $("#awaiting-approval")?.classList.remove("hidden");
-}
-
-
-async async function login() {
-  const email = document.getElementById("email").value.trim();
+function login() {
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  window.currentUser = currentUser; 
+  const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) alert("Identifiants incorrects ou compte non approuvé.");
-  // bootAuth() + onAuthStateChange gèrent l’UI ensuite
+  const found = users.find(u => u.email === email && u.password === password);
+  if (!found) return alert("Identifiants incorrects");
+  currentUser = found;
+  if (currentUser.role === "admin" && currentUser.approved === undefined) {
+    currentUser.approved = true;
+    const i = users.findIndex(u => u.email === currentUser.email);
+    if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
+  }
+  showApp();
+  setTimeout(showNotesIfAny, 300);
 }
-
-// remplace entièrement ta register() par ceci
-// remplace intégralement ta fonction register()
-async function register() {
-  // Nettoyage agressif de l'email (supprime tous les espaces invisibles)
-  let email = document.getElementById("register-email").value || "";
-  email = email.replace(/\s+/g, "").toLowerCase().trim();
+function register() {
+  const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
-
-  // 1) Tentative d'inscription Supabase
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) {
-    alert("Inscription impossible: " + error.message);
-    console.warn("signUp error", error);
-    return;
-  }
-
-  const user = data.user;
-
-  // 2) Combien d'admins existent déjà ? (bootstrap du premier compte)
-  const { count, error: countErr } = await supabase
-    .from('profiles')
-    .select('id', { count: 'exact', head: true })
-    .eq('role', 'admin');
-
-  const isBootstrap = !countErr && (count === 0);
-
-  // 3) Créer/mettre à jour le profil
-  const { error: upErr } = await supabase.from('profiles').upsert({
-    id: user.id,
-    email,
-    role: isBootstrap ? 'admin' : 'user',
-    approved: isBootstrap ? true : false,
-    wants_admin: false
-  });
-  if (upErr) console.warn("profiles upsert error", upErr);
-
-  if (isBootstrap) {
-    alert("Premier compte créé : vous êtes ADMIN (approuvé). Vous pouvez vous connecter.");
-  } else {
-    alert("Compte créé. En attente d'approbation par un administrateur.");
-  }
+  const roleChoice = document.getElementById("register-role").value;
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
+  const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
+  users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
+  if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
+  currentUser = newUser; showApp(); setTimeout(showNotesIfAny, 300);
+  window.currentUser = currentUser; 
 }
-
-async function logout() {
-  await supabase.auth.signOut();
-  location.reload();
-}
-// Rendre dispos pour les onclick="..."
-window.login = login;               // async OK
-window.register = register;         // async OK
-window.logout = logout;             // async OK
-window.showRegister = showRegister;
-window.showLogin = showLogin;
-window.showAwaitingApproval = showAwaitingApproval;
+function logout(){ currentUser = null; location.reload(); }
 
 /* ======== APP / UI ======== */
 function showApp() {
@@ -1095,65 +1035,11 @@ const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// ⬇️ Ces 2 constantes doivent être accessibles partout
-const LAST_PULL_KEY = "events_last_pull_ms";
-const SHADOW_KEY    = "events_shadow_v1";
-
 (function () {
   if (!supabase) { console.warn("Supabase non chargé."); return; }
 
-  /* ======== AUTH SUPABASE (hébergé) ======== */
-  async function loadOrCreateProfile(user) {
-    const { data, error } = await supabase.from('profiles')
-      .select('id,email,role,approved,wants_admin')
-      .eq('id', user.id).limit(1);
-
-    let p = data?.[0];
-    if (!p) {
-      const ins = {
-        id: user.id,
-        email: user.email,
-        role: 'user',
-        approved: false,
-        wants_admin: false
-      };
-      await supabase.from('profiles').insert(ins);
-      p = ins;
-    }
-
-    window.currentUser = {
-      id: user.id,
-      email: user.email,
-      role: p.role,
-      approved: p.approved,
-      wantsAdmin: p.wants_admin
-    };
-    return window.currentUser;
-  }
-
-  (function bootAuth(){
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        await loadOrCreateProfile(session.user);
-        if (window.currentUser.approved) { showApp(); setTimeout(showNotesIfAny, 300); }
-        else showAwaitingApproval();
-      } else {
-        showLogin();
-      }
-    });
-
-    supabase.auth.onAuthStateChange(async (_event, sess) => {
-      if (sess?.user) {
-        await loadOrCreateProfile(sess.user);
-        if (window.currentUser.approved) { showApp(); setTimeout(showNotesIfAny, 300); }
-        else showAwaitingApproval();
-      } else {
-        window.currentUser = null;
-        showLogin();
-      }
-    });
-  })();
-
+  const LAST_PULL_KEY = "events_last_pull_ms";
+  const SHADOW_KEY    = "events_shadow_v1";
 
   // ---------- helpers rôle admin ----------
   function isAdminUser() {
@@ -1472,57 +1358,41 @@ function setEventsAndRender(list) {
     return r;
   };
 
- // ---------- abonnement push (stockage) ----------
-const _enablePush = window.enablePush;
-window.enablePush = async function () {
-  try {
-    await (_enablePush ? _enablePush() : Promise.resolve());
+  // ---------- abonnement push (stockage) ----------
+  const _enablePush = window.enablePush;
+  window.enablePush = async function(){
+    try{
+      await (_enablePush ? _enablePush() : Promise.resolve());
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub){
+        const { keys } = sub.toJSON();
+        const ua = navigator.userAgent || "unknown";
+        const { error } = await supabase.from("subscriptions").upsert({
+          endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth, ua, created_at: Date.now()
+        });
+        if (error) console.warn("sub upsert error", error.message);
+      }
+    } catch(e){ console.warn(e); }
+  };
 
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) {
-      const { keys } = sub.toJSON();
-      const ua = navigator.userAgent || "unknown";
-
-      const { error } = await supabase.from("subscriptions").upsert({
-        endpoint: sub.endpoint,
-        p256dh: keys.p256dh,
-        auth: keys.auth,
-        ua
-      });
-      if (error) console.warn("sub upsert error", error.message);
-    }
-  } catch (e) {
-    console.warn(e);
-  }
-};
-
- // ---------- démarrage ----------
-const _showApp = window.showApp;
-window.showApp = async function(){
-  const r = _showApp ? _showApp() : undefined;
-  await pull(true);
-  await ensurePushReady();
-  ensureBus();
-  startSync();
-  return r;
-};
-
-// Exports globaux pour le HTML (liens onclick)
-Object.assign(window, {
-  login, register, logout,
-  showRegister, showLogin,
-  showAwaitingApproval
-});
-
-// ✅ maintenant on ferme l'IIFE global UNE SEULE FOIS
+  // ---------- démarrage ----------
+  const _showApp = window.showApp;
+  window.showApp = async function(){
+    const r = _showApp ? _showApp() : undefined;
+    await pull(true);   // full pull initial
+    await ensurePushReady();  
+    ensureBus();        // abonnement broadcast
+    startSync();        // secours/offline
+    return r;
+    
+  };
 })();
 
-
-
-
-
-
+window.login = login;
+window.register = register;
+window.showRegister = showRegister;
+window.showLogin = showLogin;
 
 
 
