@@ -154,11 +154,13 @@ function showLogin() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
+
 function showRegister() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
+
 function login() {
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
@@ -173,10 +175,10 @@ function login() {
     const found = users.find(u => u.email === email && u.password === password);
     if (!found) return alert("Identifiants incorrects");
 
-    // Si pas approuvé -> on bloque l'accès
+    // Bloquer si non approuvé
     if (found.approved === false) return denyPending();
 
-    // Compat: anciens admins sans flag approved => marquer approuvé
+    // Compat : anciens admins sans flag approved => approuver
     if (found.role === "admin" && found.approved === undefined) {
       found.approved = true;
       const i = users.findIndex(u => u.email === found.email);
@@ -229,12 +231,13 @@ function register() {
 
   if (!email || !password) return alert("Email et mot de passe requis");
 
+  // TOUS les nouveaux comptes => approved:false (même les “admin”)
   function finishLocalPending() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
-    // TOUS les nouveaux comptes => approved:false
-    const newUser = { email, password, role: "user", approved: false, wantsAdmin: roleChoice === "admin" };
-    users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
+    const newUser = { email, password, role: "user", approved: false, wantsAdmin: (roleChoice === "admin") };
+    users.push(newUser);
+    localStorage.setItem("users", JSON.stringify(users));
     if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée.");
     alert("Compte créé. En attente d'approbation par un administrateur.");
     try { showLogin(); } catch(_) {}
@@ -261,11 +264,13 @@ function register() {
         try { showLogin(); } catch(_) {}
       }).catch(() => finishLocalPending());
     } else {
-      // existe déjà côté cloud => on n'écrase pas, on informe
       alert("Ce courriel est déjà utilisé.");
     }
   }).catch(() => finishLocalPending());
 }
+
+function logout(){ currentUser = null; location.reload(); }
+
 
 /* ======== APP / UI ======== */
 function showApp() {
@@ -1610,6 +1615,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
