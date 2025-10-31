@@ -1,3 +1,4 @@
+
 /***********************
  * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
  ***********************/
@@ -154,49 +155,40 @@ function showLogin() {
   document.getElementById("register-screen").classList.add("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-
 function showRegister() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-
 function login() {
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
-
-  function denyPending() {
-    alert("Votre compte est en attente d'approbation par un administrateur.");
-    try { showLogin(); } catch(_) {}
-  }
 
   function fallbackLocal() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     const found = users.find(u => u.email === email && u.password === password);
     if (!found) return alert("Identifiants incorrects");
+    currentUser = found;
 
-    // Bloquer si non approuvé
-    if (found.approved === false) return denyPending();
-
-    // Compat : anciens admins sans flag approved => approuver
-    if (found.role === "admin" && found.approved === undefined) {
-      found.approved = true;
-      const i = users.findIndex(u => u.email === found.email);
+    // Compat: anciens admins sans flag approved => marquer approuvé
+    if (currentUser.role === "admin" && currentUser.approved === undefined) {
+      currentUser.approved = true;
+      const i = users.findIndex(u => u.email === currentUser.email);
       if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
     }
 
-    currentUser = found;
     window.currentUser = currentUser;
     showApp();
     setTimeout(showNotesIfAny, 300);
   }
 
+  // Si Supabase pas dispo -> local direct
   if (!supabase) return fallbackLocal();
 
   // Cloud d’abord
   cloudGetUserByEmail(email).then(cloud => {
     if (!cloud || !cloud.password_hash) {
-      // non trouvé en cloud -> local
+      // pas trouvé en cloud -> local
       return fallbackLocal();
     }
     // comparer le hash
@@ -205,11 +197,7 @@ function login() {
         // mauvais mdp cloud -> essayer local
         return fallbackLocal();
       }
-
-      // si pas approuvé -> refuser l'entrée
-      if (cloud.approved === false) return denyPending();
-
-      // OK cloud & approuvé
+      // OK cloud
       currentUser = {
         email: cloud.email,
         password: "(cloud)",
@@ -231,46 +219,55 @@ function register() {
 
   if (!email || !password) return alert("Email et mot de passe requis");
 
-  // TOUS les nouveaux comptes => approved:false (même les “admin”)
-  function finishLocalPending() {
+  function finishLocal() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
-    const newUser = { email, password, role: "user", approved: false, wantsAdmin: (roleChoice === "admin") };
-    users.push(newUser);
-    localStorage.setItem("users", JSON.stringify(users));
-    if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée.");
-    alert("Compte créé. En attente d'approbation par un administrateur.");
-    try { showLogin(); } catch(_) {}
+    const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
+    users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
+    if (newUser.wantsAdmin)
+      alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
+    currentUser = newUser;
+    window.currentUser = currentUser;
+    showApp(); setTimeout(showNotesIfAny, 300);
   }
 
-  if (!supabase) return finishLocalPending();
+  if (!supabase) return finishLocal();
 
   // Cloud d'abord
   cloudGetUserByEmail(email).then(exists => {
     if (!exists) {
-      // créer côté cloud : approved=false pour TOUT LE MONDE
+      // créer côté cloud
       cloudInsertUser({
         email,
         password,
         role: "user",
-        approved: false,
+        approved: true,
         wantsAdmin: (roleChoice === "admin")
       }).then(created => {
-        // même si créé en cloud, on ne connecte pas : on avertit simplement
-        if (created && roleChoice === "admin") {
-          alert("Demande d'accès admin envoyée.");
+        if (created) {
+          if (roleChoice === "admin")
+            alert("Demande d'accès admin envoyée. En attendant, vous êtes utilisateur.");
+          currentUser = {
+            email: created.email,
+            role: created.role,
+            approved: created.approved,
+            wantsAdmin: created.wants_admin
+          };
+          window.currentUser = currentUser;
+          showApp(); setTimeout(showNotesIfAny, 300);
+          return;
         }
-        alert("Compte créé. En attente d'approbation par un administrateur.");
-        try { showLogin(); } catch(_) {}
-      }).catch(() => finishLocalPending());
+        // si échec création -> local
+        finishLocal();
+      }).catch(() => finishLocal());
     } else {
-      alert("Ce courriel est déjà utilisé.");
+      // existe déjà en cloud -> local (même si techniquement on pourrait refuser)
+      finishLocal();
     }
-  }).catch(() => finishLocalPending());
+  }).catch(() => finishLocal());
 }
 
 function logout(){ currentUser = null; location.reload(); }
-
 
 /* ======== APP / UI ======== */
 function showApp() {
@@ -989,9 +986,6 @@ function openDayEventsModal(dateStr) {
 }
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
-
-
-
 /* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
 prunePdfHistory();
 document.addEventListener("DOMContentLoaded", () => {
@@ -1215,30 +1209,6 @@ async function cloudUpdateUser(email, patch) {
     console.warn("cloudUpdateUser:", e.message);
     return null;
   }
-}
-
-function cloudListUsers(){
-  if (!supabase) return Promise.resolve([]);
-  return supabase.from("users").select("*")
-    .then(({ data, error }) => (error ? [] : (data || [])))
-    .catch(() => []);
-}
-
-function syncCloudUsersToLocal(done){
-  cloudListUsers().then(list=>{
-    const local = JSON.parse(localStorage.getItem("users") || "[]");
-    const map = new Map(local.map(u => [u.email, u]));
-    list.forEach(r => {
-      const u = map.get(r.email) || { email: r.email, password: "(cloud)", role: "user" };
-      u.role = r.role || u.role;
-      u.approved = !!r.approved;
-      u.wantsAdmin = !!r.wants_admin;
-      map.set(r.email, u);
-    });
-    const merged = Array.from(map.values());
-    localStorage.setItem("users", JSON.stringify(merged));
-    if (typeof done === "function") done();
-  }).catch(()=>{ if (typeof done === "function") done(); });
 }
 
 
@@ -1532,21 +1502,6 @@ function setEventsAndRender(list) {
     return r;
   };
 
-  // Sync cloud -> local avant d’ouvrir le panneau Compte (admin uniquement)
-  const _openAccountPanel = window.openAccountPanel;
-  window.openAccountPanel = function(){
-    try {
-      if (isAdminUser() && supabase) {
-        return syncCloudUsersToLocal(() => { if (_openAccountPanel) _openAccountPanel(); });
-      }
-      return _openAccountPanel ? _openAccountPanel() : undefined;
-    } catch(e){
-      console.warn("openAccountPanel wrapper:", e);
-      return _openAccountPanel ? _openAccountPanel() : undefined;
-    }
-  };
-
-  
   // ---------- après ajout/édition : normaliser + sync ----------
   const _saveEvent = window.saveEvent;
   window.saveEvent = async function(){
@@ -1615,18 +1570,3 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
