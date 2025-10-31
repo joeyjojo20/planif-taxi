@@ -267,56 +267,6 @@ function register() {
   }).catch(() => finishLocalPending());
 }
 
-  function finishLocal() {
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
-    const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
-    users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
-    if (newUser.wantsAdmin)
-      alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
-    currentUser = newUser;
-    window.currentUser = currentUser;
-    showApp(); setTimeout(showNotesIfAny, 300);
-  }
-
-  if (!supabase) return finishLocal();
-
-  // Cloud d'abord
-  cloudGetUserByEmail(email).then(exists => {
-    if (!exists) {
-      // créer côté cloud
-      cloudInsertUser({
-        email,
-        password,
-        role: "user",
-        approved: true,
-        wantsAdmin: (roleChoice === "admin")
-      }).then(created => {
-        if (created) {
-          if (roleChoice === "admin")
-            alert("Demande d'accès admin envoyée. En attendant, vous êtes utilisateur.");
-          currentUser = {
-            email: created.email,
-            role: created.role,
-            approved: created.approved,
-            wantsAdmin: created.wants_admin
-          };
-          window.currentUser = currentUser;
-          showApp(); setTimeout(showNotesIfAny, 300);
-          return;
-        }
-        // si échec création -> local
-        finishLocal();
-      }).catch(() => finishLocal());
-    } else {
-      // existe déjà en cloud -> local (même si techniquement on pourrait refuser)
-      finishLocal();
-    }
-  }).catch(() => finishLocal());
-}
-
-function logout(){ currentUser = null; location.reload(); }
-
 /* ======== APP / UI ======== */
 function showApp() {
   document.getElementById("login-screen").classList.add("hidden");
@@ -1660,6 +1610,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
