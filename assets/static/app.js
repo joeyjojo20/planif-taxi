@@ -160,33 +160,112 @@ function showRegister() {
   document.getElementById("main-screen").classList.add("hidden");
 }
 function login() {
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  window.currentUser = currentUser; 
-  const email = document.getElementById("email").value;
+  const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
-  const found = users.find(u => u.email === email && u.password === password);
-  if (!found) return alert("Identifiants incorrects");
-  currentUser = found;
-  if (currentUser.role === "admin" && currentUser.approved === undefined) {
-    currentUser.approved = true;
-    const i = users.findIndex(u => u.email === currentUser.email);
-    if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
+
+  function fallbackLocal() {
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const found = users.find(u => u.email === email && u.password === password);
+    if (!found) return alert("Identifiants incorrects");
+    currentUser = found;
+
+    // Compat: anciens admins sans flag approved => marquer approuvé
+    if (currentUser.role === "admin" && currentUser.approved === undefined) {
+      currentUser.approved = true;
+      const i = users.findIndex(u => u.email === currentUser.email);
+      if (i !== -1) { users[i].approved = true; localStorage.setItem("users", JSON.stringify(users)); }
+    }
+
+    window.currentUser = currentUser;
+    showApp();
+    setTimeout(showNotesIfAny, 300);
   }
-  showApp();
-  setTimeout(showNotesIfAny, 300);
+
+  // Si Supabase pas dispo -> local direct
+  if (!supabase) return fallbackLocal();
+
+  // Cloud d’abord
+  cloudGetUserByEmail(email).then(cloud => {
+    if (!cloud || !cloud.password_hash) {
+      // pas trouvé en cloud -> local
+      return fallbackLocal();
+    }
+    // comparer le hash
+    sha256(password).then(hash => {
+      if (hash !== cloud.password_hash) {
+        // mauvais mdp cloud -> essayer local
+        return fallbackLocal();
+      }
+      // OK cloud
+      currentUser = {
+        email: cloud.email,
+        password: "(cloud)",
+        role: cloud.role,
+        approved: cloud.approved === true,
+        wantsAdmin: cloud.wants_admin === true
+      };
+      window.currentUser = currentUser;
+      showApp();
+      setTimeout(showNotesIfAny, 300);
+    }).catch(() => fallbackLocal());
+  }).catch(() => fallbackLocal());
 }
+
 function register() {
-  const email = document.getElementById("register-email").value;
+  const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
   const roleChoice = document.getElementById("register-role").value;
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
-  if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
-  const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
-  users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
-  if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
-  currentUser = newUser; showApp(); setTimeout(showNotesIfAny, 300);
-  window.currentUser = currentUser; 
+
+  if (!email || !password) return alert("Email et mot de passe requis");
+
+  function finishLocal() {
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    if (users.some(u => u.email === email)) return alert("Email déjà utilisé");
+    const newUser = { email, password, role: "user", approved: true, wantsAdmin: roleChoice === "admin" };
+    users.push(newUser); localStorage.setItem("users", JSON.stringify(users));
+    if (newUser.wantsAdmin)
+      alert("Demande d'accès admin envoyée. En attendant, vous êtes connecté en tant qu'utilisateur.");
+    currentUser = newUser;
+    window.currentUser = currentUser;
+    showApp(); setTimeout(showNotesIfAny, 300);
+  }
+
+  if (!supabase) return finishLocal();
+
+  // Cloud d'abord
+  cloudGetUserByEmail(email).then(exists => {
+    if (!exists) {
+      // créer côté cloud
+      cloudInsertUser({
+        email,
+        password,
+        role: "user",
+        approved: true,
+        wantsAdmin: (roleChoice === "admin")
+      }).then(created => {
+        if (created) {
+          if (roleChoice === "admin")
+            alert("Demande d'accès admin envoyée. En attendant, vous êtes utilisateur.");
+          currentUser = {
+            email: created.email,
+            role: created.role,
+            approved: created.approved,
+            wantsAdmin: created.wants_admin
+          };
+          window.currentUser = currentUser;
+          showApp(); setTimeout(showNotesIfAny, 300);
+          return;
+        }
+        // si échec création -> local
+        finishLocal();
+      }).catch(() => finishLocal());
+    } else {
+      // existe déjà en cloud -> local (même si techniquement on pourrait refuser)
+      finishLocal();
+    }
+  }).catch(() => finishLocal());
 }
+
 function logout(){ currentUser = null; location.reload(); }
 
 /* ======== APP / UI ======== */
@@ -987,19 +1066,55 @@ function openAccountPanel() {
 }
 function closeAccountPanel(){ document.getElementById("account-panel").classList.add("hidden"); }
 function approveUser(email){
+  // Cloud (source de vérité) — on tente sans bloquer l’UI
+  if (supabase) {
+    cloudUpdateUser(email, { role: "admin", wants_admin: false, approved: true })
+      .catch(()=>{ /* ne bloque pas */ });
+  }
+
+  // Local (cohérence offline)
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
-  if (user) { user.role = "admin"; user.wantsAdmin = false; user.approved = true; localStorage.setItem("users", JSON.stringify(users)); alert(`${email} est maintenant admin.`); openAccountPanel(); updateAccountNotification(); }
+  if (user) {
+    user.role = "admin";
+    user.wantsAdmin = false;
+    user.approved = true;
+    localStorage.setItem("users", JSON.stringify(users));
+  }
+  alert(`${email} est maintenant admin.`);
+  openAccountPanel();
+  updateAccountNotification();
 }
+
 function rejectUser(email){
+  if (supabase) {
+    cloudUpdateUser(email, { wants_admin: false })
+      .catch(()=>{ /* ne bloque pas */ });
+  }
+
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
-  if (user) { user.wantsAdmin = false; localStorage.setItem("users", JSON.stringify(users)); alert(`Demande de ${email} refusée.`); openAccountPanel(); updateAccountNotification(); }
+  if (user) {
+    user.wantsAdmin = false;
+    localStorage.setItem("users", JSON.stringify(users));
+  }
+  alert(`Demande de ${email} refusée.`);
+  openAccountPanel();
+  updateAccountNotification();
 }
+
 function requestAdmin(){
+  if (supabase && currentUser && currentUser.email) {
+    cloudUpdateUser(currentUser.email, { wants_admin: true })
+      .catch(()=>{ /* silencieux */ });
+  }
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === currentUser.email);
-  if (user) { user.wantsAdmin = true; localStorage.setItem("users", JSON.stringify(users)); alert("Demande envoyée."); currentUser.wantsAdmin = true; openAccountPanel(); updateAccountNotification(); }
+  const me = users.find(u => u.email === currentUser.email);
+  if (me) { me.wantsAdmin = true; localStorage.setItem("users", JSON.stringify(users)); }
+  currentUser.wantsAdmin = true;
+  alert("Demande envoyée.");
+  openAccountPanel();
+  updateAccountNotification();
 }
 
 /* ======== CONFIG ======== */
@@ -1034,6 +1149,67 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
+
+// ====== CLOUD USERS (Supabase) — helpers ======
+async function sha256(s) {
+  const enc = new TextEncoder().encode(s);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Lire un user par email (table public.users)
+async function cloudGetUserByEmail(email) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("email", email)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  } catch (e) {
+    console.warn("cloudGetUserByEmail:", e.message);
+    return null; // hors-ligne => on laisse le local prendre le relais
+  }
+}
+
+// Créer un user
+async function cloudInsertUser({ email, password, role = "user", approved = true, wantsAdmin = false }) {
+  if (!supabase) return null;
+  try {
+    const password_hash = await sha256(password);
+    const { data, error } = await supabase
+      .from("users")
+      .insert([{ email, password_hash, role, approved, wants_admin: wantsAdmin }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  } catch (e) {
+    console.warn("cloudInsertUser:", e.message);
+    return null;
+  }
+}
+
+// Mettre à jour un user (role/approved/wants_admin)
+async function cloudUpdateUser(email, patch) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .update(patch)
+      .eq("email", email)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  } catch (e) {
+    console.warn("cloudUpdateUser:", e.message);
+    return null;
+  }
+}
+
 
 (function () {
   if (!supabase) { console.warn("Supabase non chargé."); return; }
@@ -1393,6 +1569,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
