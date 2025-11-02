@@ -1029,8 +1029,11 @@ async function openAccountPanel() {
       p.innerText = "Vous êtes un utilisateur standard.";
       const btn = document.createElement("button");
       btn.innerText = "Demander à devenir admin";
-      btn.onclick = async () => { await requestAdmin(); await updateAccountNotification(); };
-      content.appendChild(p); 
+      btn.onclick = async () => {
+        await requestAdmin();
+        await updateAccountNotification();
+      };
+      content.appendChild(p);
       content.appendChild(btn);
     } else {
       content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
@@ -1043,7 +1046,7 @@ async function openAccountPanel() {
   let users = [];
   try {
     if (USE_SUPABASE_USERS && supabase) {
-      users = await cloudListUsers();            // <-- lit table public.users
+      users = await cloudListUsers(); // <-- lit table public.users
     } else {
       users = JSON.parse(localStorage.getItem("users") || "[]");
     }
@@ -1062,8 +1065,8 @@ async function openAccountPanel() {
   title.innerText = "Utilisateurs enregistrés";
   const refresh = document.createElement("button");
   refresh.innerText = "Rafraîchir";
-  refresh.onclick = () => openAccountPanel();    // recharge depuis Supabase
-  head.appendChild(title); 
+  refresh.onclick = () => openAccountPanel(); // recharge depuis Supabase
+  head.appendChild(title);
   head.appendChild(refresh);
   content.appendChild(head);
 
@@ -1091,8 +1094,11 @@ async function openAccountPanel() {
     const status = document.createElement("span");
     const approved = (u.approved === true);
     const wants = !!(u.wants_admin || u.wantsAdmin);
-    status.innerText = "Statut : " + (u.role === "admin" ? (approved ? "Admin approuvé" : "Admin non approuvé") 
-                                                         : (wants ? "Demande admin" : "Utilisateur"));
+    status.innerText = "Statut : " + (
+      u.role === "admin"
+        ? (approved ? "Admin approuvé" : "Admin non approuvé")
+        : (wants ? "Demande admin" : "Utilisateur")
+    );
     line.appendChild(status);
     line.appendChild(document.createElement("br"));
 
@@ -1103,25 +1109,24 @@ async function openAccountPanel() {
       delBtn.style.marginTop = "5px";
       delBtn.onclick = async () => {
         if (!confirm("Supprimer le compte " + u.email + " ?")) return;
-        await deleteUser(u.email);                     // cloud + local
+        await deleteUser(u.email);            // cloud + local
         await updateAccountNotification();
-        openAccountPanel();                            // refresh
+        openAccountPanel();                   // refresh
         alert("Compte supprimé.");
       };
       line.appendChild(delBtn);
     }
 
     // Appro / Refus pour demandes admin
-    const wants = !!(u.wants_admin || u.wantsAdmin);
     if (wants && (u.role === "user" || !u.role)) {
       const select = document.createElement("select");
-      ["en attente", "approuvé", "refusé"].forEach(opt => { 
-        const option = document.createElement("option"); 
-        option.value = opt; 
-        option.textContent = opt; 
-        select.appendChild(option); 
+      ["en attente", "approuvé", "refusé"].forEach(opt => {
+        const option = document.createElement("option");
+        option.value = opt;
+        option.textContent = opt;
+        select.appendChild(option);
       });
-      line.appendChild(document.createElement("br")); 
+      line.appendChild(document.createElement("br"));
       line.appendChild(select);
 
       const valider = document.createElement("button");
@@ -1132,7 +1137,7 @@ async function openAccountPanel() {
         if (v === "approuvé") { await approveUser(u.email); }
         else if (v === "refusé") { await rejectUser(u.email); }
         await updateAccountNotification();
-        openAccountPanel();                            // refresh
+        openAccountPanel(); // refresh
       };
       line.appendChild(valider);
     }
@@ -1143,7 +1148,10 @@ async function openAccountPanel() {
   panel.classList.remove("hidden");
 }
 
-function closeAccountPanel(){ document.getElementById("account-panel").classList.add("hidden"); }
+function closeAccountPanel(){
+  document.getElementById("account-panel").classList.add("hidden");
+}
+
 async function approveUser(email){
   if (USE_SUPABASE_USERS && supabase) {
     await cloudUpdateUser(email, { role: "admin", wants_admin: false, approved: true });
@@ -1160,6 +1168,51 @@ async function approveUser(email){
   await updateAccountNotification();
   alert(`${email} est maintenant admin.`);
 }
+
+async function rejectUser(email){
+  if (USE_SUPABASE_USERS && supabase) {
+    await cloudUpdateUser(email, { wants_admin: false });
+  }
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const user = users.find(u => u.email === email);
+  if (user) {
+    user.wantsAdmin = false;
+    localStorage.setItem("users", JSON.stringify(users));
+  }
+  await updateAccountNotification();
+  alert(`Demande de ${email} refusée.`);
+}
+
+async function requestAdmin(){
+  if (!currentUser) return;
+  if (USE_SUPABASE_USERS && supabase) {
+    await cloudUpdateUser(currentUser.email, { wants_admin: true });
+  }
+  const users = JSON.parse(localStorage.getItem("users") || "[]");
+  const me = users.find(u => u.email === currentUser.email);
+  if (me) {
+    me.wantsAdmin = true;
+    localStorage.setItem("users", JSON.stringify(users));
+  }
+  currentUser.wantsAdmin = true;
+  await updateAccountNotification();
+  alert("Demande envoyée.");
+}
+
+async function deleteUser(email){
+  if (USE_SUPABASE_USERS && supabase) {
+    // soit delete, soit marquer 'approved=false' + 'role=user' + 'wants_admin=false'
+    const { error } = await supabase
+      .from("users")
+      .delete()
+      .eq("email", email);
+    if (error) console.warn("cloud delete user:", error.message);
+  }
+  const users = JSON.parse(localStorage.getItem("users") || "[]")
+    .filter(u => u.email !== email);
+  localStorage.setItem("users", JSON.stringify(users));
+}
+
 
 async function rejectUser(email){
   if (USE_SUPABASE_USERS && supabase) {
@@ -1684,6 +1737,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
