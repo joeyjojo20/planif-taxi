@@ -1143,7 +1143,6 @@ async function openAccountPanel() {
   panel.classList.remove("hidden");
 }
 
-}
 function closeAccountPanel(){ document.getElementById("account-panel").classList.add("hidden"); }
 async function approveUser(email){
   if (USE_SUPABASE_USERS && supabase) {
@@ -1685,6 +1684,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
