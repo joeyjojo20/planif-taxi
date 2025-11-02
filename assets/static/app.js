@@ -1017,67 +1017,139 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ======== COMPTE / ADMIN ======== */
-function openAccountPanel() {
-  const panel = document.getElementById("account-panel");
+async function openAccountPanel() {
+  const panel   = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
-  const users = JSON.parse(localStorage.getItem("users") || "[]");
 
-
+  // 1) Accès: seuls admins approuvés gèrent. Les users peuvent juste demander l'admin.
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
     if (currentUser && currentUser.role === "user") {
       content.innerHTML = "";
-      const p = document.createElement("p"); p.innerText = "Vous êtes un utilisateur standard.";
-      const btn = document.createElement("button"); btn.innerText = "Demander à devenir admin"; btn.onclick = requestAdmin;
-      content.appendChild(p); content.appendChild(btn);
+      const p = document.createElement("p");
+      p.innerText = "Vous êtes un utilisateur standard.";
+      const btn = document.createElement("button");
+      btn.innerText = "Demander à devenir admin";
+      btn.onclick = async () => { await requestAdmin(); await updateAccountNotification(); };
+      content.appendChild(p); 
+      content.appendChild(btn);
     } else {
       content.innerHTML = "<p>Fonction réservée aux administrateurs.</p>";
     }
-    panel.classList.remove("hidden"); return;
+    panel.classList.remove("hidden");
+    return;
   }
 
+  // 2) SOURCE DE VÉRITÉ : Supabase si dispo, sinon local
+  let users = [];
+  try {
+    if (USE_SUPABASE_USERS && supabase) {
+      users = await cloudListUsers();            // <-- lit table public.users
+    } else {
+      users = JSON.parse(localStorage.getItem("users") || "[]");
+    }
+  } catch (e) {
+    console.warn("openAccountPanel: fallback local", e);
+    users = JSON.parse(localStorage.getItem("users") || "[]");
+  }
+
+  // 3) Rendu
   content.innerHTML = "";
-  const title = document.createElement("h4"); title.innerText = "Utilisateurs enregistrés"; content.appendChild(title);
 
-  users.forEach((u, index) => {
-    const line = document.createElement("div"); line.style.borderBottom = "1px solid #ccc"; line.style.padding = "5px 0";
+  // petit header + bouton refresh
+  const head = document.createElement("div");
+  head.style.cssText = "display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:8px;";
+  const title = document.createElement("h4");
+  title.innerText = "Utilisateurs enregistrés";
+  const refresh = document.createElement("button");
+  refresh.innerText = "Rafraîchir";
+  refresh.onclick = () => openAccountPanel();    // recharge depuis Supabase
+  head.appendChild(title); 
+  head.appendChild(refresh);
+  content.appendChild(head);
 
-    const email = document.createElement("strong"); email.innerText = u.email; line.appendChild(email); line.appendChild(document.createElement("br"));
+  if (!users || users.length === 0) {
+    const empty = document.createElement("p");
+    empty.innerText = "Aucun utilisateur trouvé.";
+    content.appendChild(empty);
+  }
 
-    const role = document.createElement("span"); role.innerText = "Rôle : " + u.role; line.appendChild(role); line.appendChild(document.createElement("br"));
+  users.forEach((u) => {
+    const line = document.createElement("div");
+    line.style.borderBottom = "1px solid #ccc";
+    line.style.padding = "6px 0";
+
+    const email = document.createElement("strong");
+    email.innerText = u.email;
+    line.appendChild(email);
+    line.appendChild(document.createElement("br"));
+
+    const role = document.createElement("span");
+    role.innerText = "Rôle : " + (u.role || "user");
+    line.appendChild(role);
+    line.appendChild(document.createElement("br"));
 
     const status = document.createElement("span");
-    status.innerText = "Statut : " + (u.role === "admin" ? (u.approved ? "Admin approuvé" : "Demande admin") : "Utilisateur");
-    line.appendChild(status); line.appendChild(document.createElement("br"));
+    const approved = (u.approved === true);
+    const wants = !!(u.wants_admin || u.wantsAdmin);
+    status.innerText = "Statut : " + (u.role === "admin" ? (approved ? "Admin approuvé" : "Admin non approuvé") 
+                                                         : (wants ? "Demande admin" : "Utilisateur"));
+    line.appendChild(status);
+    line.appendChild(document.createElement("br"));
 
+    // Supprimer (sauf soi-même)
     if (u.email !== currentUser.email) {
-      const delBtn = document.createElement("button"); delBtn.innerText = "Supprimer"; delBtn.style.marginTop = "5px";
-      delBtn.onclick = () => {
-        if (confirm("Supprimer le compte " + u.email + " ?")) {
-          users.splice(index, 1); localStorage.setItem("users", JSON.stringify(users));
-          alert("Compte supprimé."); openAccountPanel(); updateAccountNotification();
-        }
+      const delBtn = document.createElement("button");
+      delBtn.innerText = "Supprimer";
+      delBtn.style.marginTop = "5px";
+      delBtn.onclick = async () => {
+        if (!confirm("Supprimer le compte " + u.email + " ?")) return;
+        await deleteUser(u.email);                     // cloud + local
+        await updateAccountNotification();
+        openAccountPanel();                            // refresh
+        alert("Compte supprimé.");
       };
       line.appendChild(delBtn);
     }
 
-    if (u.wantsAdmin && u.role === "user") {
+    // Appro / Refus pour demandes admin
+    const wants = !!(u.wants_admin || u.wantsAdmin);
+    if (wants && (u.role === "user" || !u.role)) {
       const select = document.createElement("select");
-      ["en attente", "approuvé", "refusé"].forEach(opt => { const option = document.createElement("option"); option.value = opt; option.textContent = opt; select.appendChild(option); });
-      line.appendChild(document.createElement("br")); line.appendChild(select);
-      const valider = document.createElement("button"); valider.innerText = "Valider"; valider.style.marginLeft = "5px";
-      valider.onclick = () => { const v = select.value; if (v==="approuvé") approveUser(u.email); else if (v==="refusé") rejectUser(u.email); };
+      ["en attente", "approuvé", "refusé"].forEach(opt => { 
+        const option = document.createElement("option"); 
+        option.value = opt; 
+        option.textContent = opt; 
+        select.appendChild(option); 
+      });
+      line.appendChild(document.createElement("br")); 
+      line.appendChild(select);
+
+      const valider = document.createElement("button");
+      valider.innerText = "Valider";
+      valider.style.marginLeft = "5px";
+      valider.onclick = async () => {
+        const v = select.value;
+        if (v === "approuvé") { await approveUser(u.email); }
+        else if (v === "refusé") { await rejectUser(u.email); }
+        await updateAccountNotification();
+        openAccountPanel();                            // refresh
+      };
       line.appendChild(valider);
     }
+
     content.appendChild(line);
   });
+
   panel.classList.remove("hidden");
+}
+
 }
 function closeAccountPanel(){ document.getElementById("account-panel").classList.add("hidden"); }
 async function approveUser(email){
   if (USE_SUPABASE_USERS && supabase) {
     await cloudUpdateUser(email, { role: "admin", wants_admin: false, approved: true });
   }
-  // Local (cohérence offline)
+  // local (cohérence offline)
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
   if (user) {
@@ -1086,6 +1158,7 @@ async function approveUser(email){
     user.approved = true;
     localStorage.setItem("users", JSON.stringify(users));
   }
+  await updateAccountNotification();
   alert(`${email} est maintenant admin.`);
 }
 
@@ -1099,6 +1172,7 @@ async function rejectUser(email){
     user.wantsAdmin = false;
     localStorage.setItem("users", JSON.stringify(users));
   }
+  await updateAccountNotification();
   alert(`Demande de ${email} refusée.`);
 }
 
@@ -1111,8 +1185,10 @@ async function requestAdmin(){
   const me = users.find(u => u.email === currentUser.email);
   if (me) { me.wantsAdmin = true; localStorage.setItem("users", JSON.stringify(users)); }
   currentUser.wantsAdmin = true;
+  await updateAccountNotification();
   alert("Demande envoyée.");
 }
+
 
 async function deleteUser(email){
   if (USE_SUPABASE_USERS && supabase) {
@@ -1609,5 +1685,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
