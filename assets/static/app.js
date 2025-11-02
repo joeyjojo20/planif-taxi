@@ -1124,10 +1124,6 @@ async function deleteUser(email){
   localStorage.setItem("users", JSON.stringify(users));
 }
 
-  openAccountPanel();
-  updateAccountNotification();
-}
-
 /* ======== CONFIG ======== */
 function openConfigModal(){ document.getElementById("config-modal").classList.remove("hidden"); }
 function closeConfigModal(){ document.getElementById("config-modal").classList.add("hidden"); }
@@ -1613,4 +1609,5 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
