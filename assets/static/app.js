@@ -1,26 +1,28 @@
-
-/***********************
- * RDV TAXI — app.js (stable + modale jour + parseur PDF robuste)
- ***********************/
+/* ===========================================================
+ * RDV TAXI — app.js (corrigé 2025‑11‑02)
+ * - Comptes: approbation du COMPTE + demandes admin (approuver/refuser)
+ * - Synchro Supabase (push/pull + broadcast) + local fallback
+ * - PDF import + historique 5 jours + rappel par défaut 15 min
+ * - Notifications push (VAPID) + bouton Test
+ * - Nettoyage des doublons de fonctions (approve/reject/delete, etc.)
+ * =========================================================== */
 
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
-// === PUSH NOTIFS (ajout) ===
-const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1";
-const USE_SUPABASE_USERS = true;
-const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY"; // ⬅️ ta clé publique VAPID
 
-// Réactive silencieusement la push si déjà autorisée (aucun prompt)
+// === BACKENDS / PUSH ===
+const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1"; // Edge Functions
+const USE_SUPABASE_USERS = true;
+const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY";
+
+/* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
 async function ensurePushReady() {
   try {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    // Ne JAMAIS re-demander : on agit seulement si déjà "granted"
     if (Notification.permission !== "granted") return;
 
-    // SW ok (idempotent)
     const reg = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
 
-    // S’assurer qu’une subscription existe
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
@@ -29,7 +31,6 @@ async function ensurePushReady() {
       });
     }
 
-    // Laisse ta logique existante stocker/mettre à jour la sub (hook enablePush déjà présent)
     if (window.enablePush) {
       await window.enablePush();
     }
@@ -37,7 +38,6 @@ async function ensurePushReady() {
     console.warn("ensurePushReady:", e);
   }
 }
-
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -45,13 +45,11 @@ function urlBase64ToUint8Array(base64String) {
   for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
   return arr;
 }
-
 async function enablePush() {
   if (!("Notification" in window) || !("serviceWorker" in navigator)) {
     alert("Notifications non supportées sur cet appareil.");
     return;
   }
-  // iOS : demander la permission en premier (dans le clic)
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
     alert("Autorise les notifications pour RDV Taxi.");
@@ -65,22 +63,19 @@ async function enablePush() {
     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
   });
 
-  await fetch(`${BACKEND_URL}/subscribe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sub)
-  });
-
+  try {
+    await fetch(`${BACKEND_URL}/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub)
+    });
+  } catch {}
   alert("Notifications activées ✅");
 }
-
-// Auto-activation seulement si ce n'est pas iOS
 const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 if (!isiOS) {
   window.addEventListener("load", () => { enablePush().catch(console.error); });
 }
-
-// Bouton pour ACTIVER (nécessaire sur iPhone)
 window.addEventListener("DOMContentLoaded", () => {
   const enableBtn = document.createElement("button");
   enableBtn.id = "enable-push-btn";
@@ -90,16 +85,12 @@ window.addEventListener("DOMContentLoaded", () => {
   enableBtn.onclick = () => enablePush().catch(e => alert("Erreur: " + e.message));
   document.body.appendChild(enableBtn);
 });
-
-// Bouton de test (automatique)
 window.addEventListener("DOMContentLoaded", () => {
   const btn = document.createElement("button");
   btn.id = "test-push-btn";
   btn.textContent = "🔔 Test notif";
   btn.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:9999;padding:10px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;cursor:pointer";
-
   btn.onclick = async () => {
-    // 1) Tenter le backend /test-push
     let backendOk = false;
     try {
       const r = await fetch(`${BACKEND_URL}/test-push`, { method: "POST" });
@@ -110,12 +101,8 @@ window.addEventListener("DOMContentLoaded", () => {
           alert("Notif envoyée ✅ (backend)");
         }
       }
-    } catch (_) {
-      // réseau HS → on bascule sur fallback
-    }
+    } catch {}
     if (backendOk) return;
-
-    // 2) Fallback local via Service Worker
     try {
       const reg = await navigator.serviceWorker.getRegistration("/");
       if (!reg || !reg.active) throw new Error("SW non actif");
@@ -133,10 +120,10 @@ window.addEventListener("DOMContentLoaded", () => {
       alert("Échec test notif (backend + fallback). Vérifie SW/permissions.");
     }
   };
-
   document.body.appendChild(btn);
 });
 
+/* ======== Données locales ======== */
 if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
   localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
 }
@@ -145,7 +132,7 @@ let calendar = null;
 
 /* ======== UTILS ======== */
 function pad2(n){ return n.toString().padStart(2,"0"); }
-function formatLocalDateTimeString(d){ // "YYYY-MM-DDTHH:mm" (local)
+function formatLocalDateTimeString(d){
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 function cleanText(s){ return (s||"").replace(/\s+/g," ").trim(); }
@@ -165,46 +152,32 @@ function login() {
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
-  // Local fallback (ou mode local-only)
   function fallbackLocal() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     const found = users.find(u => u.email === email && u.password === password);
     if (!found) return alert("Identifiants incorrects");
-
-    // ❗ Bloque l'accès si pas approuvé
     if (!found.approved) {
       alert("Votre compte n'est pas encore approuvé par un administrateur.");
-      try { showLogin(); } catch(_) {}
+      try { showLogin(); } catch {}
       return;
     }
-
     currentUser = found;
     window.currentUser = currentUser;
     showApp();
     setTimeout(showNotesIfAny, 300);
   }
 
-  // Mode 100% local ou Supabase indisponible
   if (!USE_SUPABASE_USERS || !supabase) return fallbackLocal();
 
-  // Cloud d’abord
   cloudGetUserByEmail(email).then(cloud => {
-    if (!cloud || !cloud.password_hash) {
-      // pas trouvé en cloud -> local
-      return fallbackLocal();
-    }
+    if (!cloud || !cloud.password_hash) return fallbackLocal();
     sha256(password).then(hash => {
-      if (hash !== cloud.password_hash) {
-        // mauvais mdp cloud -> essayer local
-        return fallbackLocal();
-      }
-      // ❗ Bloque l'accès si pas approuvé
+      if (hash !== cloud.password_hash) return fallbackLocal();
       if (cloud.approved !== true) {
         alert("Votre compte n'est pas encore approuvé par un administrateur.");
-        try { showLogin(); } catch(_) {}
+        try { showLogin(); } catch {}
         return;
       }
-      // OK cloud
       currentUser = {
         email: cloud.email,
         password: "(cloud)",
@@ -218,37 +191,29 @@ function login() {
     }).catch(() => fallbackLocal());
   }).catch(() => fallbackLocal());
 }
-
 function register() {
   const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
   const roleChoice = document.getElementById("register-role").value; // "user" ou "admin"
-
   if (!email || !password) return alert("Email et mot de passe requis");
 
-  // --- Local-only (si on souhaite désactiver Supabase pour les comptes)
   function finishLocalPending() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     if (users.some(u => u.email === email)) return alert("Email déjà utilisé.");
-    // ✅ Par défaut: approuvé = false (accès bloqué tant que l'admin n'approuve pas)
     const newUser = { email, password, role: "user", approved: false, wantsAdmin: (roleChoice === "admin") };
     users.push(newUser);
     localStorage.setItem("users", JSON.stringify(users));
     if (newUser.wantsAdmin) alert("Demande d'accès admin envoyée.");
     alert("Compte créé. En attente d'approbation par un administrateur.");
-    try { showLogin(); } catch(_) {}
+    try { showLogin(); } catch {}
   }
-
-  // Si on n'utilise pas Supabase pour les comptes → local pending
   if (!USE_SUPABASE_USERS || !supabase) return finishLocalPending();
 
-  // --- Supabase (source de vérité)
   cloudGetUserByEmail(email).then(exists => {
     if (exists) {
       alert("Ce courriel est déjà utilisé.");
       return;
     }
-    // ✅ créer côté cloud : approved=false pour TOUT LE MONDE
     cloudInsertUser({
       email,
       password,
@@ -256,15 +221,12 @@ function register() {
       approved: false,
       wantsAdmin: (roleChoice === "admin")
     }).then(created => {
-      if (created && roleChoice === "admin") {
-        alert("Demande d'accès admin envoyée.");
-      }
+      if (created && roleChoice === "admin") alert("Demande d'accès admin envoyée.");
       alert("Compte créé. En attente d'approbation par un administrateur.");
-      try { showLogin(); } catch(_) {}
+      try { showLogin(); } catch {}
     }).catch(() => finishLocalPending());
   }).catch(() => finishLocalPending());
 }
-
 function logout(){ currentUser = null; location.reload(); }
 
 /* ======== APP / UI ======== */
@@ -290,7 +252,6 @@ async function updateAccountNotification() {
     btn?.classList.remove("notification");
     return;
   }
-
   if (USE_SUPABASE_USERS && supabase) {
     const hasPending = await cloudHasPendingAdminRequests();
     if (hasPending) btn?.classList.add("notification"); else btn?.classList.remove("notification");
@@ -319,11 +280,7 @@ function hideNotesPopup(){ document.getElementById("notes-popup").classList.add(
 function renderCalendar() {
   const el = document.getElementById("calendar");
   if (!el) return;
-
-  // Prépare la liste d'événements (même mapping qu'avant)
   const mapped = events.map(e => ({ ...e, title: shortenEvent(e.title, e.start) }));
-
-  // Si le calendrier n'existe pas encore, on le crée UNE seule fois
   if (!calendar) {
     calendar = new FullCalendar.Calendar(el, {
       timeZone: 'local',
@@ -337,23 +294,18 @@ function renderCalendar() {
     calendar.render();
     return;
   }
-
-  // Sinon, on met simplement à jour les événements (pas de destroy/recreate)
   calendar.batchRendering(() => {
     calendar.removeAllEvents();
-    for (const ev of mapped) {
-      calendar.addEvent(ev);
-    }
+    for (const ev of mapped) calendar.addEvent(ev);
   });
 }
-
 function shortenEvent(title, dateStr) {
-  const parts = title.split(" – ");
-  const name = parts[0];
+  const parts = String(title||"").split(" – ");
+  const name = parts[0] || "RDV";
   const trajet = parts[1]?.split(" > ") || ["", ""];
   const pickup = trajet[0].split(" ").slice(0, 2).join(" ");
   const date = new Date(dateStr);
-  const heure = date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
+  const heure = isNaN(date) ? "" : date.toLocaleTimeString("fr-FR", { hour: '2-digit', minute: '2-digit' });
   return `${name} – ${heure} – ${pickup}`;
 }
 function showEventForm() {
@@ -373,7 +325,7 @@ function showEventForm() {
 function hideEventForm(){ document.getElementById("event-form").classList.add("hidden"); delete document.getElementById("event-form").dataset.editId; }
 function onEventClick(info) {
   const ev = info.event;
-  const [name, , pickup] = ev.title.split(" – ");
+  const [name, , pickup] = String(ev.title||"").split(" – ");
   const full = events.find(e => e.id === ev.id);
   const original = full?.title.split(" – ");
   const trajet = original?.[1]?.split(" > ") || ["", ""];
@@ -382,7 +334,6 @@ function onEventClick(info) {
   document.getElementById("dropoff-address").value = trajet[1] || "";
   document.getElementById("event-date").value = ev.startStr.slice(0,16);
   document.getElementById("recurrence").value = "none";
-  // ✅ préremplir la notif selon l'événement
   const notifSel = document.getElementById("notification");
   notifSel.value = (full && Number.isFinite(full.reminderMinutes))
     ? String(full.reminderMinutes)
@@ -409,13 +360,9 @@ async function saveEvent() {
   if (!name || !date) return alert("Nom et date requis");
 
   const fullTitle = `${name} – ${pickup} > ${dropoff}`;
-
-  // ✅ En édition : on garde l'ID exact pour remplacer uniquement CET événement
   const baseId = editId || Date.now().toString();
-
   const startDate = new Date(date);
   const startStr = formatLocalDateTimeString(startDate);
-
   const list = [{ id: baseId, title: fullTitle, start: startStr, allDay: false, reminderMinutes: notifMin }];
 
   let limitDate = new Date(startDate);
@@ -441,50 +388,42 @@ async function saveEvent() {
     }
     if (nd > limitDate) break;
     list.push({ id: `${baseId}-${count}`, title: fullTitle, start: formatLocalDateTimeString(nd), allDay: false, reminderMinutes: notifMin });
-    count++; // important
+    count++;
   }
 
   if (editId) {
-    // ✅ En édition : ne supprime QUE l'événement ciblé
     events = events.filter(e => e.id !== editId);
   }
   events = [...events, ...list];
-
   localStorage.setItem("events", JSON.stringify(events));
 
-  // ✅ sync vers le backend pour les rappels push
-   // ✅ sync vers le backend pour les rappels push
   try {
     const payload = list.map(e => ({
       id: e.id,
       title: e.title,
-      start: e.start,               // déjà ISO après patch #2
+      start: e.start,
       all_day: false,
       reminder_minutes: e.reminderMinutes ?? null,
       deleted: false
     }));
-    const r = await fetch(`${BACKEND_URL}/sync-events`, {
+    fetch(`${BACKEND_URL}/sync-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload) // ⬅️ on envoie un TABLEAU, pas {events: ...}
-    });
-    console.log("sync-events =>", r.status, await r.text());
+      body: JSON.stringify(payload)
+    }).catch(()=>{});
   } catch (e) {
     console.warn("sync-events error:", e);
   } finally {
-    // ✅ ferme toujours la modale, même s'il y a une erreur réseau
     hideEventForm();
     renderCalendar();
   }
- }
-
+}
 function deleteEvent(single) {
   const editId = document.getElementById("event-form").dataset.editId; if (!editId) return;
   const baseRoot = editId.replace(/-\d+$/, "");
   events = single
     ? events.filter(e => e.id !== editId)
     : events.filter(e => !(e.id === baseRoot || e.id.startsWith(baseRoot + "-")));
-
   localStorage.setItem("events", JSON.stringify(events));
   hideEventForm(); renderCalendar();
 }
@@ -540,39 +479,23 @@ function confirmDeleteSeries() {
 function openPdfPanel() {
   const panel = document.getElementById("pdf-panel");
   const list  = document.getElementById("pdf-list");
-
-  // Purge > 5 jours, puis récupère la liste à afficher
   const kept = prunePdfHistory();
-
   list.innerHTML = "";
   if (kept.length === 0) {
     list.innerHTML = "<li>Aucun fichier PDF des 5 derniers jours.</li>";
   } else {
-    // Du plus récent au plus ancien
     kept.sort((a, b) => b.timestamp - a.timestamp).forEach(f => {
       const li = document.createElement("li");
       const a  = document.createElement("a");
-
       a.href = "#";
       a.textContent = f.name;
-
       a.onclick = (e) => {
         e.preventDefault();
         try {
           const u = String(f.dataUrl || "");
           if (!u) { alert("PDF manquant."); return; }
-
-          // 1) blob: URL directe
-          if (u.startsWith("blob:")) {
-            const w = window.open("", "_blank");
-            if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
-            w.location.href = u;
-            return;
-          }
-
+          if (u.startsWith("blob:")) { const w = window.open("", "_blank"); if (!w) { alert("Autorise les pop-ups pour cette page."); return; } w.location.href = u; return; }
           let blob = null;
-
-          // 2) data:… → convertir en Blob (base64 ou URI-encodé)
           if (u.startsWith("data:")) {
             const comma = u.indexOf(",");
             if (comma === -1) throw new Error("DataURL invalide (pas de virgule).");
@@ -580,7 +503,6 @@ function openPdfPanel() {
             const payload = u.slice(comma + 1);
             const isBase64 = /;base64/i.test(meta);
             const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
-
             if (isBase64) {
               const bin = atob(payload);
               const arr = new Uint8Array(bin.length);
@@ -593,30 +515,19 @@ function openPdfPanel() {
               blob = new Blob([arr], { type: mime || "application/pdf" });
             }
           } else if (/^https?:\/\//i.test(u)) {
-            // 3) URL http(s)
-            const w = window.open("", "_blank");
-            if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
-            w.location.href = u;
-            return;
+            const w = window.open("", "_blank"); if (!w) { alert("Autorise les pop-ups pour cette page."); return; } w.location.href = u; return;
           } else {
-            // 4) Base64 brute en dernier recours
             if (/^[A-Za-z0-9+/=]+$/.test(u.slice(0, 64))) {
               const bin = atob(u);
               const arr = new Uint8Array(bin.length);
               for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
               blob = new Blob([arr], { type: "application/pdf" });
             } else {
-              const w = window.open("", "_blank");
-              if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
-              w.location.href = u;
-              return;
+              const w = window.open("", "_blank"); if (!w) { alert("Autorise les pop-ups pour cette page."); return; } w.location.href = u; return;
             }
           }
-
-          // Ouvrir via URL temporaire (meilleure compat Chrome)
           const blobUrl = URL.createObjectURL(blob);
-          const w = window.open("", "_blank");
-          if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
+          const w = window.open("", "_blank"); if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
           w.location.href = blobUrl;
           setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
         } catch (err) {
@@ -624,24 +535,17 @@ function openPdfPanel() {
           alert("Impossible d’afficher ce PDF (voir console).");
         }
       };
-
       li.appendChild(a);
-
       const small = document.createElement("small");
       small.style.marginLeft = "6px";
       small.textContent = `(${new Date(f.timestamp).toLocaleString("fr-CA")})`;
       li.appendChild(small);
-
       list.appendChild(li);
     });
   }
-
   panel.classList.remove("hidden");
 }
-
-/* ======== PDF — HISTORIQUE (5 jours) ======== */
 const PDF_HISTORY_DAYS = 5;
-
 function prunePdfHistory() {
   const cutoff = Date.now() - PDF_HISTORY_DAYS * 24 * 60 * 60 * 1000;
   const stored = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
@@ -651,7 +555,6 @@ function prunePdfHistory() {
   }
   return pruned;
 }
-
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -660,13 +563,10 @@ function fileToDataUrl(file) {
     reader.readAsDataURL(file);
   });
 }
-
 function closePdfPanel(){ document.getElementById("pdf-panel").classList.add("hidden"); }
-
 function openPdfViewerTab(url, name) {
   const w = window.open("", "_blank");
   if (!w) { alert("Autorise les pop-ups pour cette page."); return; }
-
   const esc = s => String(s || "PDF").replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'}[c]));
   const html = `
     <!doctype html>
@@ -684,31 +584,17 @@ function openPdfViewerTab(url, name) {
       <iframe src="${url}" allow="autoplay"></iframe>
     </body>
     </html>`;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  w.document.open(); w.document.write(html); w.document.close();
 }
-
 function viewPdfFromStored(f) {
-  const u = String(f.dataUrl || "");
-  if (!u) { alert("PDF manquant."); return; }
-
-  // 1) Déjà une URL blob → ouvrir direct
-  if (u.startsWith("blob:")) {
-    openPdfViewerTab(u, f.name);
-    return;
-  }
-
-  // 2) DataURL → convertir en Blob → créer une blob URL → ouvrir
+  const u = String(f.dataUrl || ""); if (!u) { alert("PDF manquant."); return; }
+  if (u.startsWith("blob:")) { openPdfViewerTab(u, f.name); return; }
   if (u.startsWith("data:")) {
-    const comma = u.indexOf(",");
-    if (comma === -1) { window.open(u, "_blank"); return; }
-
+    const comma = u.indexOf(","); if (comma === -1) { window.open(u, "_blank"); return; }
     const meta = u.slice(0, comma);
     const payload = u.slice(comma + 1);
     const isBase64 = /;base64/i.test(meta);
     const mime = (meta.match(/^data:([^;]+)/i) || [,"application/pdf"])[1];
-
     let bytes;
     if (isBase64) {
       const bin = atob(payload);
@@ -719,28 +605,23 @@ function viewPdfFromStored(f) {
       bytes = new Uint8Array(txt.length);
       for (let i = 0; i < txt.length; i++) bytes[i] = txt.charCodeAt(i);
     }
-
     const blob = new Blob([bytes], { type: mime || "application/pdf" });
     const blobUrl = URL.createObjectURL(blob);
     openPdfViewerTab(blobUrl, f.name);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000); // nettoyage
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     return;
   }
-
-  // 3) http(s) → ouvrir tel quel (certains serveurs bloquent l’iframe)
   window.open(u, "_blank");
 }
-
 function storePdfFile(name, dataUrl) {
   const existing = JSON.parse(localStorage.getItem("pdfFiles") || "[]");
   existing.push({ name, dataUrl, timestamp: Date.now() });
   localStorage.setItem("pdfFiles", JSON.stringify(existing));
-  prunePdfHistory(); // garde l'historique à 5 jours en permanence
+  prunePdfHistory();
 }
 
 /* ======== EXTRACTION DATE (contenu + nom de fichier) ======== */
 function extractRequestedDate(text){
-  // "02 octobre 2025 Date demandé :"
   let m = text.match(/(\d{1,2})\s+([A-Za-zÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+demand(?:e|é)\s*:/i);
   if (m) {
     const day = parseInt(m[1],10);
@@ -749,7 +630,6 @@ function extractRequestedDate(text){
     const MONTHS = {JANVIER:0, FEVRIER:1, FÉVRIER:1, MARS:2, AVRIL:3, MAI:4, JUIN:5, JUILLET:6, AOUT:7, AOÛT:7, SEPTEMBRE:8, OCTOBRE:9, NOVEMBRE:10, DÉCEMBRE:11, DECEMBRE:11};
     const month = MONTHS[monKey]; if (month !== undefined) return new Date(year, month, day, 0,0,0,0);
   }
-  // fallback "JEUDI 02 OCTOBRE 2025"
   m = text.toUpperCase().match(/\b(LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\s+(\d{1,2})\s+([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})/);
   if (m){
     const day = parseInt(m[2],10);
@@ -763,8 +643,6 @@ function extractRequestedDate(text){
 function extractDateFromName(name){
   if (!name) return null;
   const s = name.replace(/[_\.]/g,' ').replace(/\s+/g,' ').trim();
-
-  // 1) dd <mois texte> [yyyy]
   let m = s.match(/\b(\d{1,2})\s*(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avril|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\.?\s*(\d{4})?\b/i);
   if (m) {
     const day = parseInt(m[1], 10);
@@ -787,8 +665,6 @@ function extractDateFromName(name){
       return new Date(year, month, day, 0,0,0,0);
     }
   }
-
-  // 2) dd[-/_ ]mm[-/_ ]yyyy
   m = s.match(/\b(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})\b/);
   if (m) {
     const day = parseInt(m[1],10);
@@ -796,8 +672,6 @@ function extractDateFromName(name){
     let year = parseInt(m[3],10); if (year < 100) year += 2000;
     return new Date(year, month, day, 0,0,0,0);
   }
-
-  // 3) yyyy[-/_ ]mm[-/_ ]dd
   m = s.match(/\b(20\d{2})[-/ ](\d{1,2})[-/ ](\d{1,2})\b/);
   if (m) {
     const year = parseInt(m[1],10);
@@ -805,20 +679,17 @@ function extractDateFromName(name){
     const day = parseInt(m[3],10);
     return new Date(year, month, day, 0,0,0,0);
   }
-
   return null;
 }
 
 /* ======== PARSEUR PDF (multi RDV) ======== */
-const PROX = 40; // caractères max entre le numéro et le mot de voie
+const PROX = 40;
 const SUBADDR_PROX = new RegExp(
   `\\b\\d{1,5}[A-Za-zÀ-ÿ0-9' .\\-]{0,${PROX}}?\\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\\b)\\b[^\\-,;)]*`,
   "gi"
 );
-
 function parseTaxiPdfFromText(rawText, baseDate) {
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
-
   const RE = /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+(?!.*Heure de fin)(?!.*Heure de début).*?(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
@@ -826,18 +697,11 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   const NOISE     = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
   const MONTH_RE  = /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
   const STREET    = /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
-
   const SUBADDR_WIDE = /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
-
   const NAME_RX = /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
 
   function cleanName(s) {
-    return (s || "")
-      .replace(/\bTA ?\d{3,6}\b/gi, " ")
-      .replace(/\bTA\b/gi, " ")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
+    return (s || "").replace(/\bTA ?\d{3,6}\b/gi, " ").replace(/\bTA\b/gi, " ").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
   }
   function isValidName(n) {
     if (!n) return false;
@@ -845,32 +709,20 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     if (STREET.test(n)) return false;
     return NAME_RX.test(n);
   }
-
   function refineAddr(seg) {
-    const s = (seg || "")
-      .replace(COST_HEAD, "")
-      .replace(CITY_ABBR, " ")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-
+    const s = (seg || "").replace(COST_HEAD, "").replace(CITY_ABBR, " ").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
     let matches = s.match(SUBADDR_PROX);
     if (!matches || matches.length === 0) matches = s.match(SUBADDR_WIDE);
     if (!matches || matches.length === 0) return s;
-
     let pick = matches[matches.length - 1].trim();
-
     pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
-
     const lastTight = pick.match(/\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}?)\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH\b|ROUTE|RTE|COUR|PLACE|ALL[ÉE]E|PROMENADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i);
     if (lastTight) {
       const idx = pick.lastIndexOf(lastTight[0]);
       if (idx > 0) pick = pick.slice(idx);
     }
-
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
-
   function isValidAddr(s) {
     const u = (s || "").toUpperCase();
     if (!u) return false;
@@ -903,7 +755,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       id,
       title: `${name || "Client inconnu"} – ${from} > ${to}`,
       start: formatLocalDateTimeString(start),
-      allDay: false
+      allDay: false,
+      reminderMinutes: 15 // ✅ par défaut pour import
     });
   }
 
@@ -918,7 +771,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
 /* ======== IMPORT PDF ======== */
 async function handlePdfImport(file){
-  // 1) Lire le PDF pour parser le texte
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let fullText = "";
@@ -928,14 +780,8 @@ async function handlePdfImport(file){
     fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
 
-  // 2) Date de référence + parsing RDV
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
-  
-// 👇 Par défaut : chaque RDV importé a 15 min de rappel, modifiable ensuite
-for (const ev of parsed) {
-  if (ev.reminderMinutes == null) ev.reminderMinutes = 10;
-}
 
   if (parsed.length) {
     events = [...events, ...parsed];
@@ -943,7 +789,6 @@ for (const ev of parsed) {
     if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
   }
 
-  // 3) Sauvegarder le PDF dans l’historique (DataURL) + purge >5 jours
   try {
     const dataUrl = await fileToDataUrl(file);
     storePdfFile(file.name, dataUrl);
@@ -954,7 +799,7 @@ for (const ev of parsed) {
   alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}.\nLe PDF a été ajouté dans « Fichiers PDF » (5 jours).`);
 }
 
-/* ======== MODALE JOUR (résumé propre) ======== */
+/* ======== MODALE JOUR ======== */
 function openDayEventsModal(dateStr) {
   const list = document.getElementById("day-events-list");
   const title = document.getElementById("day-events-date");
@@ -988,12 +833,11 @@ function openDayEventsModal(dateStr) {
       list.appendChild(li);
     }
   }
-
   document.getElementById("day-events-modal").classList.remove("hidden");
 }
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
-/* ======== BIND LISTENERS APRÈS CHARGEMENT DOM ======== */
+/* ======== BIND LISTENERS ======== */
 prunePdfHistory();
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
@@ -1021,7 +865,6 @@ async function openAccountPanel() {
   const panel   = document.getElementById("account-panel");
   const content = document.getElementById("account-content");
 
-  // 1) Accès: seuls admins approuvés gèrent. Les users peuvent juste demander l'admin.
   if (!currentUser || currentUser.role !== "admin" || currentUser.approved !== true) {
     if (currentUser && currentUser.role === "user") {
       content.innerHTML = "";
@@ -1042,30 +885,23 @@ async function openAccountPanel() {
     return;
   }
 
-  // 2) SOURCE DE VÉRITÉ : Supabase si dispo, sinon local
   let users = [];
   try {
-    if (USE_SUPABASE_USERS && supabase) {
-      users = await cloudListUsers(); // <-- lit table public.users
-    } else {
-      users = JSON.parse(localStorage.getItem("users") || "[]");
-    }
+    if (USE_SUPABASE_USERS && supabase) users = await cloudListUsers();
+    else users = JSON.parse(localStorage.getItem("users") || "[]");
   } catch (e) {
     console.warn("openAccountPanel: fallback local", e);
     users = JSON.parse(localStorage.getItem("users") || "[]");
   }
 
-  // 3) Rendu
   content.innerHTML = "";
-
-  // petit header + bouton refresh
   const head = document.createElement("div");
   head.style.cssText = "display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:8px;";
   const title = document.createElement("h4");
   title.innerText = "Utilisateurs enregistrés";
   const refresh = document.createElement("button");
   refresh.innerText = "Rafraîchir";
-  refresh.onclick = () => openAccountPanel(); // recharge depuis Supabase
+  refresh.onclick = () => openAccountPanel();
   head.appendChild(title);
   head.appendChild(refresh);
   content.appendChild(head);
@@ -1097,34 +933,60 @@ async function openAccountPanel() {
     status.innerText = "Statut : " + (
       u.role === "admin"
         ? (approved ? "Admin approuvé" : "Admin non approuvé")
-        : (wants ? "Demande admin" : "Utilisateur")
+        : (approved ? (wants ? "Utilisateur (demande admin)" : "Utilisateur")
+                    : "Compte en attente d'approbation")
     );
     line.appendChild(status);
     line.appendChild(document.createElement("br"));
 
-    // Supprimer (sauf soi-même)
+    /* ---- Approbation du COMPTE (création) ---- */
+    if (approved !== true && u.role !== "admin" && u.email !== currentUser.email) {
+      const approveAccountBtn = document.createElement("button");
+      approveAccountBtn.innerText = "✅ Approuver le compte";
+      approveAccountBtn.style.marginTop = "5px";
+      approveAccountBtn.onclick = async () => {
+        await approveAccount(u.email);
+        await updateAccountNotification();
+        openAccountPanel();
+        alert(`Compte ${u.email} approuvé.`);
+      };
+      line.appendChild(approveAccountBtn);
+
+      const refuseAccountBtn = document.createElement("button");
+      refuseAccountBtn.innerText = "⛔ Refuser (bloquer)";
+      refuseAccountBtn.style.margin = "5px 0 0 6px";
+      refuseAccountBtn.onclick = async () => {
+        await refuseAccount(u.email);
+        await updateAccountNotification();
+        openAccountPanel();
+        alert(`Compte ${u.email} refusé (toujours bloqué).`);
+      };
+      line.appendChild(refuseAccountBtn);
+
+      line.appendChild(document.createElement("br"));
+    }
+
+    // Suppression (sauf soi-même)
     if (u.email !== currentUser.email) {
       const delBtn = document.createElement("button");
       delBtn.innerText = "Supprimer";
       delBtn.style.marginTop = "5px";
       delBtn.onclick = async () => {
         if (!confirm("Supprimer le compte " + u.email + " ?")) return;
-        await deleteUser(u.email);            // cloud + local
+        await deleteUser(u.email);
         await updateAccountNotification();
-        openAccountPanel();                   // refresh
+        openAccountPanel();
         alert("Compte supprimé.");
       };
       line.appendChild(delBtn);
     }
 
-    // Appro / Refus pour demandes admin
+    // Approbation / Refus des demandes admin
     if (wants && (u.role === "user" || !u.role)) {
       const select = document.createElement("select");
       ["en attente", "approuvé", "refusé"].forEach(opt => {
         const option = document.createElement("option");
-        option.value = opt;
-        option.textContent = opt;
-        select.appendChild(option);
+        option.value = opt; option.textContent = opt; select.appendChild(option);
       });
       line.appendChild(document.createElement("br"));
       line.appendChild(select);
@@ -1137,7 +999,7 @@ async function openAccountPanel() {
         if (v === "approuvé") { await approveUser(u.email); }
         else if (v === "refusé") { await rejectUser(u.email); }
         await updateAccountNotification();
-        openAccountPanel(); // refresh
+        openAccountPanel();
       };
       line.appendChild(valider);
     }
@@ -1147,16 +1009,15 @@ async function openAccountPanel() {
 
   panel.classList.remove("hidden");
 }
-
 function closeAccountPanel(){
   document.getElementById("account-panel").classList.add("hidden");
 }
 
+/* ---- Actions comptes ---- */
 async function approveUser(email){
   if (USE_SUPABASE_USERS && supabase) {
     await cloudUpdateUser(email, { role: "admin", wants_admin: false, approved: true });
   }
-  // local (cohérence offline)
   const users = JSON.parse(localStorage.getItem("users") || "[]");
   const user = users.find(u => u.email === email);
   if (user) {
@@ -1168,7 +1029,6 @@ async function approveUser(email){
   await updateAccountNotification();
   alert(`${email} est maintenant admin.`);
 }
-
 async function rejectUser(email){
   if (USE_SUPABASE_USERS && supabase) {
     await cloudUpdateUser(email, { wants_admin: false });
@@ -1182,52 +1042,29 @@ async function rejectUser(email){
   await updateAccountNotification();
   alert(`Demande de ${email} refusée.`);
 }
-
-async function requestAdmin(){
-  if (!currentUser) return;
+async function approveAccount(email){
   if (USE_SUPABASE_USERS && supabase) {
-    await cloudUpdateUser(currentUser.email, { wants_admin: true });
+    await cloudUpdateUser(email, { approved: true });
   }
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const me = users.find(u => u.email === currentUser.email);
-  if (me) {
-    me.wantsAdmin = true;
+  const u = users.find(x => x.email === email);
+  if (u) {
+    u.approved = true;
     localStorage.setItem("users", JSON.stringify(users));
   }
-  currentUser.wantsAdmin = true;
-  await updateAccountNotification();
-  alert("Demande envoyée.");
 }
-
-async function deleteUser(email){
+async function refuseAccount(email){
   if (USE_SUPABASE_USERS && supabase) {
-    // soit delete, soit marquer 'approved=false' + 'role=user' + 'wants_admin=false'
-    const { error } = await supabase
-      .from("users")
-      .delete()
-      .eq("email", email);
-    if (error) console.warn("cloud delete user:", error.message);
-  }
-  const users = JSON.parse(localStorage.getItem("users") || "[]")
-    .filter(u => u.email !== email);
-  localStorage.setItem("users", JSON.stringify(users));
-}
-
-
-async function rejectUser(email){
-  if (USE_SUPABASE_USERS && supabase) {
-    await cloudUpdateUser(email, { wants_admin: false });
+    await cloudUpdateUser(email, { approved: false, wants_admin: false });
   }
   const users = JSON.parse(localStorage.getItem("users") || "[]");
-  const user = users.find(u => u.email === email);
-  if (user) {
-    user.wantsAdmin = false;
+  const u = users.find(x => x.email === email);
+  if (u) {
+    u.approved = false;
+    u.wantsAdmin = false;
     localStorage.setItem("users", JSON.stringify(users));
   }
-  await updateAccountNotification();
-  alert(`Demande de ${email} refusée.`);
 }
-
 async function requestAdmin(){
   if (!currentUser) return;
   if (USE_SUPABASE_USERS && supabase) {
@@ -1240,11 +1077,8 @@ async function requestAdmin(){
   await updateAccountNotification();
   alert("Demande envoyée.");
 }
-
-
 async function deleteUser(email){
   if (USE_SUPABASE_USERS && supabase) {
-    // soit delete, soit marquer 'approved=false' + 'role=user' + 'wants_admin=false'
     const { error } = await supabase.from("users").delete().eq("email", email);
     if (error) console.warn("cloud delete user:", error.message);
   }
@@ -1274,25 +1108,23 @@ Object.assign(window, {
   openPdfPanel, closePdfPanel, storePdfFile,
   openDayEventsModal, closeDayEventsModal,
   openAccountPanel, closeAccountPanel, approveUser, rejectUser, requestAdmin,
-  openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig
+  openConfigModal, closeConfigModal, openImapModal, closeImapModal, savePdfConfig,
+  approveAccount, refuseAccount
 });
 
-
-// ====== CONFIG SUPABASE ======
+/* ====== CONFIG SUPABASE ====== */
 const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";
 const supabase = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// ====== CLOUD USERS (Supabase) — helpers ======
+/* ====== CLOUD USERS (Supabase) — helpers ====== */
 async function sha256(s) {
   const enc = new TextEncoder().encode(s);
   const buf = await crypto.subtle.digest("SHA-256", enc);
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
-
-// Lire un user par email (table public.users)
 async function cloudGetUserByEmail(email) {
   if (!supabase) return null;
   try {
@@ -1305,12 +1137,10 @@ async function cloudGetUserByEmail(email) {
     return data || null;
   } catch (e) {
     console.warn("cloudGetUserByEmail:", e.message);
-    return null; // hors-ligne => on laisse le local prendre le relais
+    return null;
   }
 }
-
-// Créer un user
-async function cloudInsertUser({ email, password, role = "user", approved = true, wantsAdmin = false }) {
+async function cloudInsertUser({ email, password, role = "user", approved = false, wantsAdmin = false }) {
   if (!supabase) return null;
   try {
     const password_hash = await sha256(password);
@@ -1326,8 +1156,6 @@ async function cloudInsertUser({ email, password, role = "user", approved = true
     return null;
   }
 }
-
-// Mettre à jour un user (role/approved/wants_admin)
 async function cloudUpdateUser(email, patch) {
   if (!supabase) return null;
   try {
@@ -1344,8 +1172,6 @@ async function cloudUpdateUser(email, patch) {
     return null;
   }
 }
-
-// Liste complète des users (pour l'admin)
 async function cloudListUsers() {
   if (!USE_SUPABASE_USERS || !supabase) return [];
   try {
@@ -1360,8 +1186,6 @@ async function cloudListUsers() {
     return [];
   }
 }
-
-// Y a-t-il des demandes admin en attente ?
 async function cloudHasPendingAdminRequests() {
   if (!USE_SUPABASE_USERS || !supabase) return false;
   try {
@@ -1378,82 +1202,54 @@ async function cloudHasPendingAdminRequests() {
   }
 }
 
-
+/* ====== SYNC TEMPS RÉEL (Supabase) ====== */
 (function () {
   if (!supabase) { console.warn("Supabase non chargé."); return; }
 
   const LAST_PULL_KEY = "events_last_pull_ms";
   const SHADOW_KEY    = "events_shadow_v1";
 
-  // ---------- helpers rôle admin ----------
   function isAdminUser() {
     try {
       if (window.currentUser && window.currentUser.role === "admin") return true;
       const users = JSON.parse(localStorage.getItem("users") || "[]");
-      const email = (document.getElementById("welcome")?.textContent || "")
-        .replace("Bonjour","").trim();
+      const email = (document.getElementById("welcome")?.textContent || "").replace("Bonjour","").trim();
       const me = users.find(u => u.email === email);
       return !!(me && me.role === "admin");
     } catch { return false; }
   }
-
-  // ---------- local storage ----------
   function loadLocal(){ try { return JSON.parse(localStorage.getItem("events") || "[]"); } catch { return []; } }
   function saveLocal(arr){ localStorage.setItem("events", JSON.stringify(arr)); }
 
-  // --- Rendu avec normalisation + HARD REFRESH FullCalendar (corrigé)
-function setEventsAndRender(list) {
-  function normalize(ev) {
-    const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
-    const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
-    let endISO;
-    if (hasTime) {
-      const d = new Date(startStr);
-      d.setMinutes(d.getMinutes() + 30);
-      endISO = d.toISOString();
+  function setEventsAndRender(list) {
+    function normalize(ev) {
+      const startStr = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
+      const hasTime  = startStr.includes("T") || /\d{2}:\d{2}/.test(startStr);
+      let endISO;
+      if (hasTime) {
+        const d = new Date(startStr);
+        d.setMinutes(d.getMinutes() + 30);
+        endISO = d.toISOString();
+      }
+      return { ...ev, title: String((ev.title || "").trim() || "RDV"), start: startStr, end: hasTime ? endISO : undefined, allDay: hasTime ? false : !!ev.allDay };
     }
-    return {
-      ...ev,
-      title: String((ev.title || "").trim() || "RDV"),
-      start: startStr,
-      end: hasTime ? endISO : undefined,
-      allDay: hasTime ? false : !!ev.allDay
-    };
-  }
-
-  try {
-    const normalized = (list || [])
-      .map(normalize)
-      .sort((a, b) => new Date(a.start) - new Date(b.start));
-
-    // 🔧 clé du correctif : on met à jour LES DEUX variables
-    window.events = normalized;   // copie globale
-    events = normalized;          // copie lue par renderCalendar()
-  } catch {}
-
-
-    // 2) persister local
+    try {
+      const normalized = (list || []).map(normalize).sort((a, b) => new Date(a.start) - new Date(b.start));
+      window.events = normalized;
+      events = normalized;
+    } catch {}
     saveLocal(window.events);
-
-    // 3) HARD REFRESH corrigé : on recrée l’instance (pas de removeAllEvents)
     try {
       if (window.calendar && typeof window.calendar.destroy === "function") {
-        try { window.calendar.destroy(); } catch(_) {}
+        try { window.calendar.destroy(); } catch {}
         window.calendar = null;
       }
-
       if (typeof renderCalendar === "function") {
         renderCalendar();
       } else {
         const el = document.getElementById("calendar");
         if (el && window.FullCalendar && window.events) {
-          const fcEvents = window.events.map(e => ({
-            id: String(e.id),
-            title: e.title,
-            start: e.start,
-            end:   e.end,
-            allDay: !!e.allDay
-          }));
+          const fcEvents = window.events.map(e => ({ id: String(e.id), title: e.title, start: e.start, end: e.end, allDay: !!e.allDay }));
           try {
             window.calendar = new FullCalendar.Calendar(el, {
               timeZone: 'local',
@@ -1465,18 +1261,14 @@ function setEventsAndRender(list) {
               eventClick: (info) => (window.onEventClick ? onEventClick(info) : null)
             });
             window.calendar.render();
-          } catch (e) {
-            console.error("FC fallback init error:", e);
-          }
+          } catch (e) { console.error("FC fallback init error:", e); }
         }
       }
     } catch (e) {
       console.error("refresh calendar error (recreate):", e);
-      try { if (typeof renderCalendar === "function") renderCalendar(); } catch(_) {}
+      try { if (typeof renderCalendar === "function") renderCalendar(); } catch {}
     }
   }
-
-  // --- utilisé par pushDiff/pull pour détecter les changements ---
   function hashOf(e){
     return JSON.stringify({
       title: e.title,
@@ -1486,24 +1278,19 @@ function setEventsAndRender(list) {
       deleted: !!e.deleted
     });
   }
-
   function readShadow(){ try { return JSON.parse(localStorage.getItem(SHADOW_KEY) || "{}"); } catch { return {}; } }
   function writeShadow(idx){ localStorage.setItem(SHADOW_KEY, JSON.stringify(idx)); }
 
-  // ---------- Broadcast robuste ----------
   let bus=null, busReady=false, busQueue=[];
   function ensureBus(){
     if (bus) return;
     try { for (const ch of supabase.getChannels()) supabase.removeChannel(ch); } catch {}
     bus = supabase.channel("rdv-bus", { config: { broadcast: { ack: true } } });
-
-    // Forcer un pull COMPLET quand on reçoit un signal (table petite => très fiable)
     bus.on("broadcast", { event:"events-updated" }, () => {
       console.log("[BUS] received events-updated -> pull(full)");
       clearTimeout(window._pullDeb);
       window._pullDeb = setTimeout(()=> pull(true), 150);
     });
-
     bus.subscribe((status)=>{
       console.log("[BUS] status:", status);
       if (status === "SUBSCRIBED"){
@@ -1512,7 +1299,6 @@ function setEventsAndRender(list) {
         q.forEach(p => bus.send(p).catch(()=>{}));
       }
     });
-
     window.addEventListener("beforeunload", ()=>{
       try { supabase.removeChannel(bus); } catch {}
       bus=null; busReady=false; busQueue=[];
@@ -1527,15 +1313,11 @@ function setEventsAndRender(list) {
     } catch(e){ console.warn("[BUS] send failed", e); }
   }
 
-  // ---------- PUSH local -> serveur ----------
   async function pushDiff(){
     ensureBus();
-    console.log("[BUS] pushDiff start");
-
     const local  = loadLocal();
     const shadow = readShadow();
     const now    = Date.now();
-
     const byId   = new Map(local.map(e=>[e.id,e]));
     const upserts=[], deletes=[];
 
@@ -1561,23 +1343,20 @@ function setEventsAndRender(list) {
       const { error } = await supabase.from("events").upsert(upserts, { onConflict:"id" });
       if (error) console.warn("upsert error", error.message);
     }
-   if (deletes.length){
-  const { error } = await supabase
-    .from("events")
-    .update({ deleted: true, updated_at: now })
-    .in("id", deletes.map(String));
-  if (error) console.warn("delete mark error", error.message);
-}
+    if (deletes.length){
+      const { error } = await supabase
+        .from("events")
+        .update({ deleted: true, updated_at: now })
+        .in("id", deletes.map(String));
+      if (error) console.warn("delete mark error", error.message);
+    }
 
     const newShadow={}; for (const ev of loadLocal()) newShadow[ev.id] = hashOf(ev);
     writeShadow(newShadow);
 
-    console.log("[BUS] sending events-updated");
     await busNotify();
   }
 
-  // ---------- PULL serveur -> local ----------
-  // pull(initialOrFull): si true => FULL fetch (pas de filtre)
   async function pull(initialOrFull=false){
     const FULL = initialOrFull === true;
     const DRIFT_MS = 60000;
@@ -1590,8 +1369,6 @@ function setEventsAndRender(list) {
 
     const { data, error } = await q.order("updated_at", { ascending:true });
     if (error){ console.warn("pull error", error.message); if (FULL) setEventsAndRender(loadLocal()); return; }
-
-    console.log(`[PULL] rows=${(data||[]).length} (full=${FULL})`);
 
     if (!data || !data.length){
       if (FULL) await pushDiff();
@@ -1628,7 +1405,6 @@ function setEventsAndRender(list) {
     localStorage.setItem(LAST_PULL_KEY, String(maxUpdated));
   }
 
-  // ---------- cycle de sync ----------
   let timer=null, backoff=10_000;
   const MAX_BACKOFF=300_000;
   async function safeSync(){
@@ -1640,7 +1416,6 @@ function setEventsAndRender(list) {
   window.addEventListener("online",  ()=>{ backoff=1_000; clearTimeout(timer); timer=setTimeout(safeSync,100); });
   window.addEventListener("offline", ()=>{ console.warn("Hors-ligne: local puis sync au retour réseau."); });
 
-  // ---------- protections UI (rôles) ----------
   const _onEventClick = window.onEventClick;
   window.onEventClick = function(info){
     if (isAdminUser()) return _onEventClick ? _onEventClick(info) : undefined;
@@ -1669,15 +1444,12 @@ function setEventsAndRender(list) {
     return r;
   };
 
-  // ---------- après ajout/édition : normaliser + sync ----------
   const _saveEvent = window.saveEvent;
   window.saveEvent = async function(){
     const editId = document.getElementById("event-form")?.dataset?.editId;
     if (editId && !isAdminUser()){ alert("Seul un admin peut modifier un RDV existant."); return; }
-
     const r = _saveEvent ? await _saveEvent() : undefined;
 
-    // normalisation pour “rentrer dans la case”
     if (Array.isArray(window.events)){
       window.events = window.events.map(ev=>{
         let s = (ev.start instanceof Date) ? ev.start.toISOString() : String(ev.start || "");
@@ -1697,12 +1469,10 @@ function setEventsAndRender(list) {
       });
       try { if (typeof renderCalendar === "function") renderCalendar(); } catch(e){ console.error(e); }
     }
-
-    await pushDiff(); // sync + broadcast
+    await pushDiff();
     return r;
   };
 
-  // ---------- abonnement push (stockage) ----------
   const _enablePush = window.enablePush;
   window.enablePush = async function(){
     try{
@@ -1720,16 +1490,14 @@ function setEventsAndRender(list) {
     } catch(e){ console.warn(e); }
   };
 
-  // ---------- démarrage ----------
   const _showApp = window.showApp;
   window.showApp = async function(){
     const r = _showApp ? _showApp() : undefined;
-    await pull(true);   // full pull initial
-    await ensurePushReady();  
-    ensureBus();        // abonnement broadcast
-    startSync();        // secours/offline
+    await pull(true);
+    await ensurePushReady();
+    ensureBus();
+    startSync();
     return r;
-    
   };
 })();
 
@@ -1737,8 +1505,3 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
-
-
