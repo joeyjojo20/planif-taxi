@@ -245,12 +245,6 @@ function showApp() {
   const configBtn = document.getElementById("config-btn");
   if (currentUser.role === "admin" && currentUser.approved) { configBtn.disabled = false; configBtn.classList.remove("disabled"); }
   else { configBtn.disabled = true; configBtn.classList.add("disabled"); }
-  
-  // Rafraîchit la pastille périodiquement (sans doublon)
-if (!window._accountBadgeTimer) {
-  window._accountBadgeTimer = setInterval(updateAccountNotification, 15000); // toutes les 15s
-}
-
 }
 async function updateAccountNotification() {
   const btn = document.getElementById("btn-account");
@@ -880,7 +874,7 @@ async function openAccountPanel() {
       btn.innerText = "Demander à devenir admin";
       btn.onclick = async () => {
         await requestAdmin();
-        await ();
+        await updateAccountNotification();
       };
       content.appendChild(p);
       content.appendChild(btn);
@@ -952,7 +946,7 @@ async function openAccountPanel() {
       approveAccountBtn.style.marginTop = "5px";
       approveAccountBtn.onclick = async () => {
         await approveAccount(u.email);
-        await ();
+        await updateAccountNotification();
         openAccountPanel();
         alert(`Compte ${u.email} approuvé.`);
       };
@@ -963,7 +957,7 @@ async function openAccountPanel() {
       refuseAccountBtn.style.margin = "5px 0 0 6px";
       refuseAccountBtn.onclick = async () => {
         await refuseAccount(u.email);
-        await ();
+        await updateAccountNotification();
         openAccountPanel();
         alert(`Compte ${u.email} refusé (toujours bloqué).`);
       };
@@ -980,7 +974,7 @@ async function openAccountPanel() {
       delBtn.onclick = async () => {
         if (!confirm("Supprimer le compte " + u.email + " ?")) return;
         await deleteUser(u.email);
-        await ();
+        await updateAccountNotification();
         openAccountPanel();
         alert("Compte supprimé.");
       };
@@ -1511,4 +1505,3 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
