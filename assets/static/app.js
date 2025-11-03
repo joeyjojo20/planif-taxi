@@ -243,9 +243,20 @@ function showApp() {
   updateAccountNotification();
 
   const configBtn = document.getElementById("config-btn");
-  if (currentUser.role === "admin" && currentUser.approved) { configBtn.disabled = false; configBtn.classList.remove("disabled"); }
-  else { configBtn.disabled = true; configBtn.classList.add("disabled"); }
+  if (currentUser.role === "admin" && currentUser.approved) {
+    configBtn.disabled = false; 
+    configBtn.classList.remove("disabled");
+  } else {
+    configBtn.disabled = true; 
+    configBtn.classList.add("disabled");
+  }
+
+  // ⬇️ AJOUT ULTRA SIMPLE : rafraîchir la pastille périodiquement
+  if (!window._accountBadgeTimer) {
+    window._accountBadgeTimer = setInterval(updateAccountNotification, 15000); // toutes les 15s
+  }
 }
+
 async function updateAccountNotification() {
   const btn = document.getElementById("btn-account");
   if (!currentUser || currentUser.role !== "admin" || !currentUser.approved) {
@@ -1505,3 +1516,4 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
