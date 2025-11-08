@@ -14,6 +14,9 @@ let currentUser = null;
 const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1"; // Edge Functions
 const USE_SUPABASE_USERS = true;
 const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY";
+const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
+
+
 
 /* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
 async function ensurePushReady() {
@@ -844,6 +847,27 @@ document.addEventListener("DOMContentLoaded", () => {
   if (notes) notes.addEventListener("input", () => {
     if (currentUser) localStorage.setItem("notes_" + currentUser.email, notes.value);
   });
+  // ---- Ouvrir la modale IMAP (bouton dans tes réglages) ----
+  // Adapte l'ID si nécessaire (ex: #imap-open-btn ou autre)
+  document.querySelector("#imap-open-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openImapModal();
+  });
+
+  // ---- Enregistrer la config IMAP ----
+  document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitMailConfigFromForm().catch((err) => {
+      console.error(err);
+      alert("Échec de l’enregistrement de la config mail.");
+    });
+  });
+
+  // ---- Fermer la modale IMAP ----
+  document.querySelector("#imap-cancel-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeImapModal();
+  });
 
   const rec = document.getElementById("recurrence");
   if (rec) rec.addEventListener("change", () => {
@@ -1089,7 +1113,7 @@ async function deleteUser(email){
 /* ======== CONFIG ======== */
 function openConfigModal(){ document.getElementById("config-modal").classList.remove("hidden"); }
 function closeConfigModal(){ document.getElementById("config-modal").classList.add("hidden"); }
-function openImapModal(){ document.getElementById("imap-modal").classList.remove("hidden"); }
+function openImapModal(){document.getElementById("imap-modal").classList.remove("hidden");loadMailConfigIntoForm().catch(console.error);}
 function closeImapModal(){ document.getElementById("imap-modal").classList.add("hidden"); }
 function savePdfConfig(){
   const email = document.getElementById("monitoredEmail").value;
@@ -1201,6 +1225,80 @@ async function cloudHasPendingAdminRequests() {
     return false;
   }
 }
+// === Auth header pour Edge (JWT ON) ===
+async function authHeaderOrThrow() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return { "Authorization": `Bearer ${session.access_token}` };
+    }
+  } catch {}
+  // plan B : jeton public
+  return { "Authorization": `Bearer ${SUPABASE_ANON_KEY}` };
+}
+
+
+// === Charger la config IMAP et pré-remplir la modale ===
+async function loadMailConfigIntoForm() {
+  try {
+    const headers = await authHeaderOrThrow();
+    const res = await fetch(SAVE_IMAP_URL, { headers });
+    if (!res.ok) throw new Error(`GET save-imap-config: ${res.status}`);
+    const cfg = await res.json();
+
+    // ⚠️ adapte les sélecteurs à tes IDs
+    const $folder   = document.querySelector("#imap-folder");
+    const $keywords = document.querySelector("#imap-keywords");
+    const $senders  = document.querySelector("#imap-senders");
+    const $interval = document.querySelector("#imap-interval");
+
+    if ($folder)   $folder.value   = String(cfg.imap_folder || "INBOX");
+    if ($keywords) $keywords.value = (Array.isArray(cfg.keywords) ? cfg.keywords : []).join(", ");
+    if ($senders)  $senders.value  = (Array.isArray(cfg.authorized_senders) ? cfg.authorized_senders : []).join(", ");
+    if ($interval) $interval.value = Number(cfg.check_interval_minutes || 3);
+  } catch (err) {
+    console.error("loadMailConfigIntoForm", err);
+    alert("Impossible de charger la config mail (es-tu connecté ?).");
+  }
+}
+
+// === Soumettre la config IMAP depuis le formulaire ===
+async function submitMailConfigFromForm() {
+  try {
+    const headers = await authHeaderOrThrow();
+    headers["Content-Type"] = "application/json";
+
+    // ⚠️ adapte les sélecteurs à tes IDs
+    const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
+    const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
+    const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
+    const interval = Number(document.querySelector("#imap-interval")?.value ?? 3);
+
+    const body = {
+      folder,
+      keywords,                  // le backend gère CSV -> array
+      authorizedSenders: senders,
+      checkIntervalMinutes: interval
+    };
+
+    const res = await fetch(SAVE_IMAP_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+
+    if (!res.ok || json?.ok !== true) {
+      throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
+    }
+
+    alert("Config mail enregistrée ✅");
+  } catch (err) {
+    console.error("submitMailConfigFromForm", err);
+    alert("Échec de l’enregistrement de la config mail.");
+  }
+}
+
 
 /* ====== SYNC TEMPS RÉEL (Supabase) ====== */
 (function () {
@@ -1505,3 +1603,4 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
