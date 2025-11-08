@@ -201,54 +201,37 @@
     <button onclick="closeConfigModal()">Annuler</button>
   </div>
 </div>
-  
-<!-- MODALE DE CONFIGURATION IMAP (REMPLACER TOUT LE BLOC) -->
+<!-- MODALE DE CONFIGURATION IMAP -->
 <div id="imap-modal" class="modal hidden">
   <div class="modal-content">
     <h3>Paramètres de messagerie (IMAP)</h3>
 
-    <!-- Ces champs sont affichés pour info. Les secrets (host/user/pass) vivent côté Edge (environnements),
-         PAS sauvés en base. Tu peux les laisser visibles si tu veux, ils ne sont pas envoyés. -->
-    <fieldset style="border:1px solid #eee; padding:10px; margin-bottom:12px;">
-      <legend>Connexion (gérée par secrets serveur)</legend>
-      <label for="imap-server">Serveur IMAP</label>
-      <input type="text" id="imap-server" placeholder="imap.gmail.com" />
+    <label for="imap-email">Mon adresse email à surveiller</label>
+    <input type="email" id="imap-email" />
 
-      <label for="imap-port">Port</label>
-      <input type="number" id="imap-port" value="993" />
+    <label for="imap-password">Mot de passe (ou mot de passe d’application)</label>
+    <input type="password" id="imap-password" />
 
-      <label for="imap-email">Adresse email (info)</label>
-      <input type="email" id="imap-email" placeholder="exemple@domaine.com" />
+    <label for="imap-server">Serveur IMAP</label>
+    <input type="text" id="imap-server" placeholder="imap.gmail.com" />
 
-      <label for="imap-password">Mot de passe (info)</label>
-      <input type="password" id="imap-password" placeholder="(utilise un mot de passe d’application)" />
-      <small>ℹ️ Ces valeurs ne sont <strong>pas</strong enregistrées côté base. Mets les vrais secrets dans
-        <code>PROJECT_URL</code>, <code>SERVICE_ROLE_KEY</code> et tes variables <code>IMAP_*</code> dans Supabase → Edge Functions → Settings.</small>
-    </fieldset>
+    <label for="imap-port">Port</label>
+    <input type="number" id="imap-port" value="993" />
 
-    <hr style="margin: 12px 0;">
+  <!-- Séparateur visuel -->
+<hr style="margin: 20px 0;">
+<p><strong>Détection des PDF à importer</strong></p>
 
-    <p><strong>Filtrage des messages à importer</strong></p>
+<label for="imap-folder">📁 Dossier à surveiller</label>
+<input type="text" id="imap-folder" value="INBOX" />
 
-    <label for="imap-folder">📁 Dossier à surveiller</label>
-    <input type="text" id="imap-folder" value="INBOX" />
+<label for="imap-keyword">🔍 Mot-clé à filtrer (optionnel)</label>
+<input type="text" id="imap-keyword" placeholder="ex: planning, horaire..." />
 
-    <label for="imap-keywords">🔍 Mots-clés (CSV, optionnel)</label>
-    <input type="text" id="imap-keywords" placeholder="ex: planning, horaire, rdv" />
-
-    <label for="imap-senders">✉️ Expéditeurs autorisés (CSV, optionnel)</label>
-    <input type="text" id="imap-senders" placeholder="ex: a@x.com, b@y.com" />
-
-    <label for="imap-interval">⏱️ Intervalle de vérif (minutes)</label>
-    <input type="number" id="imap-interval" min="1" max="60" value="3" />
-
-    <div class="actions" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
-      <button id="imap-save-btn">💾 Enregistrer</button>
-      <button id="imap-check-btn">🧪 Vérifier IMAP</button>
-      <button id="imap-cancel-btn">Annuler</button>
-    </div>
+    <button onclick="saveImapConfig()">💾 Sauvegarder</button>
+    <button onclick="closeImapModal()">Annuler</button>
+  </div>
 </div>
-
 
 <!-- Modale : RDV du jour -->
 <div id="day-events-modal" class="modal hidden">
@@ -274,9 +257,6 @@
 
 </body>
 </html>
-
-
-
 
 
 
