@@ -15,6 +15,8 @@ const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1"; // 
 const USE_SUPABASE_USERS = true;
 const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY";
 const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
+const IMAP_STATUS_URL = `${SAVE_IMAP_URL}?status=1`;
+
 
 
 
@@ -841,18 +843,42 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
 /* ======== BIND LISTENERS ======== */
+/* ======== BIND LISTENERS ======== */
 prunePdfHistory();
 document.addEventListener("DOMContentLoaded", () => {
   const notes = document.getElementById("notes-box");
   if (notes) notes.addEventListener("input", () => {
     if (currentUser) localStorage.setItem("notes_" + currentUser.email, notes.value);
   });
+
   // ---- Ouvrir la modale IMAP (bouton dans tes réglages) ----
   // Adapte l'ID si nécessaire (ex: #imap-open-btn ou autre)
   document.querySelector("#imap-open-btn")?.addEventListener("click", (e) => {
     e.preventDefault();
     openImapModal();
   });
+
+  // ---- Vérifier les secrets/bucket IMAP (GET ?status=1) ----
+  // 👉 AJOUTE CE LISTENER ICI, juste après le bouton "ouvrir"
+  document.querySelector("#imap-check-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    checkImapStatusFromUI().catch(console.error);
+  });
+
+  const rec = document.getElementById("recurrence");
+  if (rec) rec.addEventListener("change", () => {
+    const lbl = document.getElementById("recurrence-duration-label");
+    if (rec.value !== "none") lbl?.classList.remove("hidden"); else lbl?.classList.add("hidden");
+  });
+
+  const pdfInput = document.getElementById("pdf-import");
+  if (pdfInput) pdfInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try { await handlePdfImport(file); }
+    catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
+    finally { e.target.value = ""; }
+  });
+});
 
   // ---- Enregistrer la config IMAP ----
   document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
@@ -1299,6 +1325,28 @@ async function submitMailConfigFromForm() {
   }
 }
 
+// === Vérifier la présence des secrets IMAP + bucket (GET ?status=1) ===
+async function checkImapStatusFromUI() {
+  try {
+    const headers = await authHeaderOrThrow();
+    const res = await fetch(IMAP_STATUS_URL, { headers });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+
+    const missing = Object.entries(json.secrets)
+      .filter(([, present]) => !present)
+      .map(([k]) => k);
+
+    alert(
+      `Bucket "rdv-pdfs" : ${json.bucket.exists ? "✅ présent" : "❌ manquant"}\n` +
+      `Secrets manquants : ${missing.length ? "❌ " + missing.join(", ") : "✅ aucun"}`
+    );
+  } catch (e) {
+    console.error("checkImapStatusFromUI", e);
+    alert("Impossible de vérifier les secrets IMAP (voir console).");
+  }
+}
+
 
 /* ====== SYNC TEMPS RÉEL (Supabase) ====== */
 (function () {
@@ -1603,4 +1651,5 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
