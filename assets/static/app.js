@@ -843,42 +843,64 @@ function openDayEventsModal(dateStr) {
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
 /* ======== BIND LISTENERS ======== */
-/* ======== BIND LISTENERS ======== */
 prunePdfHistory();
-document.addEventListener("DOMContentLoaded", () => {
-  const notes = document.getElementById("notes-box");
-  if (notes) notes.addEventListener("input", () => {
-    if (currentUser) localStorage.setItem("notes_" + currentUser.email, notes.value);
-  });
 
-  // ---- Ouvrir la modale IMAP (bouton dans tes réglages) ----
-  // Adapte l'ID si nécessaire (ex: #imap-open-btn ou autre)
+document.addEventListener("DOMContentLoaded", () => {
+  // Notes auto-save
+  const notes = document.getElementById("notes-box");
+  if (notes) {
+    notes.addEventListener("input", () => {
+      if (currentUser) localStorage.setItem("notes_" + currentUser.email, notes.value);
+    });
+  }
+
+  // Ouvrir la modale IMAP (si tu as un bouton dédié)
   document.querySelector("#imap-open-btn")?.addEventListener("click", (e) => {
     e.preventDefault();
     openImapModal();
   });
 
-  // ---- Vérifier les secrets/bucket IMAP (GET ?status=1) ----
-  // 👉 AJOUTE CE LISTENER ICI, juste après le bouton "ouvrir"
+  // Boutons de la modale IMAP
+  document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitMailConfigFromForm().catch((err) => {
+      console.error(err);
+      alert("Échec de l’enregistrement de la config mail.");
+    });
+  });
+
   document.querySelector("#imap-check-btn")?.addEventListener("click", (e) => {
     e.preventDefault();
     checkImapStatusFromUI().catch(console.error);
   });
 
-  const rec = document.getElementById("recurrence");
-  if (rec) rec.addEventListener("change", () => {
-    const lbl = document.getElementById("recurrence-duration-label");
-    if (rec.value !== "none") lbl?.classList.remove("hidden"); else lbl?.classList.add("hidden");
+  document.querySelector("#imap-cancel-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeImapModal();
   });
 
+  // Changement de type de récurrence → afficher/masquer la durée
+  const rec = document.getElementById("recurrence");
+  if (rec) {
+    rec.addEventListener("change", () => {
+      const lbl = document.getElementById("recurrence-duration-label");
+      if (rec.value !== "none") lbl?.classList.remove("hidden");
+      else lbl?.classList.add("hidden");
+    });
+  }
+
+  // Import PDF
   const pdfInput = document.getElementById("pdf-import");
-  if (pdfInput) pdfInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    try { await handlePdfImport(file); }
-    catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
-    finally { e.target.value = ""; }
-  });
+  if (pdfInput) {
+    pdfInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try { await handlePdfImport(file); }
+      catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
+      finally { e.target.value = ""; }
+    });
+  }
 });
+
 
   // ---- Enregistrer la config IMAP ----
   document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
@@ -1651,5 +1673,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
