@@ -854,13 +854,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Ouvrir la modale IMAP (si tu as un bouton dédié)
+  // Ouvrir la modale IMAP (si bouton)
   document.querySelector("#imap-open-btn")?.addEventListener("click", (e) => {
     e.preventDefault();
     openImapModal();
   });
 
-  // Boutons de la modale IMAP
+  // Boutons de la modale IMAP (UNE seule fois)
   document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
     e.preventDefault();
     submitMailConfigFromForm().catch((err) => {
@@ -879,7 +879,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeImapModal();
   });
 
-  // Changement de type de récurrence → afficher/masquer la durée
+  // Récurrence (UNE seule fois)
   const rec = document.getElementById("recurrence");
   if (rec) {
     rec.addEventListener("change", () => {
@@ -889,7 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Import PDF
+  // Import PDF (UNE seule fois)
   const pdfInput = document.getElementById("pdf-import");
   if (pdfInput) {
     pdfInput.addEventListener("change", async (e) => {
@@ -899,7 +899,7 @@ document.addEventListener("DOMContentLoaded", () => {
       finally { e.target.value = ""; }
     });
   }
-
+});
 
   // ---- Enregistrer la config IMAP ----
   document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
@@ -1672,6 +1672,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
