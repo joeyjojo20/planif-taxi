@@ -899,7 +899,6 @@ document.addEventListener("DOMContentLoaded", () => {
       finally { e.target.value = ""; }
     });
   }
-});
 
 
   // ---- Enregistrer la config IMAP ----
@@ -1673,6 +1672,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
