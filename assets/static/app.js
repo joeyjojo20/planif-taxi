@@ -901,35 +901,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-  // ---- Enregistrer la config IMAP ----
-  document.querySelector("#imap-save-btn")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    submitMailConfigFromForm().catch((err) => {
-      console.error(err);
-      alert("Échec de l’enregistrement de la config mail.");
-    });
-  });
-
-  // ---- Fermer la modale IMAP ----
-  document.querySelector("#imap-cancel-btn")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    closeImapModal();
-  });
-
-  const rec = document.getElementById("recurrence");
-  if (rec) rec.addEventListener("change", () => {
-    const lbl = document.getElementById("recurrence-duration-label");
-    if (rec.value !== "none") lbl?.classList.remove("hidden"); else lbl?.classList.add("hidden");
-  });
-
-  const pdfInput = document.getElementById("pdf-import");
-  if (pdfInput) pdfInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    try { await handlePdfImport(file); }
-    catch (err) { console.error(err); alert("❌ Erreur lors de la lecture du PDF."); }
-    finally { e.target.value = ""; }
-  });
-});
+ 
 
 /* ======== COMPTE / ADMIN ======== */
 async function openAccountPanel() {
@@ -1672,6 +1644,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
