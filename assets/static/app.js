@@ -1284,39 +1284,35 @@ async function loadMailConfigIntoForm() {
 // === Soumettre la config IMAP depuis le formulaire ===
 async function submitMailConfigFromForm() {
   try {
-    const headers = await authHeaderOrThrow();
+    const headers = await authHeaderOrThrow();        // a déjà Authorization
     headers["Content-Type"] = "application/json";
+    headers["apikey"] = SUPABASE_ANON_KEY;            // ← AJOUT
+    headers["x-client-info"] = "rdv-taxi-web";        // ← optionnel, mais pratique
 
-    // ⚠️ adapte les sélecteurs à tes IDs
     const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
     const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
     const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
     const interval = Number(document.querySelector("#imap-interval")?.value ?? 3);
 
-    const body = {
-      folder,
-      keywords,                  // le backend gère CSV -> array
-      authorizedSenders: senders,
-      checkIntervalMinutes: interval
-    };
+    const body = { folder, keywords, authorizedSenders: senders, checkIntervalMinutes: interval };
 
     const res = await fetch(SAVE_IMAP_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     });
     const json = await res.json();
 
     if (!res.ok || json?.ok !== true) {
       throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
     }
-
     alert("Config mail enregistrée ✅");
   } catch (err) {
     console.error("submitMailConfigFromForm", err);
     alert("Échec de l’enregistrement de la config mail.");
   }
 }
+
 
 // === Vérifier la présence des secrets IMAP + bucket (GET ?status=1) ===
 async function checkImapStatusFromUI() {
@@ -1644,6 +1640,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
