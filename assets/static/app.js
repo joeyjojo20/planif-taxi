@@ -790,48 +790,48 @@ async function handlePdfImport(file){
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
 
   if (parsed.length) {
-    // 1) Met à jour l'état local
+    // 1) Mise à jour de l'état local
     if (!Array.isArray(events)) events = [];
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
 
     if (calendar) {
       calendar.addEventSource(parsed);
-      try { renderCalendar(); } catch (_) {}
+      renderCalendar();
     }
 
-    // 2) Pousse vers Supabase pour synchro multi-appareils
+    // 2) Synchro vers Supabase pour les autres appareils
     try {
-      // Si le nouveau système de sync diff existe, on l'utilise
-      if (typeof pushDiff === "function") {
-        await pushDiff();
-      }
-      // Sinon, fallback sur l’Edge Function /sync-events (comme saveEvent)
-      else if (typeof BACKEND_URL === "string" && BACKEND_URL) {
-        const payload = parsed.map(ev => ({
-          id: ev.id,
-          title: String(ev.title || "RDV"),
-          start: ev.start,                // ex: "2025-11-26T15:30:00"
-          all_day: !!ev.allDay,
-          reminder_minutes: Number.isFinite(ev.reminderMinutes)
-            ? ev.reminderMinutes
-            : 15,
-          deleted: false
-        }));
+      const payload = parsed.map(e => ({
+        id: e.id,
+        title: e.title,
+        start: e.start,                     // ex: "2025-11-26T15:30:00"
+        all_day: false,
+        reminder_minutes: e.reminderMinutes ?? 15,
+        deleted: false
+      }));
 
-        await fetch(`${BACKEND_URL}/sync-events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-      }
-    } catch (err) {
-      console.error("Erreur synchro Supabase après import PDF:", err);
-      // On laisse quand même les RDV en local, comme avant
+      fetch(`${BACKEND_URL}/sync-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    } catch (e) {
+      console.warn("sync-events error (import PDF):", e);
     }
+
+    // 3) Message de confirmation
+    const dateLabel = baseDate instanceof Date
+      ? baseDate.toLocaleDateString("fr-FR")
+      : "date inconnue";
+
+    alert(
+      `✅ ${parsed.length} rendez-vous importés pour le ${dateLabel}.\n` +
+      `Le PDF a été ajouté dans « Fichiers PDF » (5 jours).`
+    );
   }
 
-  // 3) Sauvegarde du fichier PDF dans l’historique (inchangé)
+  // 4) Sauvegarde du fichier PDF dans l’historique
   try {
     const dataUrl = await fileToDataUrl(file);
     storePdfFile(file.name, dataUrl);
@@ -840,8 +840,6 @@ async function handlePdfImport(file){
   }
 }
 
-  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}.\nLe PDF a été ajouté dans « Fichiers PDF » (5 jours).`);
-}
 
 /* ======== MODALE JOUR ======== */
 function openDayEventsModal(dateStr) {
@@ -1683,6 +1681,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
