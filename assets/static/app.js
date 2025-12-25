@@ -1,3 +1,4 @@
+
 /* ===========================================================
  * RDV TAXI — app.js (corrigé 2025‑11‑02)
  * - Comptes: approbation du COMPTE + demandes admin (approuver/refuser)
@@ -13,8 +14,6 @@ let currentUser = null;
 // === BACKENDS / PUSH ===
 const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1"; // Edge Functions
 const USE_SUPABASE_USERS = true;
-const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";
 const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY";
 const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
 const IMAP_STATUS_URL = `${SAVE_IMAP_URL}?status=1`;
@@ -787,24 +786,61 @@ async function handlePdfImport(file){
     fullText += "\n" + content.items.map(it => it.str).join(" ");
   }
 
+  // Date de base depuis le nom OU le contenu
   let baseDate = extractDateFromName(file.name) || extractRequestedDate(fullText);
   const parsed = parseTaxiPdfFromText(fullText, baseDate);
 
   if (parsed.length) {
+    // 1) Mise à jour de l'état local
+    if (!Array.isArray(events)) events = [];
     events = [...events, ...parsed];
     localStorage.setItem("events", JSON.stringify(events));
-    if (calendar) { calendar.addEventSource(parsed); renderCalendar(); }
+
+    if (calendar) {
+      calendar.addEventSource(parsed);
+      renderCalendar();
+    }
+
+    // 2) Synchro vers Supabase pour les autres appareils
+    try {
+      const payload = parsed.map(e => ({
+        id: e.id,
+        title: e.title,
+        start: e.start,                     // ex: "2025-11-26T15:30:00"
+        all_day: false,
+        reminder_minutes: e.reminderMinutes ?? 15,
+        deleted: false
+      }));
+
+      fetch(`${BACKEND_URL}/sync-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    } catch (e) {
+      console.warn("sync-events error (import PDF):", e);
+    }
+
+    // 3) Message de confirmation
+    const dateLabel = baseDate instanceof Date
+      ? baseDate.toLocaleDateString("fr-FR")
+      : "date inconnue";
+
+    alert(
+      `✅ ${parsed.length} rendez-vous importés pour le ${dateLabel}.\n` +
+      `Le PDF a été ajouté dans « Fichiers PDF » (5 jours).`
+    );
   }
 
+  // 4) Sauvegarde du fichier PDF dans l’historique
   try {
     const dataUrl = await fileToDataUrl(file);
     storePdfFile(file.name, dataUrl);
   } catch (e) {
     console.warn("Impossible de convertir le PDF en DataURL:", e);
   }
-
-  alert(`✅ ${parsed.length} rendez-vous importés pour le ${baseDate.toLocaleDateString("fr-FR")}.\nLe PDF a été ajouté dans « Fichiers PDF » (5 jours).`);
 }
+
 
 /* ======== MODALE JOUR ======== */
 function openDayEventsModal(dateStr) {
@@ -1286,35 +1322,39 @@ async function loadMailConfigIntoForm() {
 // === Soumettre la config IMAP depuis le formulaire ===
 async function submitMailConfigFromForm() {
   try {
-    const headers = await authHeaderOrThrow();        // a déjà Authorization
+    const headers = await authHeaderOrThrow();
     headers["Content-Type"] = "application/json";
-    headers["apikey"] = SUPABASE_ANON_KEY;            // ← AJOUT
-    headers["x-client-info"] = "rdv-taxi-web";        // ← optionnel, mais pratique
 
+    // ⚠️ adapte les sélecteurs à tes IDs
     const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
     const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
     const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
     const interval = Number(document.querySelector("#imap-interval")?.value ?? 3);
 
-    const body = { folder, keywords, authorizedSenders: senders, checkIntervalMinutes: interval };
+    const body = {
+      folder,
+      keywords,                  // le backend gère CSV -> array
+      authorizedSenders: senders,
+      checkIntervalMinutes: interval
+    };
 
     const res = await fetch(SAVE_IMAP_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(body)
     });
     const json = await res.json();
 
     if (!res.ok || json?.ok !== true) {
       throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
     }
+
     alert("Config mail enregistrée ✅");
   } catch (err) {
     console.error("submitMailConfigFromForm", err);
     alert("Échec de l’enregistrement de la config mail.");
   }
 }
-
 
 // === Vérifier la présence des secrets IMAP + bucket (GET ?status=1) ===
 async function checkImapStatusFromUI() {
