@@ -18,8 +18,6 @@ const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
 const IMAP_STATUS_URL = `${SAVE_IMAP_URL}?status=1`;
 
 
-
-
 /* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
 async function ensurePushReady() {
   try {
@@ -1689,7 +1687,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
 
 
 
