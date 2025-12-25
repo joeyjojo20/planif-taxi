@@ -1302,25 +1302,65 @@ async function authHeaderOrThrow() {
 
 // === Charger la config IMAP et pré-remplir la modale ===
 async function loadMailConfigIntoForm() {
+  // On prépare les champs avec des valeurs par défaut
+  const $folder   = document.querySelector("#imap-folder");
+  const $keywords = document.querySelector("#imap-keywords");
+  const $senders  = document.querySelector("#imap-senders");
+  const $interval = document.querySelector("#imap-interval");
+
+  if ($folder && !$folder.value)   $folder.value   = "INBOX";
+  if ($interval && !$interval.value) $interval.value = 3;
+
+  // petit helper pour transformer string/array -> array propre
+  function toArray(v) {
+    if (Array.isArray(v)) return v;
+    if (!v) return [];
+    if (typeof v === "string") {
+      return v
+        .split(/[,\n;]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
   try {
     const headers = await authHeaderOrThrow();
     const res = await fetch(SAVE_IMAP_URL, { headers });
-    if (!res.ok) throw new Error(`GET save-imap-config: ${res.status}`);
-    const cfg = await res.json();
 
-    // ⚠️ adapte les sélecteurs à tes IDs
-    const $folder   = document.querySelector("#imap-folder");
-    const $keywords = document.querySelector("#imap-keywords");
-    const $senders  = document.querySelector("#imap-senders");
-    const $interval = document.querySelector("#imap-interval");
+    // Si la config n'existe pas encore ou que l'Edge répond 404/500,
+    // on ne bloque pas la modale, on laisse juste les valeurs par défaut.
+    if (!res.ok) {
+      console.warn("loadMailConfigIntoForm: HTTP", res.status);
+      return;
+    }
 
-    if ($folder)   $folder.value   = String(cfg.imap_folder || "INBOX");
-    if ($keywords) $keywords.value = (Array.isArray(cfg.keywords) ? cfg.keywords : []).join(", ");
-    if ($senders)  $senders.value  = (Array.isArray(cfg.authorized_senders) ? cfg.authorized_senders : []).join(", ");
-    if ($interval) $interval.value = Number(cfg.check_interval_minutes || 3);
+    let cfg = {};
+    try {
+      cfg = await res.json();
+    } catch (e) {
+      console.warn("loadMailConfigIntoForm: réponse sans JSON exploitable");
+      return;
+    }
+
+    const folder   = cfg.imap_folder || cfg.folder || "INBOX";
+    const kwArr    = toArray(cfg.keywords || cfg.keyword_list || (cfg.filters && cfg.filters.keywords));
+    const sendArr  = toArray(cfg.authorized_senders || cfg.authorizedSenders || (cfg.filters && cfg.filters.authorized_senders));
+    const interval = Number(
+      cfg.check_interval_minutes ??
+      cfg.checkIntervalMinutes ??
+      cfg.interval ??
+      3
+    );
+
+    if ($folder)   $folder.value   = String(folder);
+    if ($keywords) $keywords.value = kwArr.join(", ");
+    if ($senders)  $senders.value  = sendArr.join(", ");
+    if ($interval && Number.isFinite(interval)) $interval.value = interval;
   } catch (err) {
-    console.error("loadMailConfigIntoForm", err);
-    alert("Impossible de charger la config mail (es-tu connecté ?).");
+    console.warn("loadMailConfigIntoForm", err);
+    // ❌ plus d'alert ici : on n’ennuie pas l’utilisateur
+    // La modale reste utilisable même si la config n'existe pas encore.
   }
 }
 
@@ -1330,7 +1370,6 @@ async function submitMailConfigFromForm() {
     const headers = await authHeaderOrThrow();
     headers["Content-Type"] = "application/json";
 
-    // ⚠️ adapte les sélecteurs à tes IDs
     const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
     const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
     const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
@@ -1338,7 +1377,7 @@ async function submitMailConfigFromForm() {
 
     const body = {
       folder,
-      keywords,                  // le backend gère CSV -> array
+      keywords,                  // le backend peut gérer CSV -> array
       authorizedSenders: senders,
       checkIntervalMinutes: interval
     };
@@ -1348,9 +1387,18 @@ async function submitMailConfigFromForm() {
       headers,
       body: JSON.stringify(body)
     });
-    const json = await res.json();
 
-    if (!res.ok || json?.ok !== true) {
+    // On ESSAIE de lire le JSON, mais ce n'est pas obligatoire
+    let json = null;
+    try {
+      json = await res.json();
+    } catch (_) {
+      // pas grave si pas de JSON
+    }
+
+    // ✅ Succès si la réponse HTTP est 2xx
+    if (!res.ok) {
+      console.error("submitMailConfigFromForm: save-imap-config error", res.status, json);
       throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
     }
 
@@ -1687,6 +1735,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
