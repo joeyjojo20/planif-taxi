@@ -1,4 +1,3 @@
-
 /* ===========================================================
  * RDV TAXI — app.js (corrigé 2025‑11‑02)
  * - Comptes: approbation du COMPTE + demandes admin (approuver/refuser)
@@ -1690,6 +1689,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
