@@ -1193,13 +1193,21 @@ Object.assign(window, {
 });
 
 /* ====== CONFIG SUPABASE ====== */
-const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M";
-const supabase = (window.supabase && window.supabase.createClient)
-  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
+
+if (window.supabase && window.supabase.createClient) {
+  try {
+    // on transforme l'objet global `supabase` (qui contient createClient)
+    // en VRAI client Supabase déjà configuré
+    window.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch (e) {
+    console.error("Erreur init Supabase :", e);
+  }
+} else {
+  console.warn("Supabase JS non chargé (CDN manquant ?)");
+}
 
 /* ====== CLOUD USERS (Supabase) — helpers ====== */
+
 async function sha256(s) {
   const enc = new TextEncoder().encode(s);
   const buf = await crypto.subtle.digest("SHA-256", enc);
@@ -1681,6 +1689,9 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
+
+
 
 
 
