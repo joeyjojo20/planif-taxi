@@ -1,4 +1,3 @@
-
 /* ===========================================================
  * RDV TAXI — app.js (corrigé 2025‑11‑02)
  * - Comptes: approbation du COMPTE + demandes admin (approuver/refuser)
@@ -1296,12 +1295,36 @@ async function authHeaderOrThrow() {
 
 
 // === Charger la config IMAP et pré-remplir la modale ===
+async function loadMailConfigIntoForm() {
+  try {
+    const headers = await authHeaderOrThrow();
+    const res = await fetch(SAVE_IMAP_URL, { headers });
+    if (!res.ok) throw new Error(`GET save-imap-config: ${res.status}`);
+    const cfg = await res.json();
+
+    // ⚠️ adapte les sélecteurs à tes IDs
+    const $folder   = document.querySelector("#imap-folder");
+    const $keywords = document.querySelector("#imap-keywords");
+    const $senders  = document.querySelector("#imap-senders");
+    const $interval = document.querySelector("#imap-interval");
+
+    if ($folder)   $folder.value   = String(cfg.imap_folder || "INBOX");
+    if ($keywords) $keywords.value = (Array.isArray(cfg.keywords) ? cfg.keywords : []).join(", ");
+    if ($senders)  $senders.value  = (Array.isArray(cfg.authorized_senders) ? cfg.authorized_senders : []).join(", ");
+    if ($interval) $interval.value = Number(cfg.check_interval_minutes || 3);
+  } catch (err) {
+    console.error("loadMailConfigIntoForm", err);
+    alert("Impossible de charger la config mail (es-tu connecté ?).");
+  }
+}
+
 // === Soumettre la config IMAP depuis le formulaire ===
 async function submitMailConfigFromForm() {
   try {
     const headers = await authHeaderOrThrow();
     headers["Content-Type"] = "application/json";
 
+    // ⚠️ adapte les sélecteurs à tes IDs
     const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
     const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
     const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
@@ -1319,22 +1342,12 @@ async function submitMailConfigFromForm() {
       headers,
       body: JSON.stringify(body)
     });
+    const json = await res.json();
 
-    // On essaye de lire la réponse, mais on ne force pas json.ok === true
-    let json = null;
-    try {
-      json = await res.json();
-    } catch (_) {
-      // ce n'est pas grave si le body n'est pas du JSON
-    }
-
-    if (!res.ok) {
-      // on garde un log détaillé, mais plus d'alert inutile si juste json.ok manque
-      console.error("submitMailConfigFromForm: save-imap-config error", res.status, json);
+    if (!res.ok || json?.ok !== true) {
       throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
     }
 
-    // Si on est ici, la requête HTTP est OK (2xx)
     alert("Config mail enregistrée ✅");
   } catch (err) {
     console.error("submitMailConfigFromForm", err);
@@ -1668,9 +1681,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
-
-
 
 
 
