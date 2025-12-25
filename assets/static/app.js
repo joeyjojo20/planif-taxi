@@ -1302,6 +1302,7 @@ async function loadMailConfigIntoForm() {
     if (!res.ok) throw new Error(`GET save-imap-config: ${res.status}`);
     const cfg = await res.json();
 
+    // ⚠️ adapte les sélecteurs à tes IDs
     const $folder   = document.querySelector("#imap-folder");
     const $keywords = document.querySelector("#imap-keywords");
     const $senders  = document.querySelector("#imap-senders");
@@ -1313,11 +1314,9 @@ async function loadMailConfigIntoForm() {
     if ($interval) $interval.value = Number(cfg.check_interval_minutes || 3);
   } catch (err) {
     console.error("loadMailConfigIntoForm", err);
-    // On ne met PLUS d'alert ici : si ça plante,
-    // tu peux quand même utiliser la modale sans te faire spammer.
+    alert("Impossible de charger la config mail (es-tu connecté ?).");
   }
 }
-
 
 // === Soumettre la config IMAP depuis le formulaire ===
 async function submitMailConfigFromForm() {
@@ -1325,6 +1324,7 @@ async function submitMailConfigFromForm() {
     const headers = await authHeaderOrThrow();
     headers["Content-Type"] = "application/json";
 
+    // ⚠️ adapte les sélecteurs à tes IDs
     const folder   = (document.querySelector("#imap-folder")?.value || "INBOX").trim();
     const keywords = (document.querySelector("#imap-keywords")?.value || "").trim(); // CSV
     const senders  = (document.querySelector("#imap-senders")?.value  || "").trim(); // CSV
@@ -1342,35 +1342,18 @@ async function submitMailConfigFromForm() {
       headers,
       body: JSON.stringify(body)
     });
+    const json = await res.json();
 
-    let json = null;
-    try {
-      json = await res.json();
-    } catch (_) {
-      // ce n'est pas grave si le body n'est pas du JSON
+    if (!res.ok || json?.ok !== true) {
+      throw new Error(json?.error || `POST save-imap-config: ${res.status}`);
     }
 
-    if (!res.ok) {
-      console.error(
-        "submitMailConfigFromForm: save-imap-config HTTP error",
-        res.status,
-        json
-      );
-      // On n'affiche plus "Échec..." pour ça, on te donne un message neutre :
-      alert("Config mail enregistrée en local, mais le serveur mail n'est pas encore prêt (voir console).");
-      return;
-    }
-
-    // Si on est ici, la requête HTTP est OK (2xx)
     alert("Config mail enregistrée ✅");
   } catch (err) {
     console.error("submitMailConfigFromForm", err);
-    // Ici on garde un message d'erreur vrai, mais ça ne devrait arriver
-    // que si quelque chose est VRAIMENT cassé côté front (DOM, etc.)
-    alert("Une erreur locale est survenue en enregistrant la config mail.");
+    alert("Échec de l’enregistrement de la config mail.");
   }
 }
-
 
 // === Vérifier la présence des secrets IMAP + bucket (GET ?status=1) ===
 async function checkImapStatusFromUI() {
@@ -1698,7 +1681,6 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
-
 
 
 
