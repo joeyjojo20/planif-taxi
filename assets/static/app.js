@@ -10,12 +10,18 @@
 /* ======== ÉTAT GLOBAL ======== */
 let currentUser = null;
 
+// === CONFIG SUPABASE (FRONT) ===
+// ⚠️ Mets EXACTEMENT les mêmes valeurs que dans ton fichier config.json
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
+const SUPABASE_ANON_KEY = "TA_CLE_ANON_SUPABASE_ICI"; // copie-la depuis config.json
+
 // === BACKENDS / PUSH ===
-const BACKEND_URL = "https://xjtxztvuekhjugkcwwru.supabase.co/functions/v1"; // Edge Functions
+const BACKEND_URL = `${SUPABASE_URL}/functions/v1`; // Edge Functions
 const USE_SUPABASE_USERS = true;
 const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO5LPp_3U-uJaLbO1tlxWR2M_Sw4ChbDUIY";
 const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
 const IMAP_STATUS_URL = `${SAVE_IMAP_URL}?status=1`;
+
 
 
 /* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
@@ -1735,6 +1741,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
