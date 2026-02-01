@@ -7,12 +7,18 @@ const config = {
   imap: {
     user: process.env.OUTLOOK_EMAIL,
     password: process.env.OUTLOOK_PASSWORD,
+
     host: "imap.gmail.com",
     port: 993,
     tls: true,
-    authTimeout: 10000,
+
+    // IMPORTANT : on laisse le check TLS actif (sécuritaire)
+    tlsOptions: { servername: "imap.gmail.com" },
+
+    authTimeout: 20000,
   },
 };
+
 
 const bucket = "pdfFiles";
 
