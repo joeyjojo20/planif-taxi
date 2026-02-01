@@ -7,7 +7,7 @@ const config = {
   imap: {
     user: process.env.OUTLOOK_EMAIL,
     password: process.env.OUTLOOK_PASSWORD,
-    host: "outlook.office365.com",
+    host: "imap.gmail.com",
     port: 993,
     tls: true,
     authTimeout: 10000,
