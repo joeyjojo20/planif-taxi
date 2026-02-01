@@ -1,10 +1,5 @@
 /* ===========================================================
- * RDV TAXI — app.js (corrigé 2025‑11‑02)
- * - Comptes: approbation du COMPTE + demandes admin (approuver/refuser)
- * - Synchro Supabase (push/pull + broadcast) + local fallback
- * - PDF import + historique 5 jours + rappel par défaut 15 min
- * - Notifications push (VAPID) + bouton Test
- * - Nettoyage des doublons de fonctions (approve/reject/delete, etc.)
+ * RDV TAXI — app.js (corrigé 2025-11-02)
  * =========================================================== */
 
 /* ======== ÉTAT GLOBAL ======== */
@@ -12,8 +7,8 @@ let currentUser = null;
 
 // === CONFIG SUPABASE (FRONT) ===
 // ⚠️ Mets EXACTEMENT les mêmes valeurs que dans ton config.json
-const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co"; // ton URL de projet
-const SUPABASE_ANON_KEY = "TA_CLE_ANON_SUPABASE_ICI"; // copie la clé anonyme ici
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
+const SUPABASE_ANON_KEY = "36e1b37db679e064c4068c53128154adf8ee89f170878ddc56cb89e7f8865a34"; // ta vraie clé ANON
 
 // === BACKENDS / PUSH ===
 const BACKEND_URL = `${SUPABASE_URL}/functions/v1`; // Edge Functions
@@ -34,7 +29,6 @@ try {
   console.error("Erreur init Supabase:", e);
   supabase = null;
 }
-
 
 /* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
 async function ensurePushReady() {
@@ -59,6 +53,7 @@ async function ensurePushReady() {
     console.warn("ensurePushReady:", e);
   }
 }
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -1753,6 +1748,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
