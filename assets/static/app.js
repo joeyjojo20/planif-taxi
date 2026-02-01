@@ -17,18 +17,6 @@ const VAPID_PUBLIC_KEY = "BOCUvx58PTqwpEaymVkMeVr7-A9me-3Z3TFhJuNh5MCjdWBxU4WtJO
 const SAVE_IMAP_URL = `${BACKEND_URL}/save-imap-config`;
 const IMAP_STATUS_URL = `${SAVE_IMAP_URL}?status=1`;
 
-// === CLIENT SUPABASE GLOBAL ===
-let supabase = null;
-try {
-  if (window.supabase && typeof window.supabase.createClient === "function") {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  } else {
-    console.warn("Bibliothèque Supabase non chargée, sync désactivée.");
-  }
-} catch (e) {
-  console.error("Erreur init Supabase:", e);
-  supabase = null;
-}
 
 /* ---------------- Push: auto-réactivation si déjà autorisée ---------------- */
 async function ensurePushReady() {
@@ -1748,6 +1736,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
