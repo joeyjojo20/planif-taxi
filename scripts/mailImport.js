@@ -3,7 +3,7 @@ import { simpleParser } from "mailparser";
 import fetch from "node-fetch";
 import FormData from "form-data";
 
-const BUCKET = "pdfFiles"; // ⚠️ doit exister dans Supabase Storage
+const BUCKET = "rdv-pdfs"; // ⚠️ doit exister dans Supabase Storage
 
 const config = {
   imap: {
