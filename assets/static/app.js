@@ -8,7 +8,7 @@ let currentUser = null;
 // === CONFIG SUPABASE (FRONT) ===
 // ⚠️ Mets EXACTEMENT les mêmes valeurs que dans ton config.json
 const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
-const SUPABASE_ANON_KEY = "36e1b37db679e064c4068c53128154adf8ee89f170878ddc56cb89e7f8865a34"; // ta vraie clé ANON
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdHh6dHZ1ZWtoanVna2N3d3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyNzQ1NTIsImV4cCI6MjA3NTg1MDU1Mn0.Up0CIeF4iovooEMW-n0ld1YLiQJHPLh9mJMf0UGIP5M"; // ta vraie clé ANON
 
 // === BACKENDS / PUSH ===
 const BACKEND_URL = `${SUPABASE_URL}/functions/v1`; // Edge Functions
@@ -1736,6 +1736,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
