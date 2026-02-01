@@ -1,13 +1,14 @@
-name: Import Taxi PDFs from Outlook
+name: Import Taxi PDFs from Gmail
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # toutes les 5 minutes
   workflow_dispatch:
 
 jobs:
   import:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -15,11 +16,13 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm install imap-simple mailparser node-fetch form-data
+      - name: Install deps
+        run: npm install imap-simple mailparser node-fetch form-data
 
-      - run: node scripts/mailImport.js
+      - name: Run importer
+        run: node scripts/mailImport.js
         env:
-          OUTLOOK_EMAIL: ${{ secrets.OUTLOOK_EMAIL }}
-          OUTLOOK_PASSWORD: ${{ secrets.OUTLOOK_PASSWORD }}
+          GMAIL_EMAIL: ${{ secrets.GMAIL_EMAIL }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
