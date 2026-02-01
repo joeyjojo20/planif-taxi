@@ -11,9 +11,9 @@
 let currentUser = null;
 
 // === CONFIG SUPABASE (FRONT) ===
-// ⚠️ Mets EXACTEMENT les mêmes valeurs que dans ton fichier config.json
-const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co";
-const SUPABASE_ANON_KEY = "TA_CLE_ANON_SUPABASE_ICI"; // copie-la depuis config.json
+// ⚠️ Mets EXACTEMENT les mêmes valeurs que dans ton config.json
+const SUPABASE_URL = "https://xjtxztvuekhjugkcwwru.supabase.co"; // ton URL de projet
+const SUPABASE_ANON_KEY = "TA_CLE_ANON_SUPABASE_ICI"; // copie la clé anonyme ici
 
 // === BACKENDS / PUSH ===
 const BACKEND_URL = `${SUPABASE_URL}/functions/v1`; // Edge Functions
@@ -1741,6 +1741,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
