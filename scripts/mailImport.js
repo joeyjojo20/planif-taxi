@@ -11,7 +11,16 @@ import FormData from "form-data";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParseMod = require("pdf-parse");
-const pdfParse = pdfParseMod.default || pdfParseMod;
+
+// Résout la fonction de parsing peu importe la forme d'export (function direct ou default)
+function getPdfParseFn() {
+  const fn =
+    typeof pdfParseMod === "function" ? pdfParseMod : pdfParseMod?.default;
+  if (typeof fn !== "function") {
+    throw new Error("pdf-parse export not a function");
+  }
+  return fn;
+}
 
 const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
 
@@ -176,6 +185,9 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
   let uploadedTotal = 0;
   let skippedByFilter = 0;
 
+  // Résoudre la fn pdf-parse une seule fois
+  const parsePdf = getPdfParseFn();
+
   for (const item of messages) {
     const bodyPart = item.parts.find((p) => p.which === "");
     const parsed = await simpleParser(bodyPart.body);
@@ -208,7 +220,7 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
       uploadedTotal++;
 
       // 2) extract text
-      const parsedPdf = await pdfParse(att.content);
+      const parsedPdf = await parsePdf(att.content);
       const text = parsedPdf?.text || "";
 
       // 3) call edge parse-pdfs
