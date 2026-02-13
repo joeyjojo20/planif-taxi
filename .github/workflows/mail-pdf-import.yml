@@ -2,26 +2,28 @@ name: Import Taxi PDFs from Gmail
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # toutes les 5 minutes
   workflow_dispatch:
 
 jobs:
   import:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install deps
         run: |
-       rm -rf node_modules package-lock.json
-       npm init -y
-       node -e "const fs=require('fs'); const p=require('./package.json'); p.type='module'; fs.writeFileSync('package.json', JSON.stringify(p,null,2));"
-       npm install imap-simple mailparser node-fetch@2 form-data pdf-parse@1.1.1
-
+          rm -rf node_modules package-lock.json
+          npm init -y
+          node -e "const fs=require('fs'); const p=require('./package.json'); p.type='module'; fs.writeFileSync('package.json', JSON.stringify(p,null,2));"
+          npm install imap-simple mailparser node-fetch@2 form-data pdf-parse@1.1.1
 
       - name: Run importer
         run: node scripts/mailImport.js
