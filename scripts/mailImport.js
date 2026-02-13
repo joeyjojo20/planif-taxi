@@ -1,12 +1,8 @@
 // scripts/mailImport.js
-// Gmail IMAP -> filtres Supabase (save-imap-config) -> upload PDFs (rdv-pdfs)
-// -> extrait texte (pdf-parse) -> appelle parse-pdfs
+// Gmail IMAP -> filtre via save-imap-config -> upload PDFs to Supabase Storage (rdv-pdfs)
+// -> extrait texte (pdf-parse) -> parse (TES fonctions) -> envoie events[] à Edge parse-pdfs
 //
-// ✅ Corrigé pour TON besoin:
-// 1) Le workflow CONTINUE même si doublon / déjà importé (upload ou parse-pdfs)
-// 2) Marque le mail en \Seen TÔT dès qu’on voit un PDF (évite reprocessing si crash)
-// 3) IMAP plus résilient (keepalive + retry + reconnect) pour éviter ECONNRESET
-// 4) Si erreur réseau/transitoire (ECONNRESET etc.), on sort en exit 0 (cron reprendra)
+// ✅ Objectif: plus de 504 (Edge ne parse plus le PDF), workflow stable.
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -31,16 +27,153 @@ if (typeof pdfParse !== "function") {
 
 const BUCKET = "rdv-pdfs";
 
-function assertEnv(name) {
-  if (!process.env[name] || !String(process.env[name]).trim()) {
-    throw new Error(`Missing env: ${name}`);
+/* ===========================
+   ✅ TES FONCTIONS (inchangées)
+   =========================== */
+
+function extractRequestedDate(text) {
+  let m = text.match(/(\d{1,2})\s+([A-Za-zÉÈÊÎÔÛÂÄËÏÖÜÇ]+)\s+(\d{4})\s+Date\s+demand(?:e|é)\s*:/i);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    const monKey = m[2].normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    const year = parseInt(m[3], 10);
+    const MONTHS = {
+      JANVIER: 0,
+      FEVRIER: 1,
+      "FÉVRIER": 1,
+      MARS: 2,
+      AVRIL: 3,
+      MAI: 4,
+      JUIN: 5,
+      JUILLET: 6,
+      AOUT: 7,
+      "AOÛT": 7,
+      SEPTEMBRE: 8,
+      OCTOBRE: 9,
+      NOVEMBRE: 10,
+      "DÉCEMBRE": 11,
+      DECEMBRE: 11,
+    };
+    const month = MONTHS[monKey] ?? null;
+    if (month !== null) {
+      const d = new Date();
+      d.setFullYear(year);
+      d.setMonth(month);
+      d.setDate(day);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
   }
+  // fallback: “Date demandée : 2025-11-03”
+  m = text.match(/Date\s+demand(?:e|é)\s*:\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})/i);
+  if (m) {
+    const d = new Date();
+    d.setFullYear(parseInt(m[1], 10));
+    d.setMonth(parseInt(m[2], 10) - 1);
+    d.setDate(parseInt(m[3], 10));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  return null;
 }
 
-function functionsBaseFromSupabaseUrl(supabaseUrl) {
-  const ref = String(supabaseUrl).replace(/^https?:\/\//, "").split(".")[0];
-  return `https://${ref}.functions.supabase.co/functions/v1`;
+function parseTaxiPdfFromText(rawText, baseDate) {
+  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
+  const RE =
+    /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+
+  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
+  const STREET =
+    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
+
+  const SUBADDR_WIDE =
+    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
+
+  const NAME_RX =
+    /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
+
+  function cleanName(s) {
+    return (s || "")
+      .replace(/\bTA ?\d{3,6}\b/gi, " ")
+      .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+  function isValidName(n) {
+    if (!n) return false;
+    if (/\d/.test(n)) return false;
+    return n.split(/\s+/).length >= 2;
+  }
+  function refineAddr(seg) {
+    const s = (seg || "")
+      .replace(COST_HEAD, "")
+      .replace(CITY_ABBR, " ")
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    let matches = s.match(SUBADDR_WIDE);
+    if (!matches || matches.length === 0) return s;
+    let pick = matches[matches.length - 1].trim();
+    pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
+    const lastTight = pick.match(
+      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
+    );
+    if (lastTight) {
+      const idx = pick.lastIndexOf(lastTight[0]);
+      if (idx > 0) pick = pick.slice(idx);
+    }
+    return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
+  }
+
+  const out = [];
+  const seen = new Set();
+  let m;
+  const base = new Date(baseDate?.getTime() || Date.now());
+  base.setSeconds(0, 0);
+
+  while ((m = RE.exec(text)) !== null) {
+    const addr1 = refineAddr(m[1] || "");
+    const blob = m[2] || "";
+    const time = (m[3] || "").replace(/[hH]/, ":");
+    const addr2 = refineAddr(m[4] || "");
+
+    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
+    const start = new Date(base.getTime());
+    start.setHours(hh, mm || 0, 0, 0);
+
+    let name = "";
+    const mmatch = blob.match(NAME_RX);
+    if (mmatch) {
+      name = cleanName(mmatch[0]);
+      if (!isValidName(name)) name = "";
+    }
+
+    const title = `${time} ${name ? name + " – " : ""}${addr1} → ${addr2}`;
+    const key = `${title}|${start.toISOString()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      title,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
+        start.getDate()
+      ).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(
+        2,
+        "0"
+      )}`,
+      reminderMinutes: 15,
+    });
+  }
+
+  return out;
 }
+
+/* ===========================
+   IMAP + SUPABASE helpers
+   =========================== */
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -60,7 +193,6 @@ function isTransientNetErr(err) {
   );
 }
 
-// ✅ IMAP config robuste (node-imap options passent via imap-simple)
 function buildImapConfig() {
   return {
     imap: {
@@ -70,18 +202,41 @@ function buildImapConfig() {
       port: 993,
       tls: true,
       tlsOptions: { servername: "imap.gmail.com" },
-
       authTimeout: 30000,
       connTimeout: 30000,
       socketTimeout: 60000,
-
-      keepalive: {
-        interval: 10000,
-        idleInterval: 300000,
-        forceNoop: true,
-      },
+      keepalive: { interval: 10000, idleInterval: 300000, forceNoop: true },
     },
   };
+}
+
+function functionsBaseFromSupabaseUrl(supabaseUrl) {
+  const ref = String(supabaseUrl).replace(/^https?:\/\//, "").split(".")[0];
+  return `https://${ref}.functions.supabase.co/functions/v1`;
+}
+
+function assertEnv(name) {
+  if (!process.env[name] || !String(process.env[name]).trim()) {
+    throw new Error(`Missing env: ${name}`);
+  }
+}
+
+async function connectImapWithRetry(maxTries = 5) {
+  const cfg = buildImapConfig();
+  for (let i = 1; i <= maxTries; i++) {
+    try {
+      console.log(`IMAP connect attempt ${i}/${maxTries}...`);
+      const connection = await imaps.connect(cfg);
+      connection.imap.on("error", (err) => console.log("[IMAP] error event:", String(err?.message || err)));
+      connection.imap.on("close", (hadError) => console.log("[IMAP] close event. hadError=", hadError));
+      return connection;
+    } catch (err) {
+      console.log("IMAP connect failed:", String(err?.message || err));
+      if (i === maxTries || !isTransientNetErr(err)) throw err;
+      await sleep(2000 + i * 2000);
+    }
+  }
+  throw new Error("IMAP connect failed");
 }
 
 async function getMailConfig() {
@@ -126,7 +281,6 @@ function matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg) {
     const okSender = mailCfg.authorizedSenders.some((s) => from.includes(s));
     if (!okSender) return false;
   }
-
   if (mailCfg.keywords.length > 0) {
     const okKeyword = mailCfg.keywords.some((k) => {
       const kk = String(k).toLowerCase();
@@ -134,17 +288,15 @@ function matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg) {
     });
     if (!okKeyword) return false;
   }
-
   return true;
 }
 
-// ✅ Upload tolérant: si erreur/doublon, on LOG et on CONTINUE (pas de throw)
 async function uploadToSupabase(filename, buffer) {
   const form = new FormData();
   form.append("file", buffer, filename);
 
   const cleanName = (filename || "file.pdf").replace(/[^\w.\-()+ ]/g, "_");
-  const path = `${Date.now()}-${cleanName}`; // on ne change pas ton comportement
+  const path = `${Date.now()}-${cleanName}`;
 
   const res = await fetch(
     `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`,
@@ -158,7 +310,7 @@ async function uploadToSupabase(filename, buffer) {
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.log(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
-    // ✅ on continue quand même: on retourne le path “prévu”
+    // on continue quand même
     return path;
   }
 
@@ -166,16 +318,15 @@ async function uploadToSupabase(filename, buffer) {
   return path;
 }
 
-// ✅ call parse-pdfs tolérant: si doublon/already imported => OK (continue)
-async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
+// ✅ Edge parse-pdfs devient rapide: on envoie events[]
+async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, events }, retries = 1) {
   const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
   const url = `${base}/parse-pdfs`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timeoutMs = 180000; // 180s
+    const timeoutMs = 45000; // 45s suffit maintenant (Edge ne parse plus)
     const t = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
-    const started = Date.now();
 
     try {
       const res = await fetch(url, {
@@ -185,29 +336,21 @@ async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
           apikey: process.env.SUPABASE_SERVICE_ROLE,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ pdfName, storagePath, text }),
+        body: JSON.stringify({ pdfName, storagePath, requestedDateISO, events }),
         signal: controller.signal,
       });
 
       const out = await res.text().catch(() => "");
       clearTimeout(t);
 
-      console.log(`[parse-pdfs] status=${res.status} in ${Date.now() - started}ms`);
-
       if (!res.ok) {
         const low = out.toLowerCase();
-        const isDuplicateLike =
-          res.status === 409 ||
-          low.includes("duplicate") ||
-          low.includes("already") ||
-          low.includes("imported") ||
-          low.includes("exists");
-
-        if (isDuplicateLike) {
-          console.log("parse-pdfs says already processed/duplicate -> continue");
+        const dup =
+          res.status === 409 || low.includes("duplicate") || low.includes("already") || low.includes("imported");
+        if (dup) {
+          console.log("parse-pdfs says already imported -> continue");
           return;
         }
-
         throw new Error(`parse-pdfs failed ${res.status}: ${out.slice(0, 800)}`);
       }
 
@@ -216,62 +359,19 @@ async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
     } catch (e) {
       clearTimeout(t);
       const msg = String(e?.message || e);
-
-      const canRetry =
-        attempt < retries &&
-        (msg.includes("504") ||
-          msg.includes("timeout") ||
-          msg.toLowerCase().includes("aborted") ||
-          msg.includes("AbortError"));
-
       console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, msg);
 
-      if (!canRetry) {
-        // ✅ si erreur transitoire, on “continue” sans casser tout le job
+      if (attempt >= retries) {
         if (isTransientNetErr(e)) {
-          console.log("parse-pdfs transient error -> continue (cron will retry next run)");
+          console.log("parse-pdfs transient error -> continue (cron retry next run)");
           return;
         }
         throw e;
       }
 
-      await sleep(2000);
+      await sleep(1500);
     }
   }
-}
-
-// ✅ Connect IMAP avec retry/reconnect (anti ECONNRESET)
-async function connectImapWithRetry(maxTries = 5) {
-  const cfg = buildImapConfig();
-
-  for (let i = 1; i <= maxTries; i++) {
-    try {
-      console.log(`IMAP connect attempt ${i}/${maxTries}...`);
-      const connection = await imaps.connect(cfg);
-
-      // imap-simple expose connection.imap (node-imap)
-      connection.imap.on("error", (err) => {
-        console.log("[IMAP] error event:", String(err?.message || err));
-      });
-
-      connection.imap.on("close", (hadError) => {
-        console.log("[IMAP] close event. hadError=", hadError);
-      });
-
-      return connection;
-    } catch (err) {
-      const msg = String(err?.message || err);
-      console.log("IMAP connect failed:", msg);
-
-      if (i === maxTries || !isTransientNetErr(err)) throw err;
-
-      const wait = 2000 + i * 2000;
-      console.log(`Retry IMAP in ${wait}ms...`);
-      await sleep(wait);
-    }
-  }
-
-  throw new Error("IMAP connect failed (unexpected)");
 }
 
 (async () => {
@@ -321,22 +421,22 @@ async function connectImapWithRetry(maxTries = 5) {
           const fn = (att.filename || "").toLowerCase();
           if (!fn.endsWith(".pdf")) continue;
 
-          console.log("Found PDF attachment:", att.filename);
           sawPdf = true;
+          console.log("Found PDF attachment:", att.filename);
 
-          // ✅ IMPORTANT: marque Seen TÔT dès qu’on a un PDF (évite reprocessing si crash)
+          // ✅ Marque Seen tôt (évite boucles UNSEEN si crash)
           try {
             await connection.addFlags(item.attributes.uid, ["\\Seen"]);
             console.log("Marked mail as Seen (early):", item.attributes.uid);
           } catch (e) {
-            console.log("Could not mark Seen early (will continue):", String(e?.message || e));
+            console.log("Could not mark Seen early (continue):", String(e?.message || e));
           }
 
-          // 1) upload storage (tolérant)
+          // 1) upload storage
           const storagePath = await uploadToSupabase(att.filename, att.content);
           uploadedTotal++;
 
-          // 2) extract text (pdf-parse) — si ça échoue, on continue quand même
+          // 2) extract text (pdf-parse)
           let text = "";
           try {
             const parsedPdf = await pdfParse(att.content);
@@ -348,17 +448,34 @@ async function connectImapWithRetry(maxTries = 5) {
             text = "";
           }
 
-          // 3) call parse-pdfs (tolérant doublon + erreurs transitoires)
-          await callParsePdfs({ pdfName: att.filename, storagePath, text }, 2);
+          // 3) baseDate + events via TES fonctions
+          let baseDate = extractRequestedDate(text);
+          if (!baseDate) {
+            // fallback: aujourd’hui (au pire)
+            baseDate = new Date();
+            baseDate.setHours(0, 0, 0, 0);
+          }
+
+          const events = parseTaxiPdfFromText(text, baseDate);
+          const requestedDateISO = baseDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+          console.log(`Parsed events: ${events.length} for date ${requestedDateISO}`);
+
+          // 4) send events[] to Edge (rapide, pas de parsing côté Edge)
+          await callParsePdfsFast({
+            pdfName: att.filename,
+            storagePath,
+            requestedDateISO,
+            events,
+          });
         }
 
         if (!sawPdf) {
           console.log("No PDF in mail, leaving UNSEEN:", item.attributes.uid);
         }
       } catch (err) {
-        // ✅ Si Gmail reset pendant le traitement, on reconnect et on continue
         if (isTransientNetErr(err)) {
-          console.log("Transient IMAP error during processing:", String(err?.message || err));
+          console.log("Transient IMAP error:", String(err?.message || err));
           console.log("Reconnecting IMAP...");
           try {
             connection?.end();
@@ -376,15 +493,8 @@ async function connectImapWithRetry(maxTries = 5) {
     console.log("Uploaded PDFs:", uploadedTotal);
     console.log("Skipped by filters:", skippedByFilter);
   } catch (err) {
-    const msg = String(err?.message || err);
-    console.error("FATAL:", msg);
-
-    // ✅ Si c’est transitoire (IMAP/GitHub réseau), on ne met pas le workflow rouge
-    if (isTransientNetErr(err)) {
-      console.log("Transient failure -> exit 0 (next cron will retry).");
-      process.exit(0);
-    }
-
+    console.error("FATAL:", String(err?.message || err));
+    if (isTransientNetErr(err)) process.exit(0);
     process.exit(1);
   } finally {
     try {
