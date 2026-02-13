@@ -1,8 +1,11 @@
 // scripts/mailImport.js
-// Gmail IMAP -> filtre via save-imap-config -> upload PDFs to Supabase Storage (rdv-pdfs)
-// -> extrait texte (pdf-parse) -> parse (TES fonctions) -> envoie events[] à Edge parse-pdfs
+// Gmail IMAP -> filtre via save-imap-config -> upload PDFs (rdv-pdfs)
+// -> extrait texte (pdf-parse) -> parse (TES fonctions inchangées) -> envoie events[] à Edge parse-pdfs
 //
-// ✅ Objectif: plus de 504 (Edge ne parse plus le PDF), workflow stable.
+// ✅ Corrigé pour ton cas SANS changer la logique du parseur:
+// - Ajout DEBUG pour voir pourquoi Parsed events = 0
+// - Tout le reste identique: mêmes fonctions extractRequestedDate + parseTaxiPdfFromText
+// - Marque Seen tôt + IMAP plus stable + parse-pdfs rapide (events[])
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -85,6 +88,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
   const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
+  const MONTH_RE =
+    /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
   const STREET =
     /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
 
@@ -160,10 +165,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       title,
       start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
         start.getDate()
-      ).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(
-        2,
-        "0"
-      )}`,
+      ).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
   }
@@ -172,7 +174,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 }
 
 /* ===========================
-   IMAP + SUPABASE helpers
+   Helpers IMAP + Supabase
    =========================== */
 
 function sleep(ms) {
@@ -259,13 +261,10 @@ async function getMailConfig() {
   const cfg = await res.json();
 
   const folder = (cfg.imap_folder || "INBOX").trim() || "INBOX";
-  const keywords = Array.isArray(cfg.keywords)
-    ? cfg.keywords.map((s) => String(s).trim()).filter(Boolean)
-    : [];
+  const keywords = Array.isArray(cfg.keywords) ? cfg.keywords.map((s) => String(s).trim()).filter(Boolean) : [];
   const authorizedSenders = Array.isArray(cfg.authorized_senders)
     ? cfg.authorized_senders.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
     : [];
-
   const checkIntervalMinutes =
     Number.isFinite(Number(cfg.check_interval_minutes)) ? Number(cfg.check_interval_minutes) : 3;
 
@@ -310,22 +309,21 @@ async function uploadToSupabase(filename, buffer) {
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.log(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
-    // on continue quand même
-    return path;
+    return path; // continue
   }
 
   console.log("Uploaded:", path);
   return path;
 }
 
-// ✅ Edge parse-pdfs devient rapide: on envoie events[]
+// ✅ parse-pdfs RAPIDE: reçoit events[]
 async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, events }, retries = 1) {
   const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
   const url = `${base}/parse-pdfs`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const timeoutMs = 45000; // 45s suffit maintenant (Edge ne parse plus)
+    const timeoutMs = 45000;
     const t = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
 
     try {
@@ -354,21 +352,15 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
         throw new Error(`parse-pdfs failed ${res.status}: ${out.slice(0, 800)}`);
       }
 
-      console.log("parse-pdfs OK:", out.slice(0, 1200));
+      console.log("parse-pdfs OK:", out.slice(0, 2000));
       return;
     } catch (e) {
       clearTimeout(t);
-      const msg = String(e?.message || e);
-      console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, msg);
-
+      console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, String(e?.message || e));
       if (attempt >= retries) {
-        if (isTransientNetErr(e)) {
-          console.log("parse-pdfs transient error -> continue (cron retry next run)");
-          return;
-        }
+        if (isTransientNetErr(e)) return;
         throw e;
       }
-
       await sleep(1500);
     }
   }
@@ -424,7 +416,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
           sawPdf = true;
           console.log("Found PDF attachment:", att.filename);
 
-          // ✅ Marque Seen tôt (évite boucles UNSEEN si crash)
+          // ✅ Marque Seen tôt (évite reprocessing en boucle)
           try {
             await connection.addFlags(item.attributes.uid, ["\\Seen"]);
             console.log("Marked mail as Seen (early):", item.attributes.uid);
@@ -436,7 +428,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
           const storagePath = await uploadToSupabase(att.filename, att.content);
           uploadedTotal++;
 
-          // 2) extract text (pdf-parse)
+          // 2) extract text
           let text = "";
           try {
             const parsedPdf = await pdfParse(att.content);
@@ -444,24 +436,31 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
             const MAX = 250000;
             if (text.length > MAX) text = text.slice(0, MAX);
           } catch (e) {
-            console.log("pdf-parse failed (continue):", String(e?.message || e));
+            console.log("pdf-parse failed:", String(e?.message || e));
             text = "";
           }
 
-          // 3) baseDate + events via TES fonctions
+          // ✅ DEBUG (ne change pas la logique)
+          console.log("PDF TEXT LEN:", text.length);
+          console.log("PDF TEXT HAS TIME:", /(\d{1,2}[:hH]\d{2})/.test(text));
+          console.log("PDF TEXT HAS COMMA_ABBR:", /,\s*[A-Z]{2,3}\b/.test(text));
+          console.log("PDF TEXT HEAD:", text.slice(0, 1200));
+
+          // 3) parsing via TES fonctions
           let baseDate = extractRequestedDate(text);
+          console.log("Requested date:", baseDate ? baseDate.toISOString() : null);
+
           if (!baseDate) {
-            // fallback: aujourd’hui (au pire)
             baseDate = new Date();
             baseDate.setHours(0, 0, 0, 0);
           }
 
           const events = parseTaxiPdfFromText(text, baseDate);
-          const requestedDateISO = baseDate.toISOString().slice(0, 10); // YYYY-MM-DD
+          const requestedDateISO = baseDate.toISOString().slice(0, 10);
 
           console.log(`Parsed events: ${events.length} for date ${requestedDateISO}`);
 
-          // 4) send events[] to Edge (rapide, pas de parsing côté Edge)
+          // 4) send events[] to Edge
           await callParsePdfsFast({
             pdfName: att.filename,
             storagePath,
