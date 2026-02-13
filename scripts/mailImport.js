@@ -197,7 +197,7 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 const storagePath = await uploadToSupabase(att.filename, att.content);
 uploadedTotal++;
 
-const parsedPdf = await pdfParse.default(att.content);
+const parsedPdf = await pdfParse(att.content);
 await callParsePdfs({
   pdfName: att.filename,
   storagePath,
