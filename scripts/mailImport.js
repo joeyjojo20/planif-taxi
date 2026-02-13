@@ -4,7 +4,8 @@
 // -> parse (TES fonctions inchangées) -> envoie events[] à Edge parse-pdfs
 //
 // ✅ Objectif: garder la logique du parseur intacte, mais rendre le texte "parseable"
-// ✅ Ajout debug (optionnel) + Seen tôt + IMAP stable + parse-pdfs rapide (events[])
+// ✅ Ajout: anti-doublon AVANT upload (check table imported_pdfs)
+// ✅ Seen tôt + IMAP stable + parse-pdfs rapide (events[])
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -31,8 +32,6 @@ const BUCKET = "rdv-pdfs";
 
 /* ============================================================
    ✅ NORMALISATION (ne change pas la logique du parseur)
-   - Le PDF sort des champs collés: ",MON145", "FRANCIS5034", "503415:00", etc.
-   - On remet des séparateurs/espaces sans interpréter les données.
    ============================================================ */
 function normalizePdfTextForParser(t) {
   let s = String(t || "");
@@ -42,18 +41,11 @@ function normalizePdfTextForParser(t) {
   s = s.replace(/,(MON|QC|LAV)(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
 
   // 2) espace avant une heure si collée (ex: 503415:00 -> 5034 15:00)
-  //    (On ne change pas l'heure, on sépare juste)
   s = s.replace(/(\d)(\d{1,2}[:hH]\d{2})/g, "$1 $2");
 
   // 3) espace après NOM, PRÉNOM si collé à un chiffre
-  s = s.replace(
-    /([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g,
-    "$1 $2"
-  );
+  s = s.replace(/([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g, "$1 $2");
 
-  // 4) certains champs collent l'adresse et le prochain numéro
-  //    ex: "industries,MON145" déjà couvert par #1
-  // 5) limiter les retours bizarres: on garde les \n pour debug mais ton parseur compresse déjà les espaces
   return s;
 }
 
@@ -94,7 +86,6 @@ function extractRequestedDate(text) {
       return d;
     }
   }
-  // fallback: “Date demandée : 2025-11-03”
   m = text.match(/Date\s+demand(?:e|é)\s*:\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})/i);
   if (m) {
     const d = new Date();
@@ -335,12 +326,45 @@ async function uploadToSupabase(filename, buffer) {
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    console.log(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
-    return path;
+    throw new Error(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
   }
 
   console.log("Uploaded:", path);
   return path;
+}
+
+/* ============================================================
+   ✅ ANTI-DOUBLON AVANT UPLOAD (imported_pdfs)
+   - Si imported_pdfs contient déjà ce pdfName -> on skip upload + parse
+   - Ça évite: upload inutile + workflow long "pour rien"
+   ============================================================ */
+async function isPdfAlreadyImported(pdfName) {
+  // PostgREST: /rest/v1/imported_pdfs?select=name&name=eq.<pdfName>&limit=1
+  const base = `${process.env.SUPABASE_URL}/rest/v1/imported_pdfs`;
+  const qs = new URLSearchParams();
+  qs.set("select", "name");
+  qs.set("name", `eq.${pdfName}`);
+  qs.set("limit", "1");
+
+  const url = `${base}?${qs.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
+      apikey: process.env.SUPABASE_SERVICE_ROLE,
+    },
+  });
+
+  if (!res.ok) {
+    // si la vérif échoue, on ne bloque pas (pour ne pas casser le workflow)
+    const txt = await res.text().catch(() => "");
+    console.log("[WARN] imported_pdfs check failed:", res.status, txt.slice(0, 300));
+    return false;
+  }
+
+  const data = await res.json().catch(() => []);
+  return Array.isArray(data) && data.length > 0;
 }
 
 // ✅ parse-pdfs RAPIDE: reçoit events[]
@@ -418,6 +442,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
 
     let uploadedTotal = 0;
     let skippedByFilter = 0;
+    let skippedAlreadyImported = 0;
 
     for (const item of messages) {
       try {
@@ -442,6 +467,21 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
 
           sawPdf = true;
           console.log("Found PDF attachment:", att.filename);
+
+          // ✅ Anti-doublon AVANT upload
+          if (await isPdfAlreadyImported(att.filename)) {
+            skippedAlreadyImported++;
+            console.log("Skip (already imported):", att.filename);
+
+            // option: on marque Seen pour éviter de re-scan à chaque run
+            try {
+              await connection.addFlags(item.attributes.uid, ["\\Seen"]);
+              console.log("Marked mail as Seen (already imported):", item.attributes.uid);
+            } catch (e) {
+              console.log("Could not mark Seen (already imported):", String(e?.message || e));
+            }
+            continue;
+          }
 
           // ✅ Marque Seen tôt (évite reprocessing en boucle)
           try {
@@ -522,6 +562,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
     console.log("Done.");
     console.log("Uploaded PDFs:", uploadedTotal);
     console.log("Skipped by filters:", skippedByFilter);
+    console.log("Skipped already imported:", skippedAlreadyImported);
   } catch (err) {
     console.error("FATAL:", String(err?.message || err));
     if (isTransientNetErr(err)) process.exit(0);
