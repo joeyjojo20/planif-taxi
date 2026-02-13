@@ -1,60 +1,103 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-const imaps = require("imap-simple");
-const {
-  GMAIL_EMAIL,
-  GMAIL_PASSWORD,
-  SUPABASE_URL,
-} = process.env;
+import imaps from "imap-simple";
+import { simpleParser } from "mailparser";
+import fetch from "node-fetch";
+import FormData from "form-data";
 
-if (!GMAIL_EMAIL || !GMAIL_PASSWORD || !SUPABASE_URL) {
-  console.error("Missing env vars: GMAIL_EMAIL, GMAIL_PASSWORD, SUPABASE_URL");
-  process.exit(1);
+const BUCKET = "rdv-pdfs"; // ⚠️ doit exister dans Supabase Storage
+
+const config = {
+  imap: {
+    user: process.env.GMAIL_EMAIL,
+    password: process.env.GMAIL_PASSWORD,
+
+    host: "imap.gmail.com",
+    port: 993,
+    tls: true,
+    tlsOptions: { servername: "imap.gmail.com" },
+
+    authTimeout: 20000,
+  },
+};
+
+function assertEnv(name) {
+  if (!process.env[name] || !String(process.env[name]).trim()) {
+    throw new Error(`Missing env: ${name}`);
+  }
 }
 
-function functionsBaseFromSupabaseUrl(supabaseUrl) {
-  const ref = supabaseUrl.replace(/^https?:\/\//, "").split(".")[0];
-  return `https://${ref}.functions.supabase.co/functions/v1`;
-}
+async function uploadToSupabase(filename, buffer) {
+  const form = new FormData();
+  form.append("file", buffer, filename);
 
-async function fetchMailConfig() {
-  const base = functionsBaseFromSupabaseUrl(SUPABASE_URL);
-  const url = `${base}/save-imap-config`;
+  const cleanName = (filename || "file.pdf").replace(/[^\w.\-()+ ]/g, "_");
+  const path = `${Date.now()}-${cleanName}`;
 
-  const res = await fetch(url, { method: "GET" });
-  if (!res.ok) throw new Error(`GET save-imap-config failed: ${res.status} ${await res.text()}`);
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
+      },
+      body: form,
+    }
+  );
 
-  const cfg = await res.json();
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Supabase upload failed ${res.status}: ${txt}`);
+  }
 
-  const folder = (cfg.imap_folder || "INBOX").trim() || "INBOX";
-  const keywords = Array.isArray(cfg.keywords) ? cfg.keywords.map(s => String(s).trim()).filter(Boolean) : [];
-  const senders  = Array.isArray(cfg.authorized_senders) ? cfg.authorized_senders.map(s => String(s).trim().toLowerCase()).filter(Boolean) : [];
-
-  return { folder, keywords, senders, check_interval_minutes: cfg.check_interval_minutes ?? 3 };
+  console.log("Uploaded:", path);
 }
 
 (async () => {
-  console.log("TEST 1 — Lire config depuis Supabase...");
-  const cfg = await fetchMailConfig();
-  console.log("Config reçue:", cfg);
+  // --- check env ---
+  assertEnv("GMAIL_EMAIL");
+  assertEnv("GMAIL_PASSWORD");
+  assertEnv("SUPABASE_URL");
+  assertEnv("SUPABASE_SERVICE_ROLE");
 
-  console.log("\nTEST 2 — Connexion IMAP Gmail + ouverture dossier...");
-  const connection = await imaps.connect({
-    imap: {
-      user: GMAIL_EMAIL,
-      password: GMAIL_PASSWORD,
-      host: "imap.gmail.com",
-      port: 993,
-      tls: true,
-      authTimeout: 15000,
-    },
-  });
+  console.log("IMAP host:", config.imap.host);
+  console.log("IMAP user:", process.env.GMAIL_EMAIL);
 
-  await connection.openBox(cfg.folder);
-  console.log("OK mailbox ouverte:", cfg.folder);
+  // --- connect ---
+  const connection = await imaps.connect(config);
+
+  // Gmail: ouvrir la boîte principale
+  await connection.openBox("INBOX");
+
+  // Lire les courriels non lus
+  const messages = await connection.search(["UNSEEN"], { bodies: [""] });
+  console.log("UNSEEN mails:", messages.length);
+
+  for (const item of messages) {
+    const bodyPart = item.parts.find((p) => p.which === "");
+    const parsed = await simpleParser(bodyPart.body);
+
+    let uploadedAny = false;
+
+    for (const att of parsed.attachments || []) {
+      const fn = (att.filename || "").toLowerCase();
+      if (fn.endsWith(".pdf")) {
+        uploadedAny = true;
+        console.log("Found PDF attachment:", att.filename);
+        await uploadToSupabase(att.filename, att.content);
+      }
+    }
+
+    // Marquer comme lu seulement si on a traité au moins un PDF
+    if (uploadedAny) {
+      connection.addFlags(item.attributes.uid, ["\\Seen"]);
+      console.log("Marked mail as Seen:", item.attributes.uid);
+    } else {
+      console.log("No PDF in mail, leaving UNSEEN:", item.attributes.uid);
+    }
+  }
 
   connection.end();
-  console.log("\n✅ OK — lecture config + IMAP fonctionnent.");
-})().catch((e) => {
-  console.error("❌ TEST FAILED:", e);
+  console.log("Done.");
+})().catch((err) => {
+  console.error("FATAL:", err?.message || err);
   process.exit(1);
 });
