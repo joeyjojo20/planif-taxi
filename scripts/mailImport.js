@@ -5,7 +5,10 @@ import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import * as pdfParse from "pdf-parse";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
+
 
 
 
