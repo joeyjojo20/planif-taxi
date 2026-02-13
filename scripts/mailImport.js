@@ -1,16 +1,17 @@
 // scripts/mailImport.js
 // Import Gmail IMAP -> filtre via save-imap-config -> upload PDFs to Supabase Storage (rdv-pdfs)
+// + extrait le texte (pdf-parse) -> appelle Edge Function parse-pdfs -> insère dans events
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch";
 import FormData from "form-data";
+
+// --- pdf-parse (CommonJS) compatible Node 20 + ESM ---
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
-
-
-
+const pdfParseMod = require("pdf-parse");
+const pdfParse = pdfParseMod.default || pdfParseMod;
 
 const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
 
@@ -64,11 +65,14 @@ async function getMailConfig() {
     ? cfg.keywords.map((s) => String(s).trim()).filter(Boolean)
     : [];
   const authorizedSenders = Array.isArray(cfg.authorized_senders)
-    ? cfg.authorized_senders.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+    ? cfg.authorized_senders
+        .map((s) => String(s).trim().toLowerCase())
+        .filter(Boolean)
     : [];
 
-  const checkIntervalMinutes =
-    Number.isFinite(Number(cfg.check_interval_minutes)) ? Number(cfg.check_interval_minutes) : 3;
+  const checkIntervalMinutes = Number.isFinite(Number(cfg.check_interval_minutes))
+    ? Number(cfg.check_interval_minutes)
+    : 3;
 
   return { folder, keywords, authorizedSenders, checkIntervalMinutes };
 }
@@ -104,7 +108,9 @@ async function uploadToSupabase(filename, buffer) {
   const path = `${Date.now()}-${cleanName}`;
 
   const res = await fetch(
-    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`,
+    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(
+      path
+    )}`,
     {
       method: "POST",
       headers: {
@@ -142,7 +148,6 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
   console.log("parse-pdfs OK:", out);
 }
 
-
 (async () => {
   // --- check env ---
   assertEnv("GMAIL_EMAIL");
@@ -164,7 +169,7 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
   await connection.openBox(mailCfg.folder);
   console.log("Opened mailbox:", mailCfg.folder);
 
-  // Lire les courriels non lus (comme avant)
+  // Lire les courriels non lus
   const messages = await connection.search(["UNSEEN"], { bodies: [""] });
   console.log("UNSEEN mails:", messages.length);
 
@@ -179,10 +184,14 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
     const subject = parsed.subject || "";
     const bodyText = parsed.text || parsed.html || "";
 
-    // Filtre via config (si mots-clés/expéditeurs sont définis)
+    // Filtre via config
     if (!matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg)) {
       skippedByFilter++;
-      console.log("Skip (filters):", { uid: item.attributes.uid, fromEmail, subject });
+      console.log("Skip (filters):", {
+        uid: item.attributes.uid,
+        fromEmail,
+        subject,
+      });
       continue;
     }
 
@@ -190,24 +199,30 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 
     for (const att of parsed.attachments || []) {
       const fn = (att.filename || "").toLowerCase();
-      if (fn.endsWith(".pdf")) {
-       
-       console.log("Found PDF attachment:", att.filename);
+      if (!fn.endsWith(".pdf")) continue;
 
-const storagePath = await uploadToSupabase(att.filename, att.content);
-uploadedTotal++;
+      console.log("Found PDF attachment:", att.filename);
 
-const parsedPdf = await pdfParse(att.content);
-await callParsePdfs({
-  pdfName: att.filename,
-  storagePath,
-  text: parsedPdf.text || "",
-});
- uploadedAny = true;
-      }
+      // 1) upload storage
+      const storagePath = await uploadToSupabase(att.filename, att.content);
+      uploadedTotal++;
+
+      // 2) extract text
+      const parsedPdf = await pdfParse(att.content);
+      const text = parsedPdf?.text || "";
+
+      // 3) call edge parse-pdfs
+      await callParsePdfs({
+        pdfName: att.filename,
+        storagePath,
+        text,
+      });
+
+      // Seulement après succès
+      uploadedAny = true;
     }
 
-    // Marquer comme lu seulement si on a traité au moins un PDF
+    // Marquer comme lu seulement si on a traité au moins un PDF avec succès
     if (uploadedAny) {
       await connection.addFlags(item.attributes.uid, ["\\Seen"]);
       console.log("Marked mail as Seen:", item.attributes.uid);
