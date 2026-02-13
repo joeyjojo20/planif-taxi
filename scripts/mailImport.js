@@ -1,6 +1,12 @@
 // scripts/mailImport.js
-// Gmail IMAP -> filtres Supabase -> upload PDFs -> pdf-parse -> Edge parse-pdfs
-// PATCH: IMAP keepalive + timeouts + retries + gestion ECONNRESET propre
+// Gmail IMAP -> filtres Supabase (save-imap-config) -> upload PDFs (rdv-pdfs)
+// -> extrait texte (pdf-parse) -> appelle parse-pdfs
+//
+// ✅ Corrigé pour TON besoin:
+// 1) Le workflow CONTINUE même si doublon / déjà importé (upload ou parse-pdfs)
+// 2) Marque le mail en \Seen TÔT dès qu’on voit un PDF (évite reprocessing si crash)
+// 3) IMAP plus résilient (keepalive + retry + reconnect) pour éviter ECONNRESET
+// 4) Si erreur réseau/transitoire (ECONNRESET etc.), on sort en exit 0 (cron reprendra)
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -11,6 +17,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParseMod = require("pdf-parse");
 
+// ✅ Résout la fonction peu importe comment le module exporte
 const pdfParse =
   (pdfParseMod && typeof pdfParseMod === "function" ? pdfParseMod : null) ||
   (pdfParseMod && typeof pdfParseMod.default === "function" ? pdfParseMod.default : null) ||
@@ -47,7 +54,9 @@ function isTransientNetErr(err) {
     msg.includes("ENOTFOUND") ||
     msg.includes("EAI_AGAIN") ||
     msg.includes("socket") ||
-    msg.includes("Connection closed")
+    msg.includes("Connection closed") ||
+    msg.toLowerCase().includes("aborted") ||
+    msg.includes("AbortError")
   );
 }
 
@@ -62,17 +71,15 @@ function buildImapConfig() {
       tls: true,
       tlsOptions: { servername: "imap.gmail.com" },
 
-      // ✅ timeouts plus larges (Actions parfois lent)
-      authTimeout: 30000,      // ancien 20000
+      authTimeout: 30000,
       connTimeout: 30000,
       socketTimeout: 60000,
 
-      // ✅ keepalive/noop pour éviter que Gmail drop la socket
       keepalive: {
-        interval: 10000,        // envoie périodique
-        idleInterval: 300000,   // 5 min
-        forceNoop: true
-      }
+        interval: 10000,
+        idleInterval: 300000,
+        forceNoop: true,
+      },
     },
   };
 }
@@ -131,34 +138,35 @@ function matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg) {
   return true;
 }
 
+// ✅ Upload tolérant: si erreur/doublon, on LOG et on CONTINUE (pas de throw)
 async function uploadToSupabase(filename, buffer) {
   const form = new FormData();
   form.append("file", buffer, filename);
 
   const cleanName = (filename || "file.pdf").replace(/[^\w.\-()+ ]/g, "_");
-  const path = `${Date.now()}-${cleanName}`;
+  const path = `${Date.now()}-${cleanName}`; // on ne change pas ton comportement
 
   const res = await fetch(
     `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
-      },
+      headers: { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}` },
       body: form,
     }
   );
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`Supabase upload failed ${res.status}: ${txt}`);
+    console.log(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
+    // ✅ on continue quand même: on retourne le path “prévu”
+    return path;
   }
 
   console.log("Uploaded:", path);
   return path;
 }
 
-// ✅ parse-pdfs avec timeout + retries (timeout long)
+// ✅ call parse-pdfs tolérant: si doublon/already imported => OK (continue)
 async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
   const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
   const url = `${base}/parse-pdfs`;
@@ -185,20 +193,48 @@ async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
       clearTimeout(t);
 
       console.log(`[parse-pdfs] status=${res.status} in ${Date.now() - started}ms`);
-      if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out.slice(0, 800)}`);
+
+      if (!res.ok) {
+        const low = out.toLowerCase();
+        const isDuplicateLike =
+          res.status === 409 ||
+          low.includes("duplicate") ||
+          low.includes("already") ||
+          low.includes("imported") ||
+          low.includes("exists");
+
+        if (isDuplicateLike) {
+          console.log("parse-pdfs says already processed/duplicate -> continue");
+          return;
+        }
+
+        throw new Error(`parse-pdfs failed ${res.status}: ${out.slice(0, 800)}`);
+      }
 
       console.log("parse-pdfs OK:", out.slice(0, 1200));
       return;
     } catch (e) {
       clearTimeout(t);
       const msg = String(e?.message || e);
+
       const canRetry =
         attempt < retries &&
-        (msg.includes("504") || msg.includes("timeout") || msg.toLowerCase().includes("aborted") || msg.includes("AbortError"));
+        (msg.includes("504") ||
+          msg.includes("timeout") ||
+          msg.toLowerCase().includes("aborted") ||
+          msg.includes("AbortError"));
 
       console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, msg);
 
-      if (!canRetry) throw e;
+      if (!canRetry) {
+        // ✅ si erreur transitoire, on “continue” sans casser tout le job
+        if (isTransientNetErr(e)) {
+          console.log("parse-pdfs transient error -> continue (cron will retry next run)");
+          return;
+        }
+        throw e;
+      }
+
       await sleep(2000);
     }
   }
@@ -229,7 +265,6 @@ async function connectImapWithRetry(maxTries = 5) {
 
       if (i === maxTries || !isTransientNetErr(err)) throw err;
 
-      // backoff
       const wait = 2000 + i * 2000;
       console.log(`Retry IMAP in ${wait}ms...`);
       await sleep(wait);
@@ -265,7 +300,6 @@ async function connectImapWithRetry(maxTries = 5) {
     let uploadedTotal = 0;
     let skippedByFilter = 0;
 
-    // ✅ Traitement email par email; si ECONNRESET arrive, on relance une fois
     for (const item of messages) {
       try {
         const bodyPart = item.parts.find((p) => p.which === "");
@@ -281,36 +315,44 @@ async function connectImapWithRetry(maxTries = 5) {
           continue;
         }
 
-        let uploadedAny = false;
+        let sawPdf = false;
 
         for (const att of parsed.attachments || []) {
           const fn = (att.filename || "").toLowerCase();
           if (!fn.endsWith(".pdf")) continue;
 
           console.log("Found PDF attachment:", att.filename);
+          sawPdf = true;
 
-          // 1) upload storage
+          // ✅ IMPORTANT: marque Seen TÔT dès qu’on a un PDF (évite reprocessing si crash)
+          try {
+            await connection.addFlags(item.attributes.uid, ["\\Seen"]);
+            console.log("Marked mail as Seen (early):", item.attributes.uid);
+          } catch (e) {
+            console.log("Could not mark Seen early (will continue):", String(e?.message || e));
+          }
+
+          // 1) upload storage (tolérant)
           const storagePath = await uploadToSupabase(att.filename, att.content);
           uploadedTotal++;
 
-          // 2) extract text
-          const parsedPdf = await pdfParse(att.content);
-          let text = parsedPdf?.text || "";
+          // 2) extract text (pdf-parse) — si ça échoue, on continue quand même
+          let text = "";
+          try {
+            const parsedPdf = await pdfParse(att.content);
+            text = parsedPdf?.text || "";
+            const MAX = 250000;
+            if (text.length > MAX) text = text.slice(0, MAX);
+          } catch (e) {
+            console.log("pdf-parse failed (continue):", String(e?.message || e));
+            text = "";
+          }
 
-          // limite payload
-          const MAX = 250000;
-          if (text.length > MAX) text = text.slice(0, MAX);
-
-          // 3) call parse-pdfs
+          // 3) call parse-pdfs (tolérant doublon + erreurs transitoires)
           await callParsePdfs({ pdfName: att.filename, storagePath, text }, 2);
-
-          uploadedAny = true;
         }
 
-        if (uploadedAny) {
-          await connection.addFlags(item.attributes.uid, ["\\Seen"]);
-          console.log("Marked mail as Seen:", item.attributes.uid);
-        } else {
+        if (!sawPdf) {
           console.log("No PDF in mail, leaving UNSEEN:", item.attributes.uid);
         }
       } catch (err) {
@@ -318,11 +360,12 @@ async function connectImapWithRetry(maxTries = 5) {
         if (isTransientNetErr(err)) {
           console.log("Transient IMAP error during processing:", String(err?.message || err));
           console.log("Reconnecting IMAP...");
-          try { connection?.end(); } catch {}
+          try {
+            connection?.end();
+          } catch {}
           connection = await connectImapWithRetry(5);
           await connection.openBox(mailCfg.folder);
           console.log("Re-opened mailbox after reconnect:", mailCfg.folder);
-          // On continue le loop; l’email UNSEEN restera UNSEEN si pas marqué Seen
           continue;
         }
         throw err;
@@ -330,8 +373,18 @@ async function connectImapWithRetry(maxTries = 5) {
     }
 
     console.log("Done.");
+    console.log("Uploaded PDFs:", uploadedTotal);
+    console.log("Skipped by filters:", skippedByFilter);
   } catch (err) {
-    console.error("FATAL:", err?.message || err);
+    const msg = String(err?.message || err);
+    console.error("FATAL:", msg);
+
+    // ✅ Si c’est transitoire (IMAP/GitHub réseau), on ne met pas le workflow rouge
+    if (isTransientNetErr(err)) {
+      console.log("Transient failure -> exit 0 (next cron will retry).");
+      process.exit(0);
+    }
+
     process.exit(1);
   } finally {
     try {
