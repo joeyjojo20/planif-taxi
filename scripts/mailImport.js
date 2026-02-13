@@ -1,7 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const imaps = require("imap-simple");
-const fetch = require("node-fetch");
-
 const {
   GMAIL_EMAIL,
   GMAIL_PASSWORD,
