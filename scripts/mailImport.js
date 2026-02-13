@@ -131,14 +131,19 @@ async function uploadToSupabase(filename, buffer) {
   return path;
 }
 
-// ✅ call parse-pdfs avec timeout + retries
+// ✅ call parse-pdfs avec timeout + retries (FIX: 25s -> 180s + logs)
 async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
   const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
   const url = `${base}/parse-pdfs`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 25000); // 25s
+
+    // ✅ IMPORTANT: 25s te faisait abort -> on met 180s
+    const timeoutMs = 180000;
+    const t = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
+
+    const started = Date.now();
 
     try {
       const res = await fetch(url, {
@@ -152,19 +157,24 @@ async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
         signal: controller.signal,
       });
 
+      const out = await res.text().catch(() => "");
       clearTimeout(t);
 
-      const out = await res.text().catch(() => "");
-      if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out}`);
+      console.log(`[parse-pdfs] status=${res.status} in ${Date.now() - started}ms`);
+      if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out.slice(0, 800)}`);
 
-      console.log("parse-pdfs OK:", out);
+      console.log("parse-pdfs OK:", out.slice(0, 1500));
       return;
     } catch (e) {
       clearTimeout(t);
       const msg = String(e?.message || e);
 
       const canRetry =
-        attempt < retries && (msg.includes("504") || msg.includes("aborted") || msg.includes("AbortError"));
+        attempt < retries &&
+        (msg.includes("504") ||
+          msg.includes("timeout") ||
+          msg.toLowerCase().includes("aborted") ||
+          msg.includes("AbortError"));
 
       console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, msg);
 
@@ -224,11 +234,11 @@ async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
       const storagePath = await uploadToSupabase(att.filename, att.content);
       uploadedTotal++;
 
-      // 2) extract text
+      // 2) extract text (pdf-parse)
       const parsedPdf = await pdfParse(att.content);
       let text = parsedPdf?.text || "";
 
-      // ✅ limite pour éviter timeout / payload trop gros
+      // ✅ limite pour éviter payload trop gros
       const MAX = 250000; // 250k caractères
       if (text.length > MAX) text = text.slice(0, MAX);
 
