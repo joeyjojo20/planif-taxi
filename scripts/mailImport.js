@@ -5,7 +5,8 @@ import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch";
 import FormData from "form-data";
-import pdfParse from "pdf-parse";
+import * as pdfParse from "pdf-parse";
+
 
 
 const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
@@ -193,7 +194,7 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 const storagePath = await uploadToSupabase(att.filename, att.content);
 uploadedTotal++;
 
-const parsedPdf = await pdfParse(att.content);
+const parsedPdf = await pdfParse.default(att.content);
 await callParsePdfs({
   pdfName: att.filename,
   storagePath,
