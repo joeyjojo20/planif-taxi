@@ -1,11 +1,10 @@
 // scripts/mailImport.js
 // Gmail IMAP -> filtre via save-imap-config -> upload PDFs (rdv-pdfs)
-// -> extrait texte (pdf-parse) -> parse (TES fonctions inchangées) -> envoie events[] à Edge parse-pdfs
+// -> extrait texte (pdf-parse) -> NORMALISE le texte (sans changer ton parseur)
+// -> parse (TES fonctions inchangées) -> envoie events[] à Edge parse-pdfs
 //
-// ✅ Corrigé pour ton cas SANS changer la logique du parseur:
-// - Ajout DEBUG pour voir pourquoi Parsed events = 0
-// - Tout le reste identique: mêmes fonctions extractRequestedDate + parseTaxiPdfFromText
-// - Marque Seen tôt + IMAP plus stable + parse-pdfs rapide (events[])
+// ✅ Objectif: garder la logique du parseur intacte, mais rendre le texte "parseable"
+// ✅ Ajout debug (optionnel) + Seen tôt + IMAP stable + parse-pdfs rapide (events[])
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -29,6 +28,34 @@ if (typeof pdfParse !== "function") {
 }
 
 const BUCKET = "rdv-pdfs";
+
+/* ============================================================
+   ✅ NORMALISATION (ne change pas la logique du parseur)
+   - Le PDF sort des champs collés: ",MON145", "FRANCIS5034", "503415:00", etc.
+   - On remet des séparateurs/espaces sans interpréter les données.
+   ============================================================ */
+function normalizePdfTextForParser(t) {
+  let s = String(t || "");
+
+  // 1) espace après ",MON" ",QC" ",LAV" quand collé à ce qui suit
+  s = s.replace(/,(MON|QC|LAV)(?=\d)/g, ",$1 ");
+  s = s.replace(/,(MON|QC|LAV)(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
+
+  // 2) espace avant une heure si collée (ex: 503415:00 -> 5034 15:00)
+  //    (On ne change pas l'heure, on sépare juste)
+  s = s.replace(/(\d)(\d{1,2}[:hH]\d{2})/g, "$1 $2");
+
+  // 3) espace après NOM, PRÉNOM si collé à un chiffre
+  s = s.replace(
+    /([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g,
+    "$1 $2"
+  );
+
+  // 4) certains champs collent l'adresse et le prochain numéro
+  //    ex: "industries,MON145" déjà couvert par #1
+  // 5) limiter les retours bizarres: on garde les \n pour debug mais ton parseur compresse déjà les espaces
+  return s;
+}
 
 /* ===========================
    ✅ TES FONCTIONS (inchangées)
@@ -309,7 +336,7 @@ async function uploadToSupabase(filename, buffer) {
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.log(`Supabase upload failed ${res.status}: ${txt.slice(0, 800)}`);
-    return path; // continue
+    return path;
   }
 
   console.log("Uploaded:", path);
@@ -440,14 +467,18 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
             text = "";
           }
 
-          // ✅ DEBUG (ne change pas la logique)
-          console.log("PDF TEXT LEN:", text.length);
-          console.log("PDF TEXT HAS TIME:", /(\d{1,2}[:hH]\d{2})/.test(text));
-          console.log("PDF TEXT HAS COMMA_ABBR:", /,\s*[A-Z]{2,3}\b/.test(text));
-          console.log("PDF TEXT HEAD:", text.slice(0, 1200));
+          // ✅ NORMALISE (sans changer ton parseur)
+          const textNorm = normalizePdfTextForParser(text);
 
-          // 3) parsing via TES fonctions
-          let baseDate = extractRequestedDate(text);
+          // DEBUG léger (tu peux garder ou enlever après)
+          console.log("PDF TEXT LEN:", text.length);
+          console.log("PDF TEXT LEN (norm):", textNorm.length);
+          console.log("PDF TEXT HAS TIME:", /(\d{1,2}[:hH]\d{2})/.test(textNorm));
+          console.log("PDF TEXT HAS COMMA_ABBR:", /,\s*[A-Z]{2,3}\b/.test(textNorm));
+          console.log("PDF TEXT HEAD (norm):", textNorm.slice(0, 1200));
+
+          // 3) parsing via TES fonctions (inchangées)
+          let baseDate = extractRequestedDate(textNorm) || extractRequestedDate(text);
           console.log("Requested date:", baseDate ? baseDate.toISOString() : null);
 
           if (!baseDate) {
@@ -455,7 +486,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
             baseDate.setHours(0, 0, 0, 0);
           }
 
-          const events = parseTaxiPdfFromText(text, baseDate);
+          const events = parseTaxiPdfFromText(textNorm, baseDate);
           const requestedDateISO = baseDate.toISOString().slice(0, 10);
 
           console.log(`Parsed events: ${events.length} for date ${requestedDateISO}`);
