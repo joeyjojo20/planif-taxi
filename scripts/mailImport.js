@@ -1,6 +1,6 @@
 // scripts/mailImport.js
 // Import Gmail IMAP -> filtre via save-imap-config -> upload PDFs to Supabase Storage (rdv-pdfs)
-// + extrait le texte (pdf-parse) -> appelle Edge Function parse-pdfs -> insère dans events
+// + extrait le texte du PDF -> appelle Edge parse-pdfs
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -10,17 +10,8 @@ import FormData from "form-data";
 // --- pdf-parse (CommonJS) compatible Node 20 + ESM ---
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdfParseMod = require("pdf-parse");
-
-// Résout la fonction de parsing peu importe la forme d'export (function direct ou default)
-function getPdfParseFn() {
-  const fn =
-    typeof pdfParseMod === "function" ? pdfParseMod : pdfParseMod?.default;
-  if (typeof fn !== "function") {
-    throw new Error("pdf-parse export not a function");
-  }
-  return fn;
-}
+// ✅ IMPORTANT: prendre le fichier interne, pas le module racine
+const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 
 const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
 
@@ -28,12 +19,10 @@ const config = {
   imap: {
     user: process.env.GMAIL_EMAIL,
     password: process.env.GMAIL_PASSWORD,
-
     host: "imap.gmail.com",
     port: 993,
     tls: true,
     tlsOptions: { servername: "imap.gmail.com" },
-
     authTimeout: 20000,
   },
 };
@@ -45,7 +34,6 @@ function assertEnv(name) {
 }
 
 function functionsBaseFromSupabaseUrl(supabaseUrl) {
-  // https://xxxx.supabase.co -> https://xxxx.functions.supabase.co/functions/v1
   const ref = String(supabaseUrl).replace(/^https?:\/\//, "").split(".")[0];
   return `https://${ref}.functions.supabase.co/functions/v1`;
 }
@@ -74,14 +62,11 @@ async function getMailConfig() {
     ? cfg.keywords.map((s) => String(s).trim()).filter(Boolean)
     : [];
   const authorizedSenders = Array.isArray(cfg.authorized_senders)
-    ? cfg.authorized_senders
-        .map((s) => String(s).trim().toLowerCase())
-        .filter(Boolean)
+    ? cfg.authorized_senders.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
     : [];
 
-  const checkIntervalMinutes = Number.isFinite(Number(cfg.check_interval_minutes))
-    ? Number(cfg.check_interval_minutes)
-    : 3;
+  const checkIntervalMinutes =
+    Number.isFinite(Number(cfg.check_interval_minutes)) ? Number(cfg.check_interval_minutes) : 3;
 
   return { folder, keywords, authorizedSenders, checkIntervalMinutes };
 }
@@ -91,13 +76,11 @@ function matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg) {
   const subj = (subject || "").toLowerCase();
   const body = (bodyText || "").toLowerCase();
 
-  // 1) expéditeurs autorisés
   if (mailCfg.authorizedSenders.length > 0) {
     const okSender = mailCfg.authorizedSenders.some((s) => from.includes(s));
     if (!okSender) return false;
   }
 
-  // 2) mots-clés
   if (mailCfg.keywords.length > 0) {
     const okKeyword = mailCfg.keywords.some((k) => {
       const kk = String(k).toLowerCase();
@@ -117,9 +100,7 @@ async function uploadToSupabase(filename, buffer) {
   const path = `${Date.now()}-${cleanName}`;
 
   const res = await fetch(
-    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(
-      path
-    )}`,
+    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`,
     {
       method: "POST",
       headers: {
@@ -158,7 +139,6 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 }
 
 (async () => {
-  // --- check env ---
   assertEnv("GMAIL_EMAIL");
   assertEnv("GMAIL_PASSWORD");
   assertEnv("SUPABASE_URL");
@@ -167,26 +147,19 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
   console.log("IMAP host:", config.imap.host);
   console.log("IMAP user:", process.env.GMAIL_EMAIL);
 
-  // --- lire config filtres depuis Supabase ---
   const mailCfg = await getMailConfig();
   console.log("Mail config (Supabase):", mailCfg);
 
-  // --- connect ---
   const connection = await imaps.connect(config);
 
-  // ouvrir la mailbox configurée
   await connection.openBox(mailCfg.folder);
   console.log("Opened mailbox:", mailCfg.folder);
 
-  // Lire les courriels non lus
   const messages = await connection.search(["UNSEEN"], { bodies: [""] });
   console.log("UNSEEN mails:", messages.length);
 
   let uploadedTotal = 0;
   let skippedByFilter = 0;
-
-  // Résoudre la fn pdf-parse une seule fois
-  const parsePdf = getPdfParseFn();
 
   for (const item of messages) {
     const bodyPart = item.parts.find((p) => p.which === "");
@@ -196,14 +169,9 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
     const subject = parsed.subject || "";
     const bodyText = parsed.text || parsed.html || "";
 
-    // Filtre via config
     if (!matchesMailFilters({ fromEmail, subject, bodyText }, mailCfg)) {
       skippedByFilter++;
-      console.log("Skip (filters):", {
-        uid: item.attributes.uid,
-        fromEmail,
-        subject,
-      });
+      console.log("Skip (filters):", { uid: item.attributes.uid, fromEmail, subject });
       continue;
     }
 
@@ -215,26 +183,19 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 
       console.log("Found PDF attachment:", att.filename);
 
-      // 1) upload storage
       const storagePath = await uploadToSupabase(att.filename, att.content);
       uploadedTotal++;
 
-      // 2) extract text
-      const parsedPdf = await parsePdf(att.content);
-      const text = parsedPdf?.text || "";
-
-      // 3) call edge parse-pdfs
+      const parsedPdf = await pdfParse(att.content);
       await callParsePdfs({
         pdfName: att.filename,
         storagePath,
-        text,
+        text: parsedPdf.text || "",
       });
 
-      // Seulement après succès
       uploadedAny = true;
     }
 
-    // Marquer comme lu seulement si on a traité au moins un PDF avec succès
     if (uploadedAny) {
       await connection.addFlags(item.attributes.uid, ["\\Seen"]);
       console.log("Marked mail as Seen:", item.attributes.uid);
