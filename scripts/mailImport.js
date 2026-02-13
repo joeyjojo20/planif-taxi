@@ -1,13 +1,12 @@
 // scripts/mailImport.js
 // Import Gmail IMAP -> filtre via save-imap-config -> upload PDFs to Supabase Storage (rdv-pdfs)
-// + extrait le texte (pdf-parse) -> appelle Edge Function parse-pdfs
+// + extrait le texte (pdf-parse) -> appelle Edge Function parse-pdfs (avec limite texte + retry/timeout)
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
-import fetch from "node-fetch"; // node-fetch@2 dans le YAML
+import fetch from "node-fetch"; // node-fetch@2
 import FormData from "form-data";
 
-// pdf-parse (on verrouille pdf-parse@1.1.1 dans le YAML)
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParseMod = require("pdf-parse");
@@ -21,10 +20,12 @@ const pdfParse =
 
 if (typeof pdfParse !== "function") {
   const keys = pdfParseMod && typeof pdfParseMod === "object" ? Object.keys(pdfParseMod) : [];
-  throw new Error(`pdf-parse is not a function (typeof=${typeof pdfParseMod}, keys=${keys.join(",")})`);
+  throw new Error(
+    `pdf-parse is not a function (typeof=${typeof pdfParseMod}, keys=${keys.join(",")})`
+  );
 }
 
-const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
+const BUCKET = "rdv-pdfs";
 
 const config = {
   imap: {
@@ -130,23 +131,48 @@ async function uploadToSupabase(filename, buffer) {
   return path;
 }
 
-async function callParsePdfs({ pdfName, storagePath, text }) {
+// ✅ call parse-pdfs avec timeout + retries
+async function callParsePdfs({ pdfName, storagePath, text }, retries = 2) {
   const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
   const url = `${base}/parse-pdfs`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
-      apikey: process.env.SUPABASE_SERVICE_ROLE,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ pdfName, storagePath, text }),
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 25000); // 25s
 
-  const out = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out}`);
-  console.log("parse-pdfs OK:", out);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
+          apikey: process.env.SUPABASE_SERVICE_ROLE,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ pdfName, storagePath, text }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(t);
+
+      const out = await res.text().catch(() => "");
+      if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out}`);
+
+      console.log("parse-pdfs OK:", out);
+      return;
+    } catch (e) {
+      clearTimeout(t);
+      const msg = String(e?.message || e);
+
+      const canRetry =
+        attempt < retries && (msg.includes("504") || msg.includes("aborted") || msg.includes("AbortError"));
+
+      console.log(`parse-pdfs attempt ${attempt + 1}/${retries + 1} failed:`, msg);
+
+      if (!canRetry) throw e;
+
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
 }
 
 (async () => {
@@ -194,17 +220,27 @@ async function callParsePdfs({ pdfName, storagePath, text }) {
 
       console.log("Found PDF attachment:", att.filename);
 
+      // 1) upload storage
       const storagePath = await uploadToSupabase(att.filename, att.content);
       uploadedTotal++;
 
+      // 2) extract text
       const parsedPdf = await pdfParse(att.content);
-      const text = parsedPdf?.text || "";
+      let text = parsedPdf?.text || "";
 
-      await callParsePdfs({
-        pdfName: att.filename,
-        storagePath,
-        text,
-      });
+      // ✅ limite pour éviter timeout / payload trop gros
+      const MAX = 250000; // 250k caractères
+      if (text.length > MAX) text = text.slice(0, MAX);
+
+      // 3) call parse-pdfs (timeout + retry)
+      await callParsePdfs(
+        {
+          pdfName: att.filename,
+          storagePath,
+          text,
+        },
+        2
+      );
 
       uploadedAny = true;
     }
