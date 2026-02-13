@@ -17,7 +17,8 @@ jobs:
           node-version: 20
 
       - name: Install deps
-        run: npm install imap-simple mailparser node-fetch form-data
+       run: npm install imap-simple mailparser node-fetch form-data pdf-parse
+
 
       - name: Run importer
         run: node scripts/mailImport.js
