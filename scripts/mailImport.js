@@ -5,6 +5,8 @@ import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch";
 import FormData from "form-data";
+import pdfParse from "pdf-parse";
+
 
 const BUCKET = "rdv-pdfs"; // doit exister dans Supabase Storage
 
@@ -117,6 +119,26 @@ async function uploadToSupabase(filename, buffer) {
   return path;
 }
 
+async function callParsePdfs({ pdfName, storagePath, text }) {
+  const base = functionsBaseFromSupabaseUrl(process.env.SUPABASE_URL);
+  const url = `${base}/parse-pdfs`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}`,
+      apikey: process.env.SUPABASE_SERVICE_ROLE,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ pdfName, storagePath, text }),
+  });
+
+  const out = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(`parse-pdfs failed ${res.status}: ${out}`);
+  console.log("parse-pdfs OK:", out);
+}
+
+
 (async () => {
   // --- check env ---
   assertEnv("GMAIL_EMAIL");
@@ -165,10 +187,19 @@ async function uploadToSupabase(filename, buffer) {
     for (const att of parsed.attachments || []) {
       const fn = (att.filename || "").toLowerCase();
       if (fn.endsWith(".pdf")) {
-        uploadedAny = true;
-        console.log("Found PDF attachment:", att.filename);
-        await uploadToSupabase(att.filename, att.content);
-        uploadedTotal++;
+       
+       console.log("Found PDF attachment:", att.filename);
+
+const storagePath = await uploadToSupabase(att.filename, att.content);
+uploadedTotal++;
+
+const parsedPdf = await pdfParse(att.content);
+await callParsePdfs({
+  pdfName: att.filename,
+  storagePath,
+  text: parsedPdf.text || "",
+});
+ uploadedAny = true;
       }
     }
 
