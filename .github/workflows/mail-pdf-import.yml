@@ -2,7 +2,7 @@ name: Import Taxi PDFs from Gmail
 
 on:
   schedule:
-    - cron: "*/6 * * * *"   # toutes les 5 minutes
+    - cron: "* * * * *"   # toutes les 5 minutes
   workflow_dispatch:
 
 concurrency:
