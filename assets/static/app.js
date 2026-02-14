@@ -842,39 +842,69 @@ async function handlePdfImport(file){
 
 /* ======== MODALE JOUR ======== */
 function openDayEventsModal(dateStr) {
-  const list = document.getElementById("day-events-list");
-  const title = document.getElementById("day-events-date");
+  // dateStr attendu: "YYYY-MM-DD" (FullCalendar)
+  const modal = document.getElementById("day-events-modal");
+  const title = document.getElementById("day-events-title");
+  const list  = document.getElementById("day-events-list");
+  if (!modal || !list) return;
 
-  const displayDate = new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric"
-  });
-  if (title) title.textContent = displayDate;
+  // Titre lisible
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    const displayDate = d.toLocaleDateString("fr-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    if (title) title.textContent = displayDate;
+  } catch {}
 
   list.innerHTML = "";
 
-  const dayEvents = events.filter(ev => {
-    if (typeof ev.start === 'string') {
-      const m = ev.start.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) return m[1] === dateStr;
-    }
-    const evDate = new Date(ev.start);
-    const evDateStr = evDate.toLocaleDateString("fr-CA");
+  // IMPORTANT: events peut contenir des start en string "YYYY-MM-DDTHH:mm" (auto-import) ou ISO (manuel)
+  const dayEvents = (Array.isArray(events) ? events : []).filter(ev => {
+    const s = (ev && ev.start != null) ? String(ev.start) : "";
+    // comparaison rapide sur le préfixe YYYY-MM-DD si possible
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1] === dateStr;
+
+    // fallback Date()
+    const d = new Date(ev.start);
+    if (isNaN(d.getTime())) return false;
+    const evDateStr = d.toLocaleDateString("fr-CA"); // "YYYY-MM-DD"
     return evDateStr === dateStr;
   });
 
   if (dayEvents.length === 0) {
     list.innerHTML = "<li>Aucun rendez-vous.</li>";
-  } else {
-    for (const ev of dayEvents.sort((a,b)=> new Date(a.start)-new Date(b.start))) {
-      const li = document.createElement("li");
-      const d = new Date(ev.start);
-      const h = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const [nom, trajet] = ev.title.split(" – ");
-      li.textContent = `${h} – ${nom} – ${trajet.replace(" > ", " → ")}`;
-      list.appendChild(li);
-    }
+    modal.classList.remove("hidden");
+    return;
   }
-  document.getElementById("day-events-modal").classList.remove("hidden");
+
+  for (const ev of dayEvents.sort((a, b) => new Date(a.start) - new Date(b.start))) {
+    const li = document.createElement("li");
+
+    const d = new Date(ev.start);
+    const h = isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    const rawTitle = String(ev.title || "").trim();
+
+    // Ton auto-import met déjà l'heure au début du title ("15:00 ...").
+    // On l'enlève pour éviter "15:00 – 15:00 ..."
+    const titleNoTime = rawTitle.replace(/^\s*\d{1,2}[:hH]\d{2}\s+/, "");
+
+    // Format attendu: "NOM – départ → arrivée" (mais on tolère tout)
+    const parts = titleNoTime.split(" – ");
+    const nom = (parts[0] || "").trim();
+    const trajet = parts.slice(1).join(" – ").trim(); // au cas où il y a plusieurs " – "
+
+    if (trajet) {
+      li.textContent = `${h ? h + " – " : ""}${nom}${nom && trajet ? " – " : ""}${trajet.replace(" > ", " → ")}`;
+    } else {
+      // fallback: on affiche le title complet si pas de séparateur
+      li.textContent = `${h ? h + " – " : ""}${titleNoTime || rawTitle || "RDV"}`;
+    }
+
+    list.appendChild(li);
+  }
+
+  modal.classList.remove("hidden");
 }
 function closeDayEventsModal(){ document.getElementById("day-events-modal").classList.add("hidden"); }
 
