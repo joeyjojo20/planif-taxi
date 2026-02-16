@@ -200,10 +200,11 @@ function login() {
   const email = document.getElementById("email").value.trim().toLowerCase();
   const password = document.getElementById("password").value;
 
+  // (optionnel) fallback local si tu le gardes encore
   function fallbackLocal() {
     const users = JSON.parse(localStorage.getItem("users") || "[]");
     const found = users.find(u => u.email === email && u.password === password);
-    if (!found) return alert("Identifiants incorrects");
+    if (!found) return alert("Identifiants incorrects (local)");
     if (!found.approved) {
       alert("Votre compte n'est pas encore approuvé par un administrateur.");
       try { showLogin(); } catch {}
@@ -215,9 +216,14 @@ function login() {
     setTimeout(showNotesIfAny, 300);
   }
 
-  if (!USE_SUPABASE_USERS || !window.supabase) return fallbackLocal();
+  // Si Supabase n'est pas dispo, tu peux décider:
+  // - soit fallbackLocal() (mode local)
+  // - soit bloquer (cloud only)
+  if (!USE_SUPABASE_USERS || !window.supabase) {
+    alert("Supabase non disponible (cloud).");
+    return fallbackLocal(); // ou: return; si tu veux cloud-only
+  }
 
-  // ✅ LOGIN via Edge Function (au lieu de lire users.password_hash côté navigateur)
   fetch(`${BACKEND_URL}/login`, {
     method: "POST",
     headers: {
@@ -227,12 +233,27 @@ function login() {
     },
     body: JSON.stringify({ email, password })
   })
-    .then(r => r.json())
-    .then(res => {
-      if (!res || res.ok !== true) return fallbackLocal();
+    .then(async (r) => {
+      const txt = await r.text().catch(() => "");
+      let res = null;
+      try { res = txt ? JSON.parse(txt) : null; } catch {}
+
+      // Si l’Edge répond pas OK (200/401/etc), on affiche le détail
+      if (!r.ok) {
+        alert(`Login cloud HTTP ${r.status}: ${res?.error || txt || "aucun détail"}`);
+        return null;
+      }
+      return res;
+    })
+    .then((res) => {
+      if (!res) return; // déjà affiché
+      if (res.ok !== true) {
+        alert("Login cloud refusé: " + (res.error || "aucun détail"));
+        return;
+      }
 
       if (res.approved !== true) {
-        alert("Votre compte n'est pas encore approuvé par un administrateur.");
+        alert("Votre compte n'est pas encore approuvé.");
         try { showLogin(); } catch {}
         return;
       }
@@ -248,9 +269,11 @@ function login() {
       showApp();
       setTimeout(showNotesIfAny, 300);
     })
-    .catch(() => fallbackLocal());
+    .catch((e) => {
+      alert("Erreur réseau login cloud: " + (e?.message || e));
+      // fallbackLocal(); // décommente si tu veux retomber en local quand cloud down
+    });
 }
-
 
 function register() {
   const email = document.getElementById("register-email").value.trim();
@@ -1823,6 +1846,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
