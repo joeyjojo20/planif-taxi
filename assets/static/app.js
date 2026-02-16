@@ -127,9 +127,9 @@ window.addEventListener("DOMContentLoaded", () => {
   document.body.appendChild(btn);
 });
 
-/* ======== Données locales ======== */
-if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
-  localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
+/* ======== Données locales - utilisateur - ======== */
+//if (!localStorage.getItem("users") || JSON.parse(localStorage.getItem("users")).length === 0) {
+//localStorage.setItem("users", JSON.stringify([{ email: "admin@taxi.com", password: "admin123", role: "admin", approved: true }]));
 }
 let events = JSON.parse(localStorage.getItem("events") || "[]");
 let calendar = null;
@@ -1766,6 +1766,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
