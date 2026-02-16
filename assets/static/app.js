@@ -223,16 +223,15 @@ function login() {
     alert("Supabase non disponible (cloud).");
     return fallbackLocal(); // ou: return; si tu veux cloud-only
   }
-
-  fetch(`${BACKEND_URL}/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
-    },
-    body: JSON.stringify({ email, password })
-  })
+fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+  },
+  body: JSON.stringify({ email, password })
+})
     .then(async (r) => {
       const txt = await r.text().catch(() => "");
       let res = null;
@@ -1846,6 +1845,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
