@@ -197,83 +197,70 @@ function showRegister() {
 }*/
 
 function login() {
-  const email = document.getElementById("email").value.trim().toLowerCase();
-  const password = document.getElementById("password").value;
-
-  // (optionnel) fallback local si tu le gardes encore
-  function fallbackLocal() {
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    const found = users.find(u => u.email === email && u.password === password);
-    if (!found) return alert("Identifiants incorrects (local)");
-    if (!found.approved) {
-      alert("Votre compte n'est pas encore approuvé par un administrateur.");
-      try { showLogin(); } catch {}
+  try {
+    const emailEl = document.getElementById("email");
+    const passEl = document.getElementById("password");
+    if (!emailEl || !passEl) {
+      alert("Erreur: champs login introuvables (email/password).");
       return;
     }
-    currentUser = found;
-    window.currentUser = currentUser;
-    showApp();
-    setTimeout(showNotesIfAny, 300);
-  }
 
-  // Si Supabase n'est pas dispo, tu peux décider:
-  // - soit fallbackLocal() (mode local)
-  // - soit bloquer (cloud only)
-  if (!USE_SUPABASE_USERS || !window.supabase) {
-    alert("Supabase non disponible (cloud).");
-    return fallbackLocal(); // ou: return; si tu veux cloud-only
-  }
-  const email = document.getElementById("email").value.replace(/\u00A0/g," ").trim().toLowerCase();
-console.log("IDENT FRONT:", JSON.stringify(email));
-fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-    "apikey": SUPABASE_ANON_KEY
-  },
-  body: JSON.stringify({ email, password })
-})
-    .then(async (r) => {
-      const txt = await r.text().catch(() => "");
-      let res = null;
-      try { res = txt ? JSON.parse(txt) : null; } catch {}
+    const email = String(emailEl.value || "").replace(/\u00A0/g, " ").trim().toLowerCase();
+    const password = String(passEl.value || "");
 
-      // Si l’Edge répond pas OK (200/401/etc), on affiche le détail
-      if (!r.ok) {
-        alert(`Login cloud HTTP ${r.status}: ${res?.error || txt || "aucun détail"}`);
-        return null;
-      }
-      return res;
+    console.log("IDENT FRONT:", JSON.stringify(email));
+
+    fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "apikey": SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ email, password })
     })
-    .then((res) => {
-      if (!res) return; // déjà affiché
-      if (res.ok !== true) {
-        alert("Login cloud refusé: " + (res.error || "aucun détail"));
-        return;
-      }
+      .then(async (r) => {
+        const txt = await r.text().catch(() => "");
+        let res = null;
+        try { res = txt ? JSON.parse(txt) : null; } catch {}
 
-      if (res.approved !== true) {
-        alert("Votre compte n'est pas encore approuvé.");
-        try { showLogin(); } catch {}
-        return;
-      }
+        if (!r.ok) {
+          alert(`Login cloud HTTP ${r.status}: ${res?.error || txt || "aucun détail"}`);
+          return null;
+        }
+        return res;
+      })
+      .then((res) => {
+        if (!res) return;
+        if (res.ok !== true) {
+          alert("Login cloud refusé: " + (res.error || "aucun détail"));
+          return;
+        }
 
-      currentUser = {
-        email: res.email,
-        password: "(cloud)",
-        role: res.role || "user",
-        approved: true,
-        wantsAdmin: res.wantsAdmin === true
-      };
-      window.currentUser = currentUser;
-      showApp();
-      setTimeout(showNotesIfAny, 300);
-    })
-    .catch((e) => {
-      alert("Erreur réseau login cloud: " + (e?.message || e));
-      // fallbackLocal(); // décommente si tu veux retomber en local quand cloud down
-    });
+        if (res.approved !== true) {
+          alert("Votre compte n'est pas encore approuvé.");
+          try { showLogin(); } catch {}
+          return;
+        }
+
+        currentUser = {
+          email: res.email,
+          password: "(cloud)",
+          role: res.role || "user",
+          approved: true,
+          wantsAdmin: res.wantsAdmin === true
+        };
+        window.currentUser = currentUser;
+        showApp();
+        setTimeout(showNotesIfAny, 300);
+      })
+      .catch((e) => {
+        alert("Erreur réseau login cloud: " + (e?.message || e));
+      });
+
+  } catch (e) {
+    alert("Erreur JS dans login(): " + (e?.message || e));
+  }
 }
 
 function register() {
@@ -1847,6 +1834,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
