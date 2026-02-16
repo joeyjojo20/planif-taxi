@@ -152,7 +152,7 @@ function showRegister() {
   document.getElementById("register-screen").classList.remove("hidden");
   document.getElementById("main-screen").classList.add("hidden");
 }
-function login() {
+/*function login() {
   const email = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value;
 
@@ -194,7 +194,64 @@ function login() {
       setTimeout(showNotesIfAny, 300);
     }).catch(() => fallbackLocal());
   }).catch(() => fallbackLocal());
+}*/
+
+function login() {
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const password = document.getElementById("password").value;
+
+  function fallbackLocal() {
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const found = users.find(u => u.email === email && u.password === password);
+    if (!found) return alert("Identifiants incorrects");
+    if (!found.approved) {
+      alert("Votre compte n'est pas encore approuvé par un administrateur.");
+      try { showLogin(); } catch {}
+      return;
+    }
+    currentUser = found;
+    window.currentUser = currentUser;
+    showApp();
+    setTimeout(showNotesIfAny, 300);
+  }
+
+  if (!USE_SUPABASE_USERS || !window.supabase) return fallbackLocal();
+
+  // ✅ LOGIN via Edge Function (au lieu de lire users.password_hash côté navigateur)
+  fetch(`${BACKEND_URL}/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({ email, password })
+  })
+    .then(r => r.json())
+    .then(res => {
+      if (!res || res.ok !== true) return fallbackLocal();
+
+      if (res.approved !== true) {
+        alert("Votre compte n'est pas encore approuvé par un administrateur.");
+        try { showLogin(); } catch {}
+        return;
+      }
+
+      currentUser = {
+        email: res.email,
+        password: "(cloud)",
+        role: res.role || "user",
+        approved: true,
+        wantsAdmin: res.wantsAdmin === true
+      };
+      window.currentUser = currentUser;
+      showApp();
+      setTimeout(showNotesIfAny, 300);
+    })
+    .catch(() => fallbackLocal());
 }
+
+
 function register() {
   const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
@@ -1766,6 +1823,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
