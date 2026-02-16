@@ -227,8 +227,8 @@ fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "apikey": SUPABASE_ANON_KEY,
-    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "apikey": SUPABASE_ANON_KEY
   },
   body: JSON.stringify({ email, password })
 })
@@ -1845,6 +1845,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
