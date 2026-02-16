@@ -223,6 +223,8 @@ function login() {
     alert("Supabase non disponible (cloud).");
     return fallbackLocal(); // ou: return; si tu veux cloud-only
   }
+  const email = document.getElementById("email").value.replace(/\u00A0/g," ").trim().toLowerCase();
+console.log("IDENT FRONT:", JSON.stringify(email));
 fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
   method: "POST",
   headers: {
@@ -1845,6 +1847,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
