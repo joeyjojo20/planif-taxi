@@ -204,16 +204,17 @@ function login() {
 
     const email = String(emailEl.value || "").trim().toLowerCase();
     const password = String(passEl.value || "");
-
-    fetch(`${BACKEND_URL}/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // apikey ANON suffit (pas besoin de Bearer ici)
-        "apikey": SUPABASE_ANON_KEY
-      },
-      body: JSON.stringify({ email, password })
-    })
+    
+fetch(`${BACKEND_URL}/login`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+  },
+  body: JSON.stringify({ email, password }),
+})
+  
     .then(async (r) => {
       const txt = await r.text().catch(() => "");
       let data = null; try { data = txt ? JSON.parse(txt) : null; } catch {}
@@ -1819,6 +1820,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
