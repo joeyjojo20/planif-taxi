@@ -199,67 +199,52 @@ function showRegister() {
 function login() {
   try {
     const emailEl = document.getElementById("email");
-    const passEl = document.getElementById("password");
-    if (!emailEl || !passEl) {
-      alert("Erreur: champs login introuvables (email/password).");
-      return;
-    }
+    const passEl  = document.getElementById("password");
+    if (!emailEl || !passEl) return alert("Champs login introuvables.");
 
-    const email = String(emailEl.value || "").replace(/\u00A0/g, " ").trim().toLowerCase();
+    const email = String(emailEl.value || "").trim().toLowerCase();
     const password = String(passEl.value || "");
 
-    console.log("IDENT FRONT:", JSON.stringify(email));
-
-    fetch("https://xjtxztvuekhjugkcwwru.functions.supabase.co/functions/v1/login", {
+    fetch(`${BACKEND_URL}/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        // apikey ANON suffit (pas besoin de Bearer ici)
         "apikey": SUPABASE_ANON_KEY
       },
       body: JSON.stringify({ email, password })
     })
-      .then(async (r) => {
-        const txt = await r.text().catch(() => "");
-        let res = null;
-        try { res = txt ? JSON.parse(txt) : null; } catch {}
+    .then(async (r) => {
+      const txt = await r.text().catch(() => "");
+      let data = null; try { data = txt ? JSON.parse(txt) : null; } catch {}
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${data?.error || txt || "?"}`);
+      return data;
+    })
+    .then((res) => {
+      if (!res?.ok) return alert("Login refusé: " + (res?.error || "inconnu"));
 
-        if (!r.ok) {
-          alert(`Login cloud HTTP ${r.status}: ${res?.error || txt || "aucun détail"}`);
-          return null;
-        }
-        return res;
-      })
-      .then((res) => {
-        if (!res) return;
-        if (res.ok !== true) {
-          alert("Login cloud refusé: " + (res.error || "aucun détail"));
-          return;
-        }
+      if (res.approved !== true) {
+        alert("Votre compte n'est pas encore approuvé.");
+        try { showLogin(); } catch {}
+        return;
+      }
 
-        if (res.approved !== true) {
-          alert("Votre compte n'est pas encore approuvé.");
-          try { showLogin(); } catch {}
-          return;
-        }
+      currentUser = {
+        email: res.email,
+        password: "(cloud)",
+        role: res.role || "user",
+        approved: true,
+        wantsAdmin: res.wantsAdmin === true
+      };
+      window.currentUser = currentUser;
 
-        currentUser = {
-          email: res.email,
-          password: "(cloud)",
-          role: res.role || "user",
-          approved: true,
-          wantsAdmin: res.wantsAdmin === true
-        };
-        window.currentUser = currentUser;
-        showApp();
-        setTimeout(showNotesIfAny, 300);
-      })
-      .catch((e) => {
-        alert("Erreur réseau login cloud: " + (e?.message || e));
-      });
+      showApp();
+      setTimeout(showNotesIfAny, 300);
+    })
+    .catch((e) => alert("Login cloud: " + (e?.message || e)));
 
   } catch (e) {
-    alert("Erreur JS dans login(): " + (e?.message || e));
+    alert("Erreur JS login(): " + (e?.message || e));
   }
 }
 
@@ -1834,6 +1819,7 @@ window.login = login;
 window.register = register;
 window.showRegister = showRegister;
 window.showLogin = showLogin;
+
 
 
 
