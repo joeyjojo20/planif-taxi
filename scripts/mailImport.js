@@ -174,7 +174,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       if (!isValidName(name)) name = "";
     }
 
-    const title = `${time} ${name ? name + " – " : ""}${addr1} → ${addr2}`;
+    const title = `${time} – ${name || "Client inconnu"} – ${addr1} → ${addr2}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
