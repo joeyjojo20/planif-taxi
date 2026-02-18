@@ -99,9 +99,9 @@ function extractRequestedDate(text) {
 }
 
 function parseTaxiPdfFromText(rawText, baseDate) {
-  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
-  const RE =
-    /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+  // IMPORTANT: On garde les sauts de ligne pour détecter les lignes "Adresse départ  [2+ espaces]  Adresse arrivée"
+  const raw = String(rawText || "");
+  const LINES = raw.split(/\r?\n+/).map(s => s.trim()).filter(Boolean);
 
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
@@ -113,9 +113,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   const SUBADDR_WIDE =
     /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
-
-  const NAME_RX =
-    /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
 
   function cleanName(s) {
     return (s || "")
@@ -137,62 +134,64 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
+
     let matches = s.match(SUBADDR_WIDE);
     if (!matches || matches.length === 0) return s;
+
+    // On prend le dernier "bloc adresse" trouvé (souvent le plus précis)
     let pick = matches[matches.length - 1].trim();
+
+    // Enlève une heure collée au début (ex: "7 40 126 RUE...")
     pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
-    const lastTight = pick.match(
-      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
-    );
-    if (lastTight) {
-      const idx = pick.lastIndexOf(lastTight[0]);
-      if (idx > 0) pick = pick.slice(idx);
-    }
+
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
   const out = [];
   const seen = new Set();
-  let m;
+
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
-  while ((m = RE.exec(text)) !== null) {
-    const addr1 = refineAddr(m[1] || "");
-    const blob = m[2] || "";
-    const time = (m[3] || "").replace(/[hH]/, ":");
-    const addr2 = refineAddr(m[4] || "");
+  for (let i = 0; i < LINES.length; i++) {
+    const line = LINES[i];
 
+    // Ligne attendue: "Adresse départ  [2+ espaces]  Adresse arrivée"
+    if (!STREET.test(line)) continue;
+    if (!/ {2,}/.test(line)) continue;
 
-    if (out.length < 3) {
-  console.log("DBG m1(addr1):", m[1]);
-  console.log("DBG m2(blob):", m[2]);
-  console.log("DBG m3(time):", m[3]);
-  console.log("DBG m4(name?):", m[4]);
-}
+    const parts = line.split(/ {2,}/).map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
 
+    const fromAddr = refineAddr(parts[0]);
+    const toAddr = refineAddr(parts[1]);
 
-    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
+    // Cherche nom + heure dans les 1-2 lignes suivantes (souvent: téléphones + NOM + code + heure)
+    const look = ((LINES[i + 1] || "") + " " + (LINES[i + 2] || "")).trim();
+
+    const timeMatch = look.match(/(\d{1,2}[:hH]\d{2})/);
+    const nameMatch = look.match(/([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/);
+
+    if (!timeMatch || !nameMatch) continue;
+
+    const time = String(timeMatch[1] || "").replace(/[hH]/, ":");
+    let name = cleanName(nameMatch[1] || "");
+    if (!isValidName(name)) name = "";
+
+    const [hh, mm] = time.split(":").map(x => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    let name = "";
-    const mmatch = blob.match(NAME_RX);
-    if (mmatch) {
-      name = cleanName(mmatch[0]);
-      if (!isValidName(name)) name = "";
-    }
+    const safeName = (name && name.trim()) ? name.trim() : "RDV";
+    const title = `${safeName} – ${fromAddr} → ${toAddr}`;
 
-    const title = `${time} ${name ? name + " – " : ""}${addr1} → ${addr2}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     out.push({
       title,
-      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
-        start.getDate()
-      ).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
   }
