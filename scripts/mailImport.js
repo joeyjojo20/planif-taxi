@@ -163,6 +163,15 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     const time = (m[3] || "").replace(/[hH]/, ":");
     const addr2 = refineAddr(m[4] || "");
 
+
+    if (out.length < 3) {
+  console.log("DBG m1(addr1):", m[1]);
+  console.log("DBG m2(blob):", m[2]);
+  console.log("DBG m3(time):", m[3]);
+  console.log("DBG m4(name?):", m[4]);
+}
+
+
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
