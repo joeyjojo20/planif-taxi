@@ -6,6 +6,7 @@
 // ✅ Objectif: garder la logique du parseur intacte, mais rendre le texte "parseable"
 // ✅ Ajout: anti-doublon AVANT upload (check table imported_pdfs)
 // ✅ Seen tôt + IMAP stable + parse-pdfs rapide (events[])
+
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch"; // node-fetch@2
@@ -157,21 +158,23 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   base.setSeconds(0, 0);
 
   while ((m = RE.exec(text)) !== null) {
-   const addr1 = refineAddr(m[1] || "");
-const blob  = m[2] || "";
-const time  = (m[3] || "").replace(/[hH]/, ":");
+    const addr1 = refineAddr(m[1] || "");
+    const blob = m[2] || "";
+    const time = (m[3] || "").replace(/[hH]/, ":");
+    const addr2 = refineAddr(m[4] || "");
 
-// ✅ m[2] = segment adresse (destination) dans TON RE actuel
-const addr2 = refineAddr(blob);
+    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
+    const start = new Date(base.getTime());
+    start.setHours(hh, mm || 0, 0, 0);
 
-// ✅ m[4] = NOM "BERNIER, DANY" (pas une adresse)
-let name = cleanName(m[4] || "");
-if (!isValidName(name)) name = "";
+    let name = "";
+    const mmatch = blob.match(NAME_RX);
+    if (mmatch) {
+      name = cleanName(mmatch[0]);
+      if (!isValidName(name)) name = "";
+    }
 
-const safeName = (name && name.trim()) ? name.trim() : "RDV";
-const title = `${safeName} – ${addr1} → ${addr2}`;
-
-
+    const title = `${time} ${name ? name + " – " : ""}${addr1} → ${addr2}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
