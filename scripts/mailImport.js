@@ -6,7 +6,7 @@
 // ✅ Objectif: garder la logique globale intacte, mais corriger l'ORDRE d'affichage:
 //    - L'heure doit venir de start (comme l'import manuel)
 //    - Le title doit commencer par le NOM, puis "DEPART → DEST"
-// ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF (2 colonnes séparées par 2+ espaces),
+// ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF,
 //    associées au couple (NOM + HEURE). Aucun changement côté app.js.
 
 import imaps from "imap-simple";
@@ -100,122 +100,112 @@ function extractRequestedDate(text) {
   return null;
 }
 
+/* ============================================================
+   ✅ PARSEUR CORRIGÉ (ligne-par-ligne, adapté au format réel du PDF)
+   - 1) On lit les lignes adresses: "... depart,MON arrivee,MON ... 15:00 ..."
+   - 2) On lit les lignes noms: "< 15:00 5034 CARON, FRANCIS ..."
+   - 3) On crée l'event avec title = "NOM – DEPART ➜ DEST" et start = baseDate + time
+   ============================================================ */
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // ✅ Conserver les lignes avant de les "aplatir" (pour retrouver DEPART + DEST)
   const RAW_LINES = String(rawText || "")
     .split(/\r?\n/)
-    .map((s) => s.trim())
+    .map((s) => s.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
-  // Texte aplati (logique actuelle)
-  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
+  const CITY_ABBR = /(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)/i;
 
-  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
-  const RE =
-    /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+  const NOISE_WORDS = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|FRE|INT|ETUA)\b/gi;
+  const PHONE_OR_META = /\(\s*\d{3}\s*\)\s*\d{3}[- ]\d{4}.*$/; // coupe à partir du tel
+  const TIME_RE_GLOBAL = /\b(\d{1,2}[:hH]\d{2})\b/g;
 
-  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
-  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
-  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
-
-  const STREET =
-    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
-
-  const SUBADDR_WIDE =
-    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
+  function normTime(t) {
+    const x = String(t || "").replace(/[hH]/g, ":").trim();
+    const m = x.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return "";
+    return `${String(parseInt(m[1], 10)).padStart(2, "0")}:${m[2]}`;
+  }
 
   function cleanName(s) {
     return (s || "")
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
-      .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
-      .replace(NOISE, " ")
+      .replace(/\b[A-Z]{2,4}\d{2,6}\b/gi, " ") // autres codes possibles
+      .replace(NOISE_WORDS, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
+
   function isValidName(n) {
     if (!n) return false;
     if (/\d/.test(n)) return false;
+    if (!/,/.test(n)) return false; // on veut "NOM, PRÉNOM"
     return n.split(/\s+/).length >= 2;
   }
-  function refineAddr(seg) {
-    const s = (seg || "")
-      .replace(COST_HEAD, "")
-      .replace(CITY_ABBR, " ")
-      .replace(NOISE, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    const matches = s.match(SUBADDR_WIDE);
-    if (!matches || matches.length === 0) return s;
 
-    let pick = matches[matches.length - 1].trim();
-    pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
-    const lastTight = pick.match(
-      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
-    );
-    if (lastTight) {
-      const idx = pick.lastIndexOf(lastTight[0]);
-      if (idx > 0) pick = pick.slice(idx);
-    }
-    return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
-  }
+  // 1) Adresse: "... depart,MON arrivee,MON ... 15:00 ..."
+  // On capture depart + arrivee (jusqu'à la virgule ville), et on associe à la DERNIÈRE heure de la ligne.
+  const ADDR_PAIR_RE =
+    /(\d{1,6}\s+[^,]{2,140}?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\s+(\d{1,6}\s+[^,]{2,140}?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)/i;
 
-  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
-  function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
+  // 2) Nom: "< 15:00 5034 CARON, FRANCIS (418) ..."
+  const NAME_LINE_RE = /^\s*<?\s*(\d{1,2}[:hH]\d{2})\s+\d{2,6}\s+(.+)$/i;
+  const NAME_ONLY_RE = /^([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
 
-    for (let i = 0; i < RAW_LINES.length; i++) {
-      const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
-
-      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
-      for (let j = i; j >= Math.max(0, i - 10); j--) {
-        const A = RAW_LINES[j];
-        if (!/ {2,}/.test(A)) continue;      // 2 colonnes
-        if (!STREET.test(A)) continue;
-
-        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-        if (parts.length < 2) continue;
-
-        return { from: parts[0], to: parts[1] };
-      }
-    }
-    return null;
-  }
-
+  const pendingByTime = new Map(); // "15:00" => { from, to }
   const out = [];
   const seen = new Set();
-  let m;
 
+  // --- Pass 1: construire pendingByTime ---
+  for (const line of RAW_LINES) {
+    if (!CITY_ABBR.test(line)) continue; // pas une ligne d'adresse
+    const m = line.match(ADDR_PAIR_RE);
+    if (!m) continue;
+
+    // trouver la dernière heure sur la ligne
+    let last = null;
+    let t;
+    while ((t = TIME_RE_GLOBAL.exec(line)) !== null) last = t[1];
+    TIME_RE_GLOBAL.lastIndex = 0;
+    const time = normTime(last);
+    if (!time) continue;
+
+    const from = String(m[1] || "").replace(NOISE_WORDS, " ").replace(/\s{2,}/g, " ").trim();
+    const to = String(m[3] || "").replace(NOISE_WORDS, " ").replace(/\s{2,}/g, " ").trim();
+    if (!from || !to) continue;
+
+    pendingByTime.set(time, { from, to });
+  }
+
+  // --- Pass 2: lire les lignes de noms et créer les events ---
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
-  while ((m = RE.exec(text)) !== null) {
-    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
-    const addr1Fallback = refineAddr(m[1] || "");
-    const time = (m[3] || "").replace(/[hH]/, ":");
+  for (const line of RAW_LINES) {
+    const nm = line.match(NAME_LINE_RE);
+    if (!nm) continue;
 
-    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
-    let name = cleanName(m[4] || "");
-    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
+    const time = normTime(nm[1]);
+    if (!time) continue;
 
-    // ✅ Paire adresse depuis les lignes
-    const pair = findAddrPairNear(name, time);
-    const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
-    const toAddr = refineAddr(pair?.to || "");
+    let chunk = String(nm[2] || "");
+    chunk = chunk.replace(PHONE_OR_META, "").trim();
 
-    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
-    if (!fromAddr || !toAddr) continue;
+    const n2 = chunk.match(NAME_ONLY_RE);
+    if (!n2) continue;
+
+    const name = cleanName(n2[1]);
+    if (!isValidName(name)) continue;
+
+    const pair = pendingByTime.get(time);
+    if (!pair || !pair.from || !pair.to) {
+      // Si pas d'adresse associée, on skip (évite d’inventer)
+      continue;
+    }
 
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
-    // => Résumé = "07:40 – NOM – DEPART → DEST"
-    const title = `${name} – ${fromAddr} → ${toAddr}`;
-
+    const title = `${name} – ${pair.from} ➜ ${pair.to}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
