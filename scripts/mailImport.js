@@ -214,7 +214,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
     // => Résumé = "07:40 – NOM – DEPART → DEST"
-    const title = `${name} – ${fromAddr} → ${toAddr}`;
+    const title = `${name} – ${fromAddr} ➜ ${toAddr}`;
 
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
