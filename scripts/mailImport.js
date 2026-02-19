@@ -1,13 +1,11 @@
 // scripts/mailImport.js
 // Gmail IMAP -> filtre via save-imap-config -> upload PDFs (rdv-pdfs)
 // -> extrait texte (pdf-parse) -> NORMALISE le texte (sans changer ton parseur)
-// -> parse -> envoie events[] à Edge parse-pdfs
+// -> parse (TES fonctions inchangées) -> envoie events[] à Edge parse-pdfs
 //
-// ✅ Objectif: garder la logique globale intacte, mais corriger l'ORDRE d'affichage:
-//    - L'heure doit venir de start (comme l'import manuel)
-//    - Le title doit commencer par le NOM, puis "DEPART → DEST"
-// ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF (2 colonnes séparées par 2+ espaces),
-//    associées au couple (NOM + HEURE). Aucun changement côté app.js.
+// ✅ Objectif: garder la logique du parseur intacte, mais rendre le texte "parseable"
+// ✅ Ajout: anti-doublon AVANT upload (check table imported_pdfs)
+// ✅ Seen tôt + IMAP stable + parse-pdfs rapide (events[])
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -101,28 +99,23 @@ function extractRequestedDate(text) {
 }
 
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // ✅ Conserver les lignes avant de les "aplatir" (pour retrouver DEPART + DEST)
-  const RAW_LINES = String(rawText || "")
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  // Texte aplati (logique actuelle)
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
-
-  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
   const RE =
     /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
   const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
   const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
   const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
-
+  const MONTH_RE =
+    /\b(janv(?:ier)?|févr(?:ier)?|fevr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)\b/i;
   const STREET =
-    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
+    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
 
   const SUBADDR_WIDE =
-    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
+    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
+
+  const NAME_RX =
+    /\b([A-ZÀ-ÖØ-Þ' \-]{2,}),\s*([A-ZÀ-ÖØ-Þ' \-]{2,})\b|(\b[A-Z][a-zÀ-ÿ'\-]+(?:\s+[A-Z][a-zÀ-ÿ'\-]+){1,3}\b)/;
 
   function cleanName(s) {
     return (s || "")
@@ -144,13 +137,12 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
-    const matches = s.match(SUBADDR_WIDE);
+    let matches = s.match(SUBADDR_WIDE);
     if (!matches || matches.length === 0) return s;
-
     let pick = matches[matches.length - 1].trim();
     pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
     const lastTight = pick.match(
-      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
+      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|BOIS?S?E?|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|RANG|PARC|TERRASSE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
     );
     if (lastTight) {
       const idx = pick.lastIndexOf(lastTight[0]);
@@ -159,73 +151,39 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
-  function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
-
-    for (let i = 0; i < RAW_LINES.length; i++) {
-      const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
-
-      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
-      for (let j = i; j >= Math.max(0, i - 10); j--) {
-        const A = RAW_LINES[j];
-        if (!/ {2,}/.test(A)) continue;      // 2 colonnes
-        if (!STREET.test(A)) continue;
-
-        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-        if (parts.length < 2) continue;
-
-        return { from: parts[0], to: parts[1] };
-      }
-    }
-    return null;
-  }
-
   const out = [];
   const seen = new Set();
   let m;
-
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
   while ((m = RE.exec(text)) !== null) {
-    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
-    const addr1Fallback = refineAddr(m[1] || "");
+    const addr1 = refineAddr(m[1] || "");
+    const blob = m[2] || "";
     const time = (m[3] || "").replace(/[hH]/, ":");
-
-    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
-    let name = cleanName(m[4] || "");
-    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
-
-    // ✅ Paire adresse depuis les lignes
-    const pair = findAddrPairNear(name, time);
-    const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
-    const toAddr = refineAddr(pair?.to || "");
-
-    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
-    if (!fromAddr || !toAddr) continue;
+    const addr2 = refineAddr(m[4] || "");
 
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
-    // => Résumé = "07:40 – NOM – DEPART → DEST"
-    const title = `${name} – ${fromAddr} → ${toAddr}`;
+    let name = "";
+    const mmatch = blob.match(NAME_RX);
+    if (mmatch) {
+      name = cleanName(mmatch[0]);
+      if (!isValidName(name)) name = "";
+    }
 
+    const title = `${time} ${name ? name + " – " : ""}${addr1} → ${addr2}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     out.push({
       title,
-      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(
-        2,
-        "0"
-      )}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
+        start.getDate()
+      ).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
   }
@@ -325,7 +283,8 @@ async function getMailConfig() {
   const authorizedSenders = Array.isArray(cfg.authorized_senders)
     ? cfg.authorized_senders.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
     : [];
-  const checkIntervalMinutes = Number.isFinite(Number(cfg.check_interval_minutes)) ? Number(cfg.check_interval_minutes) : 3;
+  const checkIntervalMinutes =
+    Number.isFinite(Number(cfg.check_interval_minutes)) ? Number(cfg.check_interval_minutes) : 3;
 
   return { folder, keywords, authorizedSenders, checkIntervalMinutes };
 }
@@ -356,11 +315,14 @@ async function uploadToSupabase(filename, buffer) {
   const cleanName = (filename || "file.pdf").replace(/[^\w.\-()+ ]/g, "_");
   const path = `${Date.now()}-${cleanName}`;
 
-  const res = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}` },
-    body: form,
-  });
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(path)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE}` },
+      body: form,
+    }
+  );
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
@@ -373,8 +335,11 @@ async function uploadToSupabase(filename, buffer) {
 
 /* ============================================================
    ✅ ANTI-DOUBLON AVANT UPLOAD (imported_pdfs)
+   - Si imported_pdfs contient déjà ce pdfName -> on skip upload + parse
+   - Ça évite: upload inutile + workflow long "pour rien"
    ============================================================ */
 async function isPdfAlreadyImported(pdfName) {
+  // PostgREST: /rest/v1/imported_pdfs?select=name&name=eq.<pdfName>&limit=1
   const base = `${process.env.SUPABASE_URL}/rest/v1/imported_pdfs`;
   const qs = new URLSearchParams();
   qs.set("select", "name");
@@ -392,6 +357,7 @@ async function isPdfAlreadyImported(pdfName) {
   });
 
   if (!res.ok) {
+    // si la vérif échoue, on ne bloque pas (pour ne pas casser le workflow)
     const txt = await res.text().catch(() => "");
     console.log("[WARN] imported_pdfs check failed:", res.status, txt.slice(0, 300));
     return false;
@@ -428,7 +394,8 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
 
       if (!res.ok) {
         const low = out.toLowerCase();
-        const dup = res.status === 409 || low.includes("duplicate") || low.includes("already") || low.includes("imported");
+        const dup =
+          res.status === 409 || low.includes("duplicate") || low.includes("already") || low.includes("imported");
         if (dup) {
           console.log("parse-pdfs says already imported -> continue");
           return;
@@ -506,6 +473,7 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
             skippedAlreadyImported++;
             console.log("Skip (already imported):", att.filename);
 
+            // option: on marque Seen pour éviter de re-scan à chaque run
             try {
               await connection.addFlags(item.attributes.uid, ["\\Seen"]);
               console.log("Marked mail as Seen (already imported):", item.attributes.uid);
@@ -539,16 +507,17 @@ async function callParsePdfsFast({ pdfName, storagePath, requestedDateISO, event
             text = "";
           }
 
-          // ✅ NORMALISE
+          // ✅ NORMALISE (sans changer ton parseur)
           const textNorm = normalizePdfTextForParser(text);
 
+          // DEBUG léger (tu peux garder ou enlever après)
           console.log("PDF TEXT LEN:", text.length);
           console.log("PDF TEXT LEN (norm):", textNorm.length);
           console.log("PDF TEXT HAS TIME:", /(\d{1,2}[:hH]\d{2})/.test(textNorm));
           console.log("PDF TEXT HAS COMMA_ABBR:", /,\s*[A-Z]{2,3}\b/.test(textNorm));
           console.log("PDF TEXT HEAD (norm):", textNorm.slice(0, 1200));
 
-          // 3) parsing
+          // 3) parsing via TES fonctions (inchangées)
           let baseDate = extractRequestedDate(textNorm) || extractRequestedDate(text);
           console.log("Requested date:", baseDate ? baseDate.toISOString() : null);
 
