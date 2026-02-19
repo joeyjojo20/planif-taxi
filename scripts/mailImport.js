@@ -101,31 +101,26 @@ function extractRequestedDate(text) {
 }
 
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // ✅ Parse robuste basé sur la structure RÉELLE du PDF (lignes)
-  // 1) On lit les lignes "adresses" : "... depart,MON arrivee,MON ... 15:00 ..."
-  // 2) On lit les lignes "nom"      : "<15:00 5034 CARON, FRANCIS ..." ou "7:45 TA0654 LAMONDE, JEAN-RENÉ ..."
-  // 3) On associe par HEURE (time) et on crée l'event
-
   const RAW_LINES = String(rawText || "")
     .split(/\r?\n/)
-    .map((s) => String(s || "").replace(/\s+/g, " ").trim())
+    .map((s) => s.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
-  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|FRE|INT|ETUA)\b/gi;
-  const CITY = /(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)/i;
+  // --- helpers ---
+  const CITY = /(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/i;
+  const TIME_RE = /\b(\d{1,2}[:hH]\d{2})\b/g;
 
   function normTime(t) {
     const x = String(t || "").replace(/[hH]/g, ":").trim();
-    const mm = x.match(/^(\d{1,2}):(\d{2})$/);
-    if (!mm) return "";
-    return `${String(parseInt(mm[1], 10)).padStart(2, "0")}:${mm[2]}`;
+    const m = x.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return "";
+    return `${String(parseInt(m[1], 10)).padStart(2, "0")}:${m[2]}`;
   }
 
   function cleanName(s) {
     return (s || "")
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
-      .replace(/\b[A-Z]{2,4}\d{2,6}\b/gi, " ") // ACU83 etc.
-      .replace(NOISE, " ")
+      .replace(/\b[A-Z]{1,4}\d{2,6}\b/gi, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
@@ -133,61 +128,50 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   function isValidName(n) {
     if (!n) return false;
     if (/\d/.test(n)) return false;
-    if (!/,/.test(n)) return false; // "NOM, PRÉNOM"
-    return n.split(/\s+/).length >= 2;
+    if (!/,/.test(n)) return false;
+    const w = n.split(/\s+/).filter(Boolean);
+    return w.length >= 2;
   }
 
-  // ---- Pass 1 : adresses -> pendingByTime ----
-  // Ex: "350 5 10 173 rue...,MON 145 8E RUE 2,MON FRE-5 15:00 0 Non NIL"
+  // Address lines look like:
+  // "120 5 10 9 3E AV SUD,MON 101 BOULEVARD TACHÉ OUEST,MON FRE-5 7:45 ..."
   const ADDR_PAIR_RE =
-    /(\d{1,6}\s+[^,]{2,160}?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\s+(\d{1,6}\s+[^,]{2,160}?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)/i;
+    /(.+?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\s+(.+?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/i;
 
-  const TIME_RE_GLOBAL = /\b(\d{1,2}[:hH]\d{2})\b/g;
+  const pendingByTime = new Map(); // "07:45" => { from, to }
 
-  function cleanAddr(a) {
-    let s = String(a || "").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
-    // enlève les colonnes numériques en début de ligne: "350 5 10 ..."
-    s = s.replace(/^\d{1,4}\s+\d{1,2}\s+\d{1,2}\s+/, "");
-    return s.trim();
-  }
+  // Pass 1: collect addresses by time
+  for (const line0 of RAW_LINES) {
+    if (!CITY.test(line0)) continue;
 
-  const pendingByTime = new Map(); // "15:00" => { from, to }
+    // Find last time on the line
+    let lastTime = null;
+    let m;
+    while ((m = TIME_RE.exec(line0)) !== null) lastTime = m[1];
+    TIME_RE.lastIndex = 0;
+    const time = normTime(lastTime);
+    if (!time) continue;
 
-  for (const line of RAW_LINES) {
-    // ignore lignes parasites
-    if (/^\(ACU\d+\)\s*$/i.test(line)) continue;
-    if (/^Commentaire\b/i.test(line)) continue;
-
-    if (!CITY.test(line)) continue;
+    // Remove leading table columns "120 5 10 " etc (3 numeric fields) if present
+    const line = line0.replace(/^\d+\s+\d+\s+\d+\s+/, "").trim();
 
     const am = line.match(ADDR_PAIR_RE);
     if (!am) continue;
 
-    // dernière heure sur la ligne = heure du RDV
-    let last = null;
-    let t;
-    while ((t = TIME_RE_GLOBAL.exec(line)) !== null) last = t[1];
-    TIME_RE_GLOBAL.lastIndex = 0;
-
-    const time = normTime(last);
-    if (!time) continue;
-
-    const from = cleanAddr(am[1] || "");
-    const to = cleanAddr(am[3] || "");
+    const from = String(am[1] || "").trim();
+    const to = String(am[3] || "").trim();
     if (!from || !to) continue;
 
     pendingByTime.set(time, { from, to });
   }
 
-  // ---- Pass 2 : noms -> events ----
-  // Accepte:
-  //   "< 9:30 7407 GARNEAU, NADINE ..."
-  //   "<15:00 5034 CARON, FRANCIS ..."
-  //   "7:45 TA0654 LAMONDE, JEAN-RENÉ ..."
+  // Pass 2: parse name lines and build events
+  // Name lines:
+  // "7:45 TA0654 LAMONDE, JEAN-RENÉ (418) ..."
+  // "< 9:30 7407 GARNEAU, NADINE (418) ..."
+  // "<15:00 5034 CARON, FRANCIS (418) ..."
   const NAME_LINE_RE =
-    /^\s*<?\s*(\d{1,2}[:hH]\d{2})\s+((?:TA)?\d{3,6}|\d{2,6})\s+(.+?)(?:\s*\(|$)/i;
-
-  const NAME_ONLY_RE = /^([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
+    /^\s*<?\s*(\d{1,2}[:hH]\d{2})\s+([A-Z]{0,4}\d{2,6}|\d{2,6})\s+([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
 
   const out = [];
   const seen = new Set();
@@ -196,28 +180,18 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   base.setSeconds(0, 0);
 
   for (const line of RAW_LINES) {
-    if (/^\(ACU\d+\)\s*$/i.test(line)) continue;
-    if (/^Commentaire\b/i.test(line)) continue;
+    if (/^commentaire\b/i.test(line)) continue;
+    if (/^\(ACU\d+\)/i.test(line)) continue;
 
     const nm = line.match(NAME_LINE_RE);
     if (!nm) continue;
 
     const time = normTime(nm[1]);
-    if (!time) continue;
-
-    // nm[2] = matricule/code (inutile), nm[3] contient nom + reste
-    const chunk = String(nm[3] || "").replace(NOISE, " ").replace(/\s{2,}/g, " ").trim();
-    const n2 = chunk.match(NAME_ONLY_RE);
-    if (!n2) continue;
-
-    const name = cleanName(n2[1]);
-    if (!isValidName(name)) continue;
-
     const pair = pendingByTime.get(time);
-    if (!pair || !pair.from || !pair.to) {
-      // On n'invente pas d'adresses: si pas trouvées => skip
-      continue;
-    }
+    if (!pair) continue;
+
+    const name = cleanName(nm[3] || "");
+    if (!isValidName(name)) continue;
 
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
@@ -231,10 +205,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     out.push({
       title,
-      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(
-        2,
-        "0"
-      )}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
   }
