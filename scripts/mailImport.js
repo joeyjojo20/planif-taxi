@@ -110,7 +110,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   // Texte aplati (logique actuelle)
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
+  // ⚠️ On garde ton RE actuel (on ne le supprime pas)
   const RE =
     /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
@@ -129,19 +129,26 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
       .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
       .replace(NOISE, " ")
+      .replace(/\(ACU\d+\)/gi, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
+
   function isValidName(n) {
     if (!n) return false;
     if (/\d/.test(n)) return false;
-    return n.split(/\s+/).length >= 2;
+    // on veut "NOM, PRÉNOM" (au moins 2 mots après split espaces/virgule)
+    const compact = n.replace(/\s+/g, " ").trim();
+    if (!/,/.test(compact)) return false;
+    return compact.split(/\s+/).length >= 2;
   }
+
   function refineAddr(seg) {
     const s = (seg || "")
       .replace(COST_HEAD, "")
       .replace(CITY_ABBR, " ")
       .replace(NOISE, " ")
+      .replace(/\(ACU\d+\)/gi, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
     const matches = s.match(SUBADDR_WIDE);
@@ -159,63 +166,147 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
-  function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
+  // --- comparateurs robustes (accents / espaces / heure 7:45 vs 07:45) ---
+  function normComp(s) {
+    return String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function normTime(t) {
+    const x = String(t || "").replace(/[hH]/g, ":").trim();
+    const m = x.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return x;
+    return `${String(parseInt(m[1], 10)).padStart(2, "0")}:${m[2]}`;
+  }
 
-    for (let i = 0; i < RAW_LINES.length; i++) {
-      const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
+  // ✅ Retrouver (DEPART, DEST) au-dessus d'un index (plus fiable que .includes brut)
+  function findAddrPairAboveIndex(idx) {
+    for (let j = idx; j >= Math.max(0, idx - 10); j--) {
+      const A = RAW_LINES[j];
+      if (!/ {2,}/.test(A)) continue; // 2 colonnes
+      if (!STREET.test(A)) continue;
 
-      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
-      for (let j = i; j >= Math.max(0, i - 10); j--) {
-        const A = RAW_LINES[j];
-        if (!/ {2,}/.test(A)) continue;      // 2 colonnes
-        if (!STREET.test(A)) continue;
+      const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
+      if (parts.length < 2) continue;
 
-        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-        if (parts.length < 2) continue;
-
-        return { from: parts[0], to: parts[1] };
-      }
+      return { from: parts[0], to: parts[1] };
     }
     return null;
   }
 
   const out = [];
   const seen = new Set();
-  let m;
 
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
+  // ============================================================
+  // 1) PASSAGE ORIGINAL (ton RE) — inchangé
+  // ============================================================
+  let m;
   while ((m = RE.exec(text)) !== null) {
-    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
     const addr1Fallback = refineAddr(m[1] || "");
-    const time = (m[3] || "").replace(/[hH]/, ":");
+    const time = normTime((m[3] || "").replace(/[hH]/, ":"));
 
-    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
     let name = cleanName(m[4] || "");
-    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
+    if (!isValidName(name)) continue;
 
-    // ✅ Paire adresse depuis les lignes
-    const pair = findAddrPairNear(name, time);
+    // trouver la paire d'adresse proche via RAW_LINES
+    // (on cherche l'index qui contient name + time, mais en "normalized")
+    const nName = normComp(name);
+    const nTime = normTime(time);
+
+    let foundIdx = -1;
+    for (let i = 0; i < RAW_LINES.length; i++) {
+      const L = RAW_LINES[i];
+      if (/^\s*Commentaire\b/i.test(L)) continue;
+      if (/^\s*\(ACU\d+\)\s*$/i.test(L)) continue;
+
+      const nL = normComp(L);
+      if (nL.includes(nName) && (nL.includes(nTime) || nL.includes(nTime.replace(/^0/, "")))) {
+        foundIdx = i;
+        break;
+      }
+    }
+
+    const pair = foundIdx >= 0 ? findAddrPairAboveIndex(foundIdx) : null;
     const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
     const toAddr = refineAddr(pair?.to || "");
 
-    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
     if (!fromAddr || !toAddr) continue;
 
-    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
+    const [hh, mm] = nTime.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
-    // => Résumé = "07:40 – NOM – DEPART → DEST"
     const title = `${name} – ${fromAddr} ➜ ${toAddr}`;
 
+    const key = `${title}|${start.toISOString()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      title,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(
+        2,
+        "0"
+      )}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      reminderMinutes: 15,
+    });
+  }
+
+  // ============================================================
+  // 2) PASSAGE AJOUTÉ (MINIMAL) — couvre le cas Jean-René (TA0654)
+  //    -> on NE tolère PAS les tokens : on les SKIP/STRIP
+  // ============================================================
+
+  // Match ligne RDV "souple":
+  // "< 09:30 7407 GARNEAU, NADINE ..."
+  // "7:45 TA0654 LAMONDE, JEAN-RENÉ ..."
+  // "15:00 5034 CARON, FRANCIS ..."
+  const RDV_LINE_RE =
+    /^\s*<?\s*(\d{1,2}[:hH]\d{2})\s+(?:(?:[A-Z]{1,3}\d{2,6})\s+)?(?:(?:\d{3,6})\s+)?(.+?)\s*$/i;
+
+  // Exiger NOM, PRÉNOM dans le "reste" (après nettoyage)
+  const NAME_RE = /^([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
+
+  for (let i = 0; i < RAW_LINES.length; i++) {
+    const L = RAW_LINES[i];
+
+    // skip bruit
+    if (/^\s*Commentaire\b/i.test(L)) continue;
+    if (/^\s*\(ACU\d+\)\s*$/i.test(L)) continue;
+
+    const mm = L.match(RDV_LINE_RE);
+    if (!mm) continue;
+
+    const time = normTime(mm[1]);
+    let rest = mm[2] || "";
+
+    // nettoyage STRICT (on SKIP/STRIP les tokens)
+    rest = cleanName(rest);
+
+    const nm = rest.match(NAME_RE);
+    if (!nm) continue;
+
+    const name = cleanName(nm[1] || "");
+    if (!isValidName(name)) continue;
+
+    // adresses: on regarde en haut
+    const pair = findAddrPairAboveIndex(i);
+    const fromAddr = refineAddr(pair?.from || "");
+    const toAddr = refineAddr(pair?.to || "");
+
+    if (!fromAddr || !toAddr) continue;
+
+    const [hh, min] = time.split(":").map((x) => parseInt(x, 10));
+    const start = new Date(base.getTime());
+    start.setHours(hh, min || 0, 0, 0);
+
+    const title = `${name} – ${fromAddr} ➜ ${toAddr}`;
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
