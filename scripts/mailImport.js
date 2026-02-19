@@ -166,29 +166,68 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   }
 
   // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
-  function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
+ // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
+// ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
+function findAddrPairNear(name, time) {
+  const nm = String(name || "").trim();
+  const tm = String(time || "").trim();
+  if (!nm || !tm) return null;
 
-    for (let i = 0; i < RAW_LINES.length; i++) {
-      const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
+  const timeRe = new RegExp(`\\b${tm.replace(":", "[:hH]")}\\b`);
 
-      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
-      for (let j = i; j >= Math.max(0, i - 10); j--) {
-        const A = RAW_LINES[j];
-        if (!/ {2,}/.test(A)) continue; // 2 colonnes
-        if (!STREET.test(A)) continue;
+  // helpers
+  const isNewRdvLine = (s) => /^\s*<?\s*\d{1,2}[:hH]\d{2}\b/.test(s || "");
+  const isTwoCols = (s) => / {2,}/.test(s || "");
+  const looksLikeAddrContinuation = (s) => {
+    if (!s) return false;
+    if (isNewRdvLine(s)) return false;
+    if (isTwoCols(s)) return false;
+    // petite ligne de continuation typique: "RUE 2", "AVENUE DE LA COUR", etc.
+    return STREET.test(s) || /^\s*\d{1,6}\b/.test(s);
+  };
 
-        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-        if (parts.length < 2) continue;
+  for (let i = 0; i < RAW_LINES.length; i++) {
+    const L = RAW_LINES[i];
+    if (!L) continue;
+    if (!L.includes(nm) || !timeRe.test(L)) continue;
 
-        return { from: parts[0], to: parts[1] };
+    // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
+    for (let j = i; j >= Math.max(0, i - 10); j--) {
+      const A = RAW_LINES[j];
+      if (!A) continue;
+
+      if (!isTwoCols(A)) continue;     // 2 colonnes
+      if (!STREET.test(A)) continue;   // doit ressembler à une adresse
+
+      const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
+      if (parts.length < 2) continue;
+
+      let from = parts[0];
+      let to = parts[1];
+
+      // ✅ IMPORTANT: recoller la destination si elle continue sur la/les lignes suivantes
+      // (souvent le "RUE 2" est sur la ligne d'après)
+      for (let k = 1; k <= 2; k++) {
+        const next = RAW_LINES[j + k];
+        if (!looksLikeAddrContinuation(next)) break;
+
+        // en pratique c'est presque toujours la destination qui casse
+        to = `${to} ${next}`.replace(/\s{2,}/g, " ").trim();
       }
+
+      // ✅ pareil pour "from" si jamais c’est lui qui casse (rare mais safe)
+      // (si from n'a pas de mot de rue mais to oui, on n'y touche pas)
+      if (!STREET.test(from) && looksLikeAddrContinuation(RAW_LINES[j + 1]) && STREET.test(to)) {
+        // rien
+      }
+
+      return { from, to };
     }
-    return null;
   }
+
+  return null;
+}
+
 
   const out = [];
   const seen = new Set();
