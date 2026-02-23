@@ -101,103 +101,120 @@ function extractRequestedDate(text) {
 }
 
 function parseTaxiPdfFromText(rawText, baseDate) {
+  // ✅ Conserver les lignes avant de les "aplatir" (pour retrouver DEPART + DEST)
   const RAW_LINES = String(rawText || "")
     .split(/\r?\n/)
-    .map((s) => s.replace(/\s+/g, " ").trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 
-  // --- helpers ---
-  const CITY = /(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/i;
-  const TIME_RE = /\b(\d{1,2}[:hH]\d{2})\b/g;
+  // Texte aplati (logique actuelle)
+  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  function normTime(t) {
-    const x = String(t || "").replace(/[hH]/g, ":").trim();
-    const m = x.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return "";
-    return `${String(parseInt(m[1], 10)).padStart(2, "0")}:${m[2]}`;
-  }
+  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
+  const RE =
+    /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+
+  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
+
+  const STREET =
+    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
+
+  const SUBADDR_WIDE =
+    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
 
   function cleanName(s) {
     return (s || "")
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
-      .replace(/\b[A-Z]{1,4}\d{2,6}\b/gi, " ")
+      .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
+      .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
-
   function isValidName(n) {
     if (!n) return false;
     if (/\d/.test(n)) return false;
-    if (!/,/.test(n)) return false;
-    const w = n.split(/\s+/).filter(Boolean);
-    return w.length >= 2;
+    return n.split(/\s+/).length >= 2;
+  }
+  function refineAddr(seg) {
+    const s = (seg || "")
+      .replace(COST_HEAD, "")
+      .replace(CITY_ABBR, " ")
+      .replace(NOISE, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const matches = s.match(SUBADDR_WIDE);
+    if (!matches || matches.length === 0) return s;
+
+    let pick = matches[matches.length - 1].trim();
+    pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
+    const lastTight = pick.match(
+      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
+    );
+    if (lastTight) {
+      const idx = pick.lastIndexOf(lastTight[0]);
+      if (idx > 0) pick = pick.slice(idx);
+    }
+    return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // Address lines look like:
-  // "120 5 10 9 3E AV SUD,MON 101 BOULEVARD TACHÉ OUEST,MON FRE-5 7:45 ..."
-  const ADDR_PAIR_RE =
-    /(.+?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\s+(.+?),\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/i;
+  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
+  function findAddrPairNear(name, time) {
+    const nm = String(name || "").trim();
+    const tm = String(time || "").trim();
+    if (!nm || !tm) return null;
 
-  const pendingByTime = new Map(); // "07:45" => { from, to }
+    for (let i = 0; i < RAW_LINES.length; i++) {
+      const L = RAW_LINES[i];
+      if (!L.includes(nm) || !L.includes(tm)) continue;
 
-  // Pass 1: collect addresses by time
-  for (const line0 of RAW_LINES) {
-    if (!CITY.test(line0)) continue;
+      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
+      for (let j = i; j >= Math.max(0, i - 10); j--) {
+        const A = RAW_LINES[j];
+        if (!/ {2,}/.test(A)) continue;      // 2 colonnes
+        if (!STREET.test(A)) continue;
 
-    // Find last time on the line
-    let lastTime = null;
-    let m;
-    while ((m = TIME_RE.exec(line0)) !== null) lastTime = m[1];
-    TIME_RE.lastIndex = 0;
-    const time = normTime(lastTime);
-    if (!time) continue;
+        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
+        if (parts.length < 2) continue;
 
-    // Remove leading table columns "120 5 10 " etc (3 numeric fields) if present
-    const line = line0.replace(/^\d+\s+\d+\s+\d+\s+/, "").trim();
-
-    const am = line.match(ADDR_PAIR_RE);
-    if (!am) continue;
-
-    const from = String(am[1] || "").trim();
-    const to = String(am[3] || "").trim();
-    if (!from || !to) continue;
-
-    pendingByTime.set(time, { from, to });
+        return { from: parts[0], to: parts[1] };
+      }
+    }
+    return null;
   }
-
-  // Pass 2: parse name lines and build events
-  // Name lines:
-  // "7:45 TA0654 LAMONDE, JEAN-RENÉ (418) ..."
-  // "< 9:30 7407 GARNEAU, NADINE (418) ..."
-  // "<15:00 5034 CARON, FRANCIS (418) ..."
-  const NAME_LINE_RE =
-    /^\s*<?\s*(\d{1,2}[:hH]\d{2})\s+([A-Z]{0,4}\d{2,6}|\d{2,6})\s+([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
 
   const out = [];
   const seen = new Set();
+  let m;
 
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
-  for (const line of RAW_LINES) {
-    if (/^commentaire\b/i.test(line)) continue;
-    if (/^\(ACU\d+\)/i.test(line)) continue;
+  while ((m = RE.exec(text)) !== null) {
+    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
+    const addr1Fallback = refineAddr(m[1] || "");
+    const time = (m[3] || "").replace(/[hH]/, ":");
 
-    const nm = line.match(NAME_LINE_RE);
-    if (!nm) continue;
+    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
+    let name = cleanName(m[4] || "");
+    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
 
-    const time = normTime(nm[1]);
-    const pair = pendingByTime.get(time);
-    if (!pair) continue;
+    // ✅ Paire adresse depuis les lignes
+    const pair = findAddrPairNear(name, time);
+    const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
+    const toAddr = refineAddr(pair?.to || "");
 
-    const name = cleanName(nm[3] || "");
-    if (!isValidName(name)) continue;
+    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
+    if (!fromAddr || !toAddr) continue;
 
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    const title = `${name} – ${pair.from} ➜ ${pair.to}`;
+    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
+    // => Résumé = "07:40 – NOM – DEPART → DEST"
+    const title = `${name} – ${fromAddr} → ${toAddr}`;
 
     const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
@@ -205,7 +222,10 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
     out.push({
       title,
-      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(
+        2,
+        "0"
+      )}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
   }
