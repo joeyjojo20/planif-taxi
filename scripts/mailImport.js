@@ -6,8 +6,12 @@
 // ✅ Objectif: garder la logique globale intacte, mais corriger l'ORDRE d'affichage:
 //    - L'heure doit venir de start (comme l'import manuel)
 //    - Le title doit commencer par le NOM, puis "DEPART → DEST"
-// ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF (2 colonnes séparées par 2+ espaces),
-//    associées au couple (NOM + HEURE). Aucun changement côté app.js.
+//
+// ✅ Fixs inclus (polyvalents):
+//  1) pdf-parse casse parfois les villes: "MO N", "CA P" => on recolle
+//  2) TA collé au nom: "JEAN-RENÉTA 0654" / "JUNIORTA 0292" => on nettoie
+//  3) Adresses parfois sur UNE ligne séparées par 1 espace: "...,MON 145 8E...,MON" => support (Caron)
+//  4) Association adresses↔nom par HEURE (stable, évite de prendre la mauvaise course)
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -38,8 +42,12 @@ const BUCKET = "rdv-pdfs";
 function normalizePdfTextForParser(t) {
   let s = String(t || "");
 
+  // ✅ FIX pdf-parse: villes cassées "MO N" / "CA P" après une virgule
+  // Ex: ",MO N" -> ",MON" ; ",CA P" -> ",CAP"
+  s = s.replace(/,([A-Z])\s+([A-Z])\s+([A-Z])\b/g, ",$1$2$3");
+  s = s.replace(/,([A-Z])\s+([A-Z])\b/g, ",$1$2");
+
   // 1) espace après ",XXX" (ville 2-3 lettres) quand collé à ce qui suit
-  //    Ex: "OUEST,CAP140" -> "OUEST,CAP 140", "RUE,MON145" -> "RUE,MON 145"
   s = s.replace(/,([A-Z]{2,3})(?=\d)/g, ",$1 ");
   s = s.replace(/,([A-Z]{2,3})(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
 
@@ -53,7 +61,7 @@ function normalizePdfTextForParser(t) {
 }
 
 /* ===========================
-   ✅ TES FONCTIONS (inchangées)
+   ✅ TES FONCTIONS
    =========================== */
 
 function extractRequestedDate(text) {
@@ -102,7 +110,7 @@ function extractRequestedDate(text) {
 }
 
 function parseTaxiPdfFromText(rawText, baseDate) {
-  // ✅ Conserver les lignes avant de les "aplatir" (pour retrouver DEPART + DEST)
+  // ✅ Lignes (sur texte déjà normalisé)
   const RAW_LINES = String(rawText || "")
     .split(/\r?\n/)
     .map((s) => s.trim())
@@ -111,7 +119,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   // Texte aplati (logique actuelle)
   const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
 
-  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
+  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom)
   const RE =
     /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
 
@@ -127,9 +135,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   function cleanName(s) {
     return (s || "")
-      // ✅ FIX #1: enlève TA même si collé (ex: "JEAN-RENÉTA 0654", "JUNIORTA 0292")
+      // ✅ enlève TA même si collé: "JEAN-RENÉTA 0654", "JUNIORTA 0292"
       .replace(/TA\s*\d{3,6}/gi, " ")
-      // garde aussi l'ancien cas
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
       .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
       .replace(NOISE, " ")
@@ -148,6 +155,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
+
     const matches = s.match(SUBADDR_WIDE);
     if (!matches || matches.length === 0) return s;
 
@@ -163,46 +171,36 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // ✅ FIX #2: support "addr1,MON addr2,MON" (1 espace) en plus de "2 colonnes"
+  // ✅ Support "addr1,MON addr2,MON" (1 espace) + villes 2-3 lettres (MON/CAP/etc)
   const ADDR_PAIR_LINE_RE =
     /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
 
-  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
-  function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
-
-    for (let i = 0; i < RAW_LINES.length; i++) {
-      const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
-
-      // On remonte quelques lignes pour trouver la ligne d'adresses
-      for (let j = i; j >= Math.max(0, i - 12); j--) {
-        const A = RAW_LINES[j];
-
-        // ✅ Cas "une ligne": "173 rue...,MON 145 8E...,MON"
-        const mm = A.match(ADDR_PAIR_LINE_RE);
-        if (mm) {
-          const from = mm[1].trim();
-          const to = mm[3].trim();
-          // petite barrière : au moins un mot de rue
-          if (STREET.test(from) && STREET.test(to)) {
-            return { from, to };
-          }
-        }
-
-        // ✅ Cas "2 colonnes" (ton ancien)
-        if (!/ {2,}/.test(A)) continue; // 2 colonnes
-        if (!STREET.test(A)) continue;
-
-        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-        if (parts.length < 2) continue;
-
-        return { from: parts[0], to: parts[1] };
-      }
+  function pickTimeInNextLines(startIdx, maxLookahead = 8) {
+    for (let k = startIdx; k < Math.min(RAW_LINES.length, startIdx + maxLookahead); k++) {
+      const mm = RAW_LINES[k].match(/\b(\d{1,2}[:hH]\d{2})\b/);
+      if (mm) return String(mm[1]).replace(/[hH]/, ":");
     }
     return null;
+  }
+
+  // ✅ map heure -> {from,to} (évite mélange)
+  const addrByTime = new Map();
+  for (let i = 0; i < RAW_LINES.length; i++) {
+    const A = RAW_LINES[i];
+    const mm = A.match(ADDR_PAIR_LINE_RE);
+    if (!mm) continue;
+
+    const fromRaw = mm[1].trim();
+    const toRaw = mm[3].trim();
+
+    // barrière simple: doit ressembler à une rue
+    if (!STREET.test(fromRaw) || !STREET.test(toRaw)) continue;
+
+    // l'heure est juste après (dans les lignes suivantes)
+    const t = pickTimeInNextLines(i + 1, 8);
+    if (!t) continue;
+
+    addrByTime.set(t, { from: fromRaw, to: toRaw });
   }
 
   const out = [];
@@ -213,27 +211,25 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   base.setSeconds(0, 0);
 
   while ((m = RE.exec(text)) !== null) {
-    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
     const addr1Fallback = refineAddr(m[1] || "");
     const time = (m[3] || "").replace(/[hH]/, ":");
 
-    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
     let name = cleanName(m[4] || "");
-    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
+    if (!isValidName(name)) continue;
 
-    // ✅ Paire adresse depuis les lignes
-    const pair = findAddrPairNear(name, time);
+    // ✅ paire d'adresses par heure (stable)
+    const pair = addrByTime.get(time) || null;
     const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
     const toAddr = refineAddr(pair?.to || "");
 
-    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
+    // départ + destination obligatoires
     if (!fromAddr || !toAddr) continue;
 
     const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
     start.setHours(hh, mm || 0, 0, 0);
 
-    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
+    // ✅ pas d'heure dans title (l'heure vient de start)
     const title = `${name} – ${fromAddr} → ${toAddr}`;
 
     const key = `${title}|${start.toISOString()}`;
