@@ -1,12 +1,4 @@
 // scripts/mailImport.js
-// Gmail IMAP -> filtre via save-imap-config -> upload PDFs (rdv-pdfs)
-// -> extrait texte (pdf-parse) -> NORMALISE -> parse -> envoie events[] à Edge parse-pdfs
-//
-// Fixs inclus:
-// 1) recolle les villes cassées par pdf-parse: ",MO N" ",CA P" etc.
-// 2) garde ta correction "Caron" (adresses sur 1 ligne avec 1+ espaces)
-// 3) associe adresses ↔ heure (stable) puis nom ↔ heure
-
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
 import fetch from "node-fetch"; // node-fetch@2
@@ -16,6 +8,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParseMod = require("pdf-parse");
 
+// ✅ Résout la fonction peu importe comment le module exporte
 const pdfParse =
   (pdfParseMod && typeof pdfParseMod === "function" ? pdfParseMod : null) ||
   (pdfParseMod && typeof pdfParseMod.default === "function" ? pdfParseMod.default : null) ||
@@ -30,19 +23,20 @@ if (typeof pdfParse !== "function") {
 const BUCKET = "rdv-pdfs";
 
 /* ============================================================
-   ✅ NORMALISATION (ne change pas la logique du parseur)
+   ✅ NORMALISATION (robuste)
    ============================================================ */
 function normalizePdfTextForParser(t) {
   let s = String(t || "");
 
-  // ✅ FIX pdf-parse: villes cassées après virgule
-  // couvre: ",MO N" ",CA P" ",M O N"
-  // - 3 lettres avec espaces libres
-  s = s.replace(/,\s*([A-Z])\s*([A-Z])\s*([A-Z])\b/g, ",$1$2$3");
-  // - 2 lettres + espace + 1 lettre (cas "MO N", "CA P")
-  s = s.replace(/,\s*([A-Z]{2})\s+([A-Z])\b/g, ",$1$2");
-  // - 1 lettre + espace + 2 lettres (au cas où)
-  s = s.replace(/,\s*([A-Z])\s+([A-Z]{2})\b/g, ",$1$2");
+  // ✅ FIX ULTRA-ROBUSTE: recoller les villes cassées après une virgule
+  // couvre: ",MO N" ",M O N" ",CA P" ",C A P" et même ",MO\nN"
+  // => ",MON" ",CAP"
+  s = s.replace(/,((?:[A-Z]\s*){2,3})\b/g, (m, g1) => {
+    const compact = String(g1).replace(/\s+/g, "");
+    // sécurité: seulement 2-3 lettres
+    if (/^[A-Z]{2,3}$/.test(compact)) return "," + compact;
+    return m;
+  });
 
   // 1) espace après ",XXX" (ville 2-3 lettres) quand collé à ce qui suit
   s = s.replace(/,([A-Z]{2,3})(?=\d)/g, ",$1 ");
@@ -164,9 +158,10 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
-  // ✅ garde ta correction “Caron”: adresses sur 1 ligne avec 1+ espaces
+  // ✅ IMPORTANT: regex d'adresses tolérante aux villes cassées (MO N, CA P)
+  // On ne capture pas la ville; on accepte (?:[A-Z]\s*){2,3}
   const ADDR_PAIR_LINE_RE =
-    /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
+    /(.{5,}?),\s*(?:[A-Z]\s*){2,3}\s+(.{5,}?),\s*(?:[A-Z]\s*){2,3}\b/i;
 
   function pickTimeInNextLines(startIdx, maxLookahead = 8) {
     for (let k = startIdx; k < Math.min(RAW_LINES.length, startIdx + maxLookahead); k++) {
@@ -183,8 +178,8 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     const mm = A.match(ADDR_PAIR_LINE_RE);
     if (!mm) continue;
 
-    const fromRaw = mm[1].trim();
-    const toRaw = mm[3].trim();
+    const fromRaw = (mm[1] || "").trim();
+    const toRaw = (mm[2] || "").trim();
 
     if (!STREET.test(fromRaw) || !STREET.test(toRaw)) continue;
 
