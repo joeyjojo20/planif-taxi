@@ -38,9 +38,10 @@ const BUCKET = "rdv-pdfs";
 function normalizePdfTextForParser(t) {
   let s = String(t || "");
 
-  // 1) espace après ",MON" ",QC" ",LAV" quand collé à ce qui suit
-  s = s.replace(/,(MON|QC|LAV)(?=\d)/g, ",$1 ");
-  s = s.replace(/,(MON|QC|LAV)(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
+  // 1) espace après ",XXX" (ville 2-3 lettres) quand collé à ce qui suit
+  //    Ex: "OUEST,CAP140" -> "OUEST,CAP 140", "RUE,MON145" -> "RUE,MON 145"
+  s = s.replace(/,([A-Z]{2,3})(?=\d)/g, ",$1 ");
+  s = s.replace(/,([A-Z]{2,3})(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
 
   // 2) espace avant une heure si collée (ex: 503415:00 -> 5034 15:00)
   s = s.replace(/(\d)(\d{1,2}[:hH]\d{2})/g, "$1 $2");
@@ -126,6 +127,9 @@ function parseTaxiPdfFromText(rawText, baseDate) {
 
   function cleanName(s) {
     return (s || "")
+      // ✅ FIX #1: enlève TA même si collé (ex: "JEAN-RENÉTA 0654", "JUNIORTA 0292")
+      .replace(/TA\s*\d{3,6}/gi, " ")
+      // garde aussi l'ancien cas
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
       .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
       .replace(NOISE, " ")
@@ -159,6 +163,10 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
   }
 
+  // ✅ FIX #2: support "addr1,MON addr2,MON" (1 espace) en plus de "2 colonnes"
+  const ADDR_PAIR_LINE_RE =
+    /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
+
   // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
   function findAddrPairNear(name, time) {
     const nm = String(name || "").trim();
@@ -169,10 +177,23 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       const L = RAW_LINES[i];
       if (!L.includes(nm) || !L.includes(tm)) continue;
 
-      // On remonte quelques lignes pour trouver la ligne "DEPART  DEST"
-      for (let j = i; j >= Math.max(0, i - 10); j--) {
+      // On remonte quelques lignes pour trouver la ligne d'adresses
+      for (let j = i; j >= Math.max(0, i - 12); j--) {
         const A = RAW_LINES[j];
-        if (!/ {2,}/.test(A)) continue;      // 2 colonnes
+
+        // ✅ Cas "une ligne": "173 rue...,MON 145 8E...,MON"
+        const mm = A.match(ADDR_PAIR_LINE_RE);
+        if (mm) {
+          const from = mm[1].trim();
+          const to = mm[3].trim();
+          // petite barrière : au moins un mot de rue
+          if (STREET.test(from) && STREET.test(to)) {
+            return { from, to };
+          }
+        }
+
+        // ✅ Cas "2 colonnes" (ton ancien)
+        if (!/ {2,}/.test(A)) continue; // 2 colonnes
         if (!STREET.test(A)) continue;
 
         const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
@@ -213,7 +234,6 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     start.setHours(hh, mm || 0, 0, 0);
 
     // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
-    // => Résumé = "07:40 – NOM – DEPART → DEST"
     const title = `${name} – ${fromAddr} → ${toAddr}`;
 
     const key = `${title}|${start.toISOString()}`;
