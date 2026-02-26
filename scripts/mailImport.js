@@ -8,6 +8,11 @@
 //    - Le title doit commencer par le NOM, puis "DEPART → DEST"
 // ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF (2 colonnes séparées par 2+ espaces),
 //    associées au couple (NOM + HEURE). Aucun changement côté app.js.
+//
+// ✅ FIX IMPORTANT (2026-02-24):
+//    Jean-René skippé car la ligne RAW contient "JEAN-RENÉTA 0654 7:45..." (TA collé)
+//    => findAddrPairNear ne matchait pas "LAMONDE, JEAN-RENÉ".
+//    On normalise RAW_LINES (supprime TAxxxx même collé, diacritiques, espaces) pour matcher correctement.
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -47,7 +52,7 @@ function normalizePdfTextForParser(t) {
   s = s.replace(/(\d)(\d{1,2}[:hH]\d{2})/g, "$1 $2");
 
   // 3) espace après NOM, PRÉNOM si collé à un chiffre
-  s = s.replace(/([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g, "$1 $2");
+  s = s.replace(/([A-ZÀ-ÖØ-Þ' \-]+?,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g, "$1 $2");
 
   return s;
 }
@@ -128,7 +133,7 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   function cleanName(s) {
     return (s || "")
       // ✅ FIX #1: enlève TA même si collé (ex: "JEAN-RENÉTA 0654", "JUNIORTA 0292")
-      .replace(/TA\s*\d{3,6}/gi, " ")
+      .replace(/TA\s*\d{0,6}/gi, " ")
       // garde aussi l'ancien cas
       .replace(/\bTA ?\d{3,6}\b/gi, " ")
       .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
@@ -136,11 +141,13 @@ function parseTaxiPdfFromText(rawText, baseDate) {
       .replace(/\s{2,}/g, " ")
       .trim();
   }
+
   function isValidName(n) {
     if (!n) return false;
     if (/\d/.test(n)) return false;
     return n.split(/\s+/).length >= 2;
   }
+
   function refineAddr(seg) {
     const s = (seg || "")
       .replace(COST_HEAD, "")
@@ -167,18 +174,56 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   const ADDR_PAIR_LINE_RE =
     /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
 
+  // ✅ Normalise heure (7:45 -> 07:45) pour matcher plus facilement
+  function normalizeTimeHHMM(t) {
+    const s = String(t || "").replace(/[hH]/, ":").trim();
+    const mm = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!mm) return s;
+    return `${String(parseInt(mm[1], 10)).padStart(2, "0")}:${mm[2]}`;
+    }
+
+  // ✅ Comparaison robuste (diacritiques, TA collé, espaces)
+  function normCmp(s) {
+    return String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")   // enlève accents
+      .toUpperCase()
+      // enlève TAxxxx même collé (RENÉTA 0654 / RENÉTA0654 / TA 0654)
+      .replace(/TA\s*\d{0,6}/g, " ")
+      .replace(/\bTA\b/g, " ")
+      .replace(/\bNILTRA\b/g, " ")
+      .replace(/\bNIL\b/g, " ")
+      .replace(/\bTRA\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
   function findAddrPairNear(name, time) {
-    const nm = String(name || "").trim();
-    const tm = String(time || "").trim();
-    if (!nm || !tm) return null;
+    const nmClean = cleanName(name || "");
+    const tmNorm = normalizeTimeHHMM(time || "");
+    if (!nmClean || !tmNorm) return null;
+
+    const nmKey = normCmp(nmClean);
+    const tmKey = tmNorm; // on compare time en "HH:MM" dans la ligne brute
 
     for (let i = 0; i < RAW_LINES.length; i++) {
       const L = RAW_LINES[i];
-      if (!L.includes(nm) || !L.includes(tm)) continue;
+      const Lcmp = normCmp(L);
+
+      // ✅ On accepte la ligne même si TA est collé dans RAW, car normCmp l’enlève
+      if (!Lcmp.includes(nmKey)) continue;
+
+      // time: peut être "7:45" dans RAW ; on check aussi sans zéro
+      const hasTime =
+        L.includes(tmKey) ||
+        L.includes(tmKey.replace(/^0/, "")) ||
+        normCmp(L).includes(tmKey); // au cas où (rare)
+
+      if (!hasTime) continue;
 
       // On remonte quelques lignes pour trouver la ligne d'adresses
-      for (let j = i; j >= Math.max(0, i - 12); j--) {
+      for (let j = i; j >= Math.max(0, i - 14); j--) {
         const A = RAW_LINES[j];
 
         // ✅ Cas "une ligne": "173 rue...,MON 145 8E...,MON"
@@ -215,13 +260,14 @@ function parseTaxiPdfFromText(rawText, baseDate) {
   while ((m = RE.exec(text)) !== null) {
     // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
     const addr1Fallback = refineAddr(m[1] || "");
-    const time = (m[3] || "").replace(/[hH]/, ":");
+    const timeRaw = (m[3] || "").replace(/[hH]/, ":");
+    const time = normalizeTimeHHMM(timeRaw);
 
     // ✅ Le nom est bien dans m[4] (confirmé par ton log)
     let name = cleanName(m[4] || "");
     if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
 
-    // ✅ Paire adresse depuis les lignes
+    // ✅ Paire adresse depuis les lignes (corrigée pour TA collé)
     const pair = findAddrPairNear(name, time);
     const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
     const toAddr = refineAddr(pair?.to || "");
@@ -229,9 +275,12 @@ function parseTaxiPdfFromText(rawText, baseDate) {
     // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
     if (!fromAddr || !toAddr) continue;
 
-    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
+    const [hhStr, mmStr] = time.split(":");
+    const hh = parseInt(hhStr, 10);
+    const mn = parseInt(mmStr || "0", 10);
+
     const start = new Date(base.getTime());
-    start.setHours(hh, mm || 0, 0, 0);
+    start.setHours(hh, mn || 0, 0, 0);
 
     // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
     const title = `${name} – ${fromAddr} → ${toAddr}`;
