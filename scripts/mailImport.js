@@ -1,15 +1,13 @@
 // scripts/mailImport.js
 // Gmail IMAP -> filtre via save-imap-config -> upload PDFs (rdv-pdfs)
-// -> extrait texte (pdf-parse) -> NORMALISE le texte
+// -> extrait texte (pdf-parse) -> NORMALISE le texte (sans changer ton parseur)
 // -> parse -> envoie events[] à Edge parse-pdfs
 //
 // ✅ Objectif: garder la logique globale intacte, mais corriger l'ORDRE d'affichage:
 //    - L'heure doit venir de start (comme l'import manuel)
 //    - Le title doit commencer par le NOM, puis "DEPART → DEST"
-// ✅ NOUVELLE APPROCHE (V2): parse "table" robuste
-//    - détecte d'abord la ligne d'adresses (2 colonnes OU addr1,MON addr2,MON)
-//    - puis associe cette paire à la ligne suivante "HH:MM ... NOM, PRÉNOM"
-//    - ignore Commentaire / Tél / NILTRA etc.
+// ✅ Ajout ciblé: on récupère (DEPART, DEST) à partir des lignes du PDF (2 colonnes séparées par 2+ espaces),
+//    associées au couple (NOM + HEURE). Aucun changement côté app.js.
 
 import imaps from "imap-simple";
 import { simpleParser } from "mailparser";
@@ -41,6 +39,7 @@ function normalizePdfTextForParser(t) {
   let s = String(t || "");
 
   // 1) espace après ",XXX" (ville 2-3 lettres) quand collé à ce qui suit
+  //    Ex: "OUEST,CAP140" -> "OUEST,CAP 140", "RUE,MON145" -> "RUE,MON 145"
   s = s.replace(/,([A-Z]{2,3})(?=\d)/g, ",$1 ");
   s = s.replace(/,([A-Z]{2,3})(?=[A-Za-zÀ-ÿ])/g, ",$1 ");
 
@@ -48,7 +47,7 @@ function normalizePdfTextForParser(t) {
   s = s.replace(/(\d)(\d{1,2}[:hH]\d{2})/g, "$1 $2");
 
   // 3) espace après NOM, PRÉNOM si collé à un chiffre
-  s = s.replace(/([A-ZÀ-ÖØ-Þ' \-]+?,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g, "$1 $2");
+  s = s.replace(/([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)(\d)/g, "$1 $2");
 
   return s;
 }
@@ -102,154 +101,153 @@ function extractRequestedDate(text) {
   return null;
 }
 
-/* ============================================================
-   ✅ NOUVEAU PARSEUR V2 (ROBUSTE) : scan "table"
-   ============================================================ */
 function parseTaxiPdfFromText(rawText, baseDate) {
+  // ✅ Conserver les lignes avant de les "aplatir" (pour retrouver DEPART + DEST)
   const RAW_LINES = String(rawText || "")
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA|CAP)\b/gi;
-  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA|PCO|A400)\b/gi;
+  // Texte aplati (logique actuelle)
+  const text = (" " + (rawText || "")).replace(/\s+/g, " ").trim() + " ";
+
+  // ⚠️ On garde ton RE actuel pour trouver (time) + (nom) de façon stable
+  const RE =
+    /([0-9A-Za-zÀ-ÿ' .\-]+?,\s*[A-Z]{2,3})\s+([0-9A-Za-zÀ-ÿ' .\-]{3,80}?)\s+(\d{1,2}[:hH]\d{2}).{0,200}?([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/gms;
+
+  const CITY_ABBR = /\s*,\s*(MON|LAV|QC|QUEBEC|QUÉBEC|CANADA)\b/gi;
+  const COST_HEAD = /^\s*\d{1,3}\s*Co[uû]t\s*/i;
+  const NOISE = /\b(NIL\s*TRA|NILTRA|NIL|COMMENTAIRE|#\d{3,8}|FRE|INT|ETUA)\b/gi;
 
   const STREET =
-    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|PROMENADE|PLACE|IMPASSE|VOIE|CARREFOUR|QUAI|ALL[ÉE]E?|PARC|SENTIER|COUR|RANG|CIR|TERRASSE|PONT|BLVD|JARDINS?|RUELLE|FAUBOURG|CAMPUS|ESPLANADE|INDUSTRIES|TACH[ÉE])/i;
+    /\b(RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i;
 
-  // 2 adresses dans la même ligne "addr1,MON addr2,MON"
-  const ADDR_PAIR_LINE_RE =
-    /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
-
-  // ligne "HH:MM ... NOM, PRÉNOM" avec TA collé ou non
-  // Ex: "7:45 TA0654 LAMONDE, JEAN-RENÉ (418)..."
-  const NAME_TIME_RE =
-    /\b(\d{1,2}[:hH]\d{2})\b.*?(?:\bTA\s*\d{3,6}\b|\bTA\d{3,6}\b)?\s*([A-ZÀ-ÖØ-Þ' \-]+,\s*[A-ZÀ-ÖØ-Þ' \-]+)/i;
-
-  function normalizeTimeHHMM(t) {
-    const s = String(t || "").replace(/[hH]/, ":").trim();
-    const mm = s.match(/^(\d{1,2}):(\d{2})$/);
-    if (!mm) return s;
-    return `${String(parseInt(mm[1], 10)).padStart(2, "0")}:${mm[2]}`;
-  }
+  const SUBADDR_WIDE =
+    /\b\d{1,5}[A-Za-zÀ-ÿ0-9' .\-]{3,80}?\b(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b[^\-,;)]*/gi;
 
   function cleanName(s) {
     return (s || "")
-      // enlève TA même collé ou séparé
-      .replace(/\bTA\s*\d{0,6}\b/gi, " ")
-      .replace(/\bTA\d{0,6}\b/gi, " ")
+      // ✅ FIX #1: enlève TA même si collé (ex: "JEAN-RENÉTA 0654", "JUNIORTA 0292")
+      .replace(/TA\s*\d{3,6}/gi, " ")
+      // garde aussi l'ancien cas
+      .replace(/\bTA ?\d{3,6}\b/gi, " ")
+      .replace(/(?:M(?:me|me\.)|M(?:r|r\.)|Madame|Monsieur)\b/gi, " ")
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
-
+  function isValidName(n) {
+    if (!n) return false;
+    if (/\d/.test(n)) return false;
+    return n.split(/\s+/).length >= 2;
+  }
   function refineAddr(seg) {
-    return (seg || "")
-      .replace(CITY_ABBR, (m) => m.replace(/\s+/g, "")) // garde ",MON" propre
+    const s = (seg || "")
+      .replace(COST_HEAD, "")
+      .replace(CITY_ABBR, " ")
       .replace(NOISE, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
-  }
+    const matches = s.match(SUBADDR_WIDE);
+    if (!matches || matches.length === 0) return s;
 
-  function isPlausibleAddr(s) {
-    const U = String(s || "").toUpperCase();
-    if (!U) return false;
-    if (!/\d/.test(U)) return false;
-    if (!STREET.test(U) && !U.includes(",")) return false;
-    if (U.includes("TEL") || U.includes("TÉL")) return false;
-    if (U.startsWith("COMMENTAIRE")) return false;
-    return true;
-  }
-
-  function parseAddrPairFromLine(line) {
-    const L = String(line || "").trim();
-    if (!L) return null;
-
-    // cas 1: une ligne avec 2 adresses ",MON ... ,MON"
-    const mm = L.match(ADDR_PAIR_LINE_RE);
-    if (mm) {
-      const from = refineAddr(mm[1].trim());
-      const to = refineAddr(mm[3].trim());
-      if (isPlausibleAddr(from) && isPlausibleAddr(to)) return { from, to };
+    let pick = matches[matches.length - 1].trim();
+    pick = pick.replace(/^(?:0{1,2}|[01]?\d|2[0-3])\s+(?=\d)/, "");
+    const lastTight = pick.match(
+      /\d{1,5}\s*(?:[A-Za-zÀ-ÿ0-9' .\-]{0,20}\s)?(?:RUE|AV(?:ENUE)?|BOUL(?:EVARD)?|BOUL|BD|CHEMIN|CH(?:\.)?|C[ÈE]TE|CÔTE|COTE|ROUTE|RT|AUT(?:OROUTE)?|AUTE?R?T?E?|PROMENADE|PROM|PLACE|PL|IMPASSE|IMP|VOIE|CARREFOUR|QUAI|QAI|ALL[ÉE]E?|ALLEE|PARC|SENTIER|SENT|COUR|SQ|RANG|CIR|TERRASSE|TER|PONT|PKWY|PK|BOULEVARD|BLVD|JARDINS?|RUELLE|FAUBOURG|FG|CAMPUS|ESPLANADE|TACH[ÉE]|INDUSTRIES|B(?:LVD|D)\b)\b/i
+    );
+    if (lastTight) {
+      const idx = pick.lastIndexOf(lastTight[0]);
+      if (idx > 0) pick = pick.slice(idx);
     }
+    return pick.replace(CITY_ABBR, " ").replace(/\s{2,}/g, " ").trim();
+  }
 
-    // cas 2: 2 colonnes séparées par 2+ espaces
-    if (/ {2,}/.test(L) && STREET.test(L)) {
-      const parts = L.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        const from = refineAddr(parts[0]);
-        const to = refineAddr(parts[1]);
-        if (isPlausibleAddr(from) && isPlausibleAddr(to)) return { from, to };
+  // ✅ FIX #2: support "addr1,MON addr2,MON" (1 espace) en plus de "2 colonnes"
+  const ADDR_PAIR_LINE_RE =
+    /(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})\s+(.{5,}?),\s*([A-ZÉÈÊÎÔÛÂÄËÏÖÜÇ]{2,3})/i;
+
+  // ✅ Retrouver (DEPART, DEST) près d'un couple (NOM + HEURE) dans les lignes brutes
+  function findAddrPairNear(name, time) {
+    const nm = String(name || "").trim();
+    const tm = String(time || "").trim();
+    if (!nm || !tm) return null;
+
+    for (let i = 0; i < RAW_LINES.length; i++) {
+      const L = RAW_LINES[i];
+      if (!L.includes(nm) || !L.includes(tm)) continue;
+
+      // On remonte quelques lignes pour trouver la ligne d'adresses
+      for (let j = i; j >= Math.max(0, i - 12); j--) {
+        const A = RAW_LINES[j];
+
+        // ✅ Cas "une ligne": "173 rue...,MON 145 8E...,MON"
+        const mm = A.match(ADDR_PAIR_LINE_RE);
+        if (mm) {
+          const from = mm[1].trim();
+          const to = mm[3].trim();
+          // petite barrière : au moins un mot de rue
+          if (STREET.test(from) && STREET.test(to)) {
+            return { from, to };
+          }
+        }
+
+        // ✅ Cas "2 colonnes" (ton ancien)
+        if (!/ {2,}/.test(A)) continue; // 2 colonnes
+        if (!STREET.test(A)) continue;
+
+        const parts = A.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
+        if (parts.length < 2) continue;
+
+        return { from: parts[0], to: parts[1] };
       }
     }
-
     return null;
   }
+
+  const out = [];
+  const seen = new Set();
+  let m;
 
   const base = new Date(baseDate?.getTime() || Date.now());
   base.setSeconds(0, 0);
 
-  const out = [];
-  const seen = new Set();
+  while ((m = RE.exec(text)) !== null) {
+    // On garde addr1 (peut être imperfect) comme fallback, mais on va prioriser la paire trouvée dans RAW_LINES
+    const addr1Fallback = refineAddr(m[1] || "");
+    const time = (m[3] || "").replace(/[hH]/, ":");
 
-  // ✅ la dernière paire d'adresses rencontrée (juste avant une ligne nom+heure)
-  let lastAddrPair = null;
-  let lastAddrLineIndex = -999;
+    // ✅ Le nom est bien dans m[4] (confirmé par ton log)
+    let name = cleanName(m[4] || "");
+    if (!isValidName(name)) continue; // pas de "client inconnu" : on skip
 
-  for (let i = 0; i < RAW_LINES.length; i++) {
-    const line = RAW_LINES[i];
+    // ✅ Paire adresse depuis les lignes
+    const pair = findAddrPairNear(name, time);
+    const fromAddr = refineAddr(pair?.from || addr1Fallback || "");
+    const toAddr = refineAddr(pair?.to || "");
 
-    // 1) détecte une paire d'adresses
-    const pair = parseAddrPairFromLine(line);
-    if (pair) {
-      lastAddrPair = pair;
-      lastAddrLineIndex = i;
-      continue;
-    }
+    // On veut un affichage ordonné comme manuel => départ ET destination obligatoires
+    if (!fromAddr || !toAddr) continue;
 
-    // 2) détecte une ligne heure + nom
-    const mt = line.match(NAME_TIME_RE);
-    if (!mt) continue;
-
-    const time = normalizeTimeHHMM(mt[1]);
-    const name = cleanName(mt[2]);
-
-    // garde-fou: doit être proche d’une ligne d’adresse
-    // (dans ton format, les adresses sont généralement dans les ~1 à 6 lignes avant)
-    const dist = i - lastAddrLineIndex;
-    if (!lastAddrPair || dist < 0 || dist > 8) {
-      continue;
-    }
-
-    const { from, to } = lastAddrPair;
-    if (!from || !to || !name) continue;
-
-    const [hhStr, mmStr] = time.split(":");
-    const hh = parseInt(hhStr, 10);
-    const mn = parseInt(mmStr || "0", 10);
-
+    const [hh, mm] = time.split(":").map((x) => parseInt(x, 10));
     const start = new Date(base.getTime());
-    start.setHours(hh, mn || 0, 0, 0);
+    start.setHours(hh, mm || 0, 0, 0);
 
-    const startStr =
-      `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}` +
-      `T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+    // ✅ IMPORTANT: PAS d'heure dans title (l'heure est déjà affichée via start, comme import manuel)
+    const title = `${name} – ${fromAddr} → ${toAddr}`;
 
-    const title = `${name} – ${from} → ${to}`;
-
-    const key = `${title}|${startStr}`;
+    const key = `${title}|${start.toISOString()}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     out.push({
       title,
-      start: startStr,
+      start: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(
+        2,
+        "0"
+      )}T${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
       reminderMinutes: 15,
     });
-
-    // ✅ reset pour éviter de réutiliser la même paire sur la prochaine course
-    lastAddrPair = null;
-    lastAddrLineIndex = -999;
   }
 
   return out;
